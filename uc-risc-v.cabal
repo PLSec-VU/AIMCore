@@ -1,0 +1,125 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           uc-risc-v
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/uc-risc-v#readme>
+homepage:       https://github.com/githubuser/uc-risc-v#readme
+bug-reports:    https://github.com/githubuser/uc-risc-v/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2024 Author name here
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/uc-risc-v
+
+library
+  exposed-modules:
+      Instruction
+      Pipe
+      Pretty
+      Regfile
+      Types
+  other-modules:
+      Paths_uc_risc_v
+  autogen-modules:
+      Paths_uc_risc_v
+  hs-source-dirs:
+      src
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , clash-prelude >=1.8.1
+    , composition
+    , mtl >=2.2.2
+    , pretty
+    , transformers
+  default-language: Haskell2010
+
+executable uc-risc-v-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_uc_risc_v
+  autogen-modules:
+      Paths_uc_risc_v
+  hs-source-dirs:
+      app
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , clash-prelude >=1.8.1
+    , composition
+    , mtl >=2.2.2
+    , pretty
+    , transformers
+    , uc-risc-v
+  default-language: Haskell2010
+
+test-suite uc-risc-v-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_uc_risc_v
+  autogen-modules:
+      Paths_uc_risc_v
+  hs-source-dirs:
+      test
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , clash-prelude >=1.8.1
+    , composition
+    , mtl >=2.2.2
+    , pretty
+    , transformers
+    , uc-risc-v
+  default-language: Haskell2010
