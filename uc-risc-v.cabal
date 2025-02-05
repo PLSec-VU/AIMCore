@@ -29,6 +29,7 @@ library
       Pipe
       Pretty
       Regfile
+      Simulate
       Types
   other-modules:
       Paths_uc_risc_v

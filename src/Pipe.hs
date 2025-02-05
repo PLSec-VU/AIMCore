@@ -1,160 +1,326 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
 {-# HLINT ignore "Use if" #-}
 module Pipe
-  ( pipe
-  , init
-  ) where
+  ( init,
+    pipe,
+    Input (..),
+    Output (..),
+    Pipe (..),
+  )
+where
 
-import Prelude hiding (Word, undefined, Ordering (..), init, (&&), (||), not)
-import Clash.Prelude hiding (def, Word, Ordering (..), init)
-
+import Clash.Prelude hiding (Ordering (..), Word, def, init)
 import Control.Monad
-import Control.Monad.State
+import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-
 import Data.Maybe (fromMaybe, isJust)
-
-import Types
-import Regfile
+import Data.Monoid
 import Instruction hiding (decode)
 import qualified Instruction
+import Regfile
+import Types
+import Prelude hiding (Ordering (..), Word, init, not, undefined, (&&), (||))
 
+-- Fix
+init = undefined
+
+-- | The input to the CPU.
+data Input = Input
+  { inputMem :: Word
+  }
+  deriving (Show)
+
+-- | The output of the CPU.
+data Output = Output
+  { -- Choice of `Last` vs. `First` (from `Data.Monoid`)
+    -- will affect the correct order of stages in `pipeM`.
+    outAddress :: Last Address,
+    outWrite :: Last Word
+  }
+  deriving (Show)
+
+instance Semigroup Output where
+  Output addr w <> Output addr' w' = Output (addr <> addr') (w <> w')
+
+instance Monoid Output where
+  mempty = Output mempty mempty
+
+-- | The internal state of the CPU; essentially the pipeline registers.
 data Pipe = Pipe
-  { rf :: Regfile
-  -- ^ Register file
-
-  , fePc :: Address
-  -- ^ Program counter fetch stage
-
-  , dePc :: Address
-  -- ^ Program counter decode stage
-
-  , exPc :: Address
-  -- ^ Program counter execute stage
-  , exIr :: Instruction
-  -- ^ Instruction register execute stage
-
-
-  , meIr :: Instruction
-  -- ^ Instruction register memory stage
-  , meRe :: Word
-  -- ^ ALU result register memory stage
-
-  , wbIr :: Instruction
-  -- ^ Instruction register writeback stage
-  , wbRe :: Word
-  -- ^ ALU result register writeback stage
+  { -- | Register file
+    -- Shouldn't we just have registers corresponding to the rs1 and rs2
+    -- instruction registers in the pipe state? Not sure about the entire
+    -- register file---usually rs1 and rs2 appear to be fetched during `decode`
+    -- and then forwarded via pipeline registers.
+    rf :: Regfile,
+    -- | Program counter fetch stage
+    fePc :: Address,
+    -- | Program counter decode stage
+    dePc :: Address,
+    -- | Program counter execute stage
+    exPc :: Address,
+    -- | Instruction register execute stage
+    exIr :: Instruction,
+    -- | Instruction register memory stage
+    meIr :: Instruction,
+    -- | ALU result register memory stage
+    meRe :: Word,
+    -- | Instruction register writeback stage
+    wbIr :: Instruction,
+    -- | ALU result register writeback stage
+    wbRe :: Word
   }
-  deriving Show
+  deriving (Show)
 
--- try :: Monad m => m a -> MaybeT m a -> m a
--- try def may = runMaybeT may >>= maybe def pure
+-- | The CPU monad.
+type CPUM = RWS Input Output Pipe
 
-try :: Monad m => MaybeT m () -> m ()
-try m = runMaybeT m >>= maybe (pure ()) pure
+-- | Run the CPU for one step.
+pipe :: Input -> Pipe -> (Pipe, Output)
+pipe = execRWS pipeM
 
--- | Read-Write hazard check.
+-- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
+-- is sequential. That is, it works like so:
 --
--- Returns true if there is a read-write hazard between the source registers
--- of the first instruction and the destination of the second instruction.
-hazardRW :: Instruction -> Instruction -> Bool
-hazardRW src dst = isJust $ do
-  rd <- getRd dst
-  guard $ rd /= 0
-  let chk getRs = do
-        rs <- getRs src
-        guard $ rs == rd
-  chk getRs1  <|> chk getRs2
-
--- | Branch hazard check.
+--    fetch ──state──> decode ──state──> execute ──state──> memory ──state──> writeback
 --
--- Returns true if the given instruction may modify the program counter.
-hazardPC :: Instruction -> Bool
-hazardPC = \case
-  Instruction.JType {} -> True
-  Instruction.IType Jump _ _ _ -> True
-  Instruction.BType {} -> True
-  _ -> False
-
--- | Get the destination register of an instruction, if any.
-getRd :: Alternative f => Instruction -> f RegIdx
-getRd = \case
-  Instruction.RType _ rd _ _ -> pure rd
-  Instruction.IType _ rd _ _ -> pure rd
-  Instruction.UType _ rd _ -> pure rd
-  Instruction.JType rd _ -> pure rd
-  _ -> empty
-
--- | Get the first source register of an instruction, if any.
-getRs1 :: Alternative f => Instruction -> f RegIdx
-getRs1 = \case
-  Instruction.RType _ _ rs1 _ -> pure rs1
-  Instruction.IType _ _ rs1 _ -> pure rs1
-  Instruction.SType _ _ rs1 _ -> pure rs1
-  Instruction.BType _ _ rs1 _ -> pure rs1
-  _ -> empty
-
--- | Get the second source register of an instruction, if any.
-getRs2 :: Alternative f => Instruction -> f RegIdx
-getRs2 = \case
-  Instruction.RType _ _ _ rs2 -> pure rs2
-  Instruction.SType _ _ _ rs2 -> pure rs2
-  Instruction.BType _ _ _ rs2 -> pure rs2
-  _ -> empty
-
-
-readRF :: MonadState Pipe m => RegIdx -> m Word
-readRF idx = do
-  rf' <- gets rf
-  pure $ lookupRF idx rf'
-
-writeRF :: MonadState Pipe m => RegIdx -> Word -> m ()
-writeRF idx val = do
-  rf' <- gets rf
-  modify $ \s -> s { rf = modifyRF idx val rf' }
-
-type In = Word
-
-data Out = Out
-  { outAddress :: Address
-  , outWrite :: Maybe (Size, Word)
-  }
-  deriving Show
-
-init :: Pipe
-init = Pipe
-  { rf = initRF
-  , fePc = 0
-  , dePc = 0
-  , exPc = 0
-  , exIr = nop
-  , meIr = nop
-  , meRe = 0
-  , wbIr = nop
-  , wbRe = 0
-  }
-
-pipe :: Pipe -> In -> (Pipe, Out)
-pipe = runCircuit pipeM
-
-runCircuit :: (i -> State s o) -> s -> i -> (s, o)
-runCircuit circuit s i = let (o, s') = runState (circuit i) s in (s', o)
-
-pipeM :: MonadState Pipe m => In -> m Out
-pipeM input = do
-  rd <- writeback input
-  me <- memory
+-- When synthesized by Clash, the registers will be allocated to the state and
+-- they will be hooked up to each stage like so:
+--
+--    state
+--     ├── fetch
+--     ├── decode
+--     ├── execute
+--     ├── memory
+--     └── writeback
+--
+-- This configuration may make it seem like the precise order of the stages is
+-- immaterial.  However, because the fields of `Output` use `Last`, this means
+-- that the *last* value written to the output is the actual output at the end
+-- of a cycle. (This is also what enables the sequential pipeline in pure
+-- Haskell to work.) So, since fetch comes first (and it always results in an
+-- output), any output from later stages (i.e., memory) will be the actual
+-- output (and to compensate the fetch still will simply not increment the pc).
+--
+-- Interstage reads/writes from the pipeline state create new dependencies between
+-- stages. For example, writing to `dePc` in `decode` and then reading from `dePc`
+-- results in:
+--
+--    state
+--     ├── fetch
+--     |     |
+--     |    dePc
+--     |     |
+--     |     v
+--     ├── decode
+--     ├── execute
+--     ├── memory
+--     └── writeback
+--
+-- i.e., `dePc` becomes part of the pipeline registers between the fetch and decode stages.
+-- This means that each register in the `Pipe` state should be written to by exactly
+-- one stage and be read by exactly one stage---namely, the subsequent one.
+pipeM :: CPUM ()
+pipeM = do
+  fetch
+  decode
   execute
-  decode $ if rd then pure input else empty
-  fe <- fetch
-  pure $ fromMaybe fe me
+  memory
+  writeback
+
+-- | The fetch stage.
+fetch :: CPUM ()
+fetch = do
+  -- Get program counter.
+  pc <- gets fePc
+
+  try $ do
+    let noHazard getIr = do
+          ir <- gets getIr
+          guard . not $ hazardPC ir
+
+    -- Ensure there is no branch in the pipeline.
+    noHazard exIr
+    noHazard meIr
+    noHazard wbIr
+
+    modify $ \s ->
+      s
+        { -- Propagate program counter to next stage.
+          fePc = pc + 1,
+          -- Increment program counter for next fetch.
+          dePc = pc
+        }
+
+  -- Fetch fromm memory.
+  tell $
+    mempty
+      { outAddress = pure pc
+      }
+  where
+    -- Returns `True` if the given instruction may modify the program counter.
+    hazardPC :: Instruction -> Bool
+    hazardPC = \case
+      Instruction.JType {} -> True
+      Instruction.IType Jump _ _ _ -> True
+      Instruction.BType {} -> True
+      _ -> False
+
+-- | Decode stage.
+decode :: CPUM ()
+decode = do
+  ir <- Instruction.decode <$> asks inputMem
+  modify $ \s ->
+    s
+      { exIr = ir,
+        exPc = dePc s
+      }
+
+-- | Execute stage.
+execute :: CPUM ()
+execute = do
+  -- Fetch alu operands
+  val <- runMaybeT $ do
+    ir <- gets exIr
+
+    -- Make sure there is no hazard.
+    ir' <- gets meIr
+    guard $ hazardRW ir ir'
+
+    case ir of
+      -- Unknown instruction
+      Invalid -> empty
+      Instruction.RType op _ rs1 rs2 -> do
+        r1 <- readRF rs1
+        r2 <- readRF rs2
+        pure (op, r1, r2)
+      Instruction.IType op _ rs1 imm -> do
+        -- Do addition for non arithmetic operations.
+        let op' = case op of
+              Arith arith -> arith
+              _ -> ADD
+
+        r1 <- readRF rs1
+        let imm' = signExtend imm
+        pure (op', r1, imm')
+      Instruction.SType _ imm rs1 _ -> do
+        r1 <- readRF rs1
+        let imm' = signExtend imm
+        pure (ADD, r1, imm')
+      Instruction.BType cmp imm rs1 rs2 -> do
+        r1 <- readRF rs1
+        r2 <- readRF rs2
+        let imm' = if branch cmp r1 r2 then signExtend imm else 4
+        pc <- gets $ pack . exPc
+        pure (ADD, pc, imm')
+      Instruction.UType base _ imm -> do
+        base' <- case base of
+          Zero -> pure 0
+          PC -> gets $ pack . exPc
+        let imm' = imm ++# 0
+        pure (ADD, base', imm')
+      Instruction.JType _ imm -> do
+        pc <- gets $ pack . exPc
+        let imm' = signExtend imm
+        pure (ADD, pc, imm')
+
+  ((op, lhs, rhs), ir) <- case val of
+    Just (op, lhs, rhs) -> do
+      ir <- gets exIr
+      pure ((op, lhs, rhs), ir)
+    _ -> pure ((ADD, 0, 0), nop)
+
+  let result = alu op lhs rhs
+
+  --  -- Return whether we used the input for a load.
+  --  case ir of
+  --    Instruction.IType Load {} _ _ _ -> pure True
+  --    _ -> pure False
+
+  modify $ \s ->
+    s
+      { meRe = result,
+        meIr = ir
+      }
+  where
+    -- Read-Write hazard check.
+    --
+    -- Returns true if there is a read-write hazard between the source registers
+    -- of the first instruction and the destination of the second instruction.
+    hazardRW :: Instruction -> Instruction -> Bool
+    hazardRW src dst = isJust $ do
+      rd <- getRd dst
+      unless (rd == 0) $
+        let chk getRs = do
+              rs <- getRs src
+              guard $ rs == rd
+         in chk getRs1 <|> chk getRs2
+
+    alu :: Arith -> Word -> Word -> Word
+    alu op lhs rhs = case op of
+      ADD -> lhs + rhs
+      SUB -> lhs - rhs
+      XOR -> lhs .^. rhs
+      OR -> lhs .|. rhs
+      AND -> lhs .&. rhs
+      SLL -> lhs `shiftL` shiftBits rhs
+      SRL -> lhs `shiftR` shiftBits rhs
+      SRA -> pack $ sign lhs `shiftR` shiftBits rhs
+      SLT -> set $ sign lhs > sign rhs
+      SLTU -> set $ lhs > rhs
+      where
+        shiftBits s = fromIntegral $ slice d4 d0 s
+        sign = unpack @(Signed 32)
+        set b = if b then 1 else 0
+
+    branch :: Comparison -> Word -> Word -> Bool
+    branch op lhs rhs = case op of
+      EQ -> lhs == rhs
+      NE -> lhs /= rhs
+      LT -> sign lhs < sign rhs
+      GE -> sign lhs >= sign rhs
+      LTU -> lhs < rhs
+      GEU -> lhs >= rhs
+      where
+        sign = unpack @(Signed 32)
+
+-- | Memory stage; interact with memory for load or store operations.
+memory :: CPUM ()
+memory = do
+  result <- gets meRe
+
+  instr <- gets meIr
+
+  case instr of
+    Instruction.SType size _ _ rs2 -> do
+      r2 <- readRF rs2
+      tell $
+        Output
+          { outAddress = pure $ unpack result,
+            outWrite = pure $ unpack r2
+          }
+    Instruction.IType Load {} _ _ _ ->
+      tell $
+        mempty
+          { outAddress = pure $ unpack result
+          }
+    _ -> pure ()
+
+  -- Propagate instruction register to the next stage
+  modify $ \s ->
+    s
+      { wbIr = meIr s,
+        wbRe = meRe s
+      }
 
 -- | Commit computations to the register file.
 --
 -- Returns whether we used the memory access for the writeback. This useful to
 -- determine whether this word should be decoded as an instruction.
-writeback :: MonadState Pipe m => In -> m Bool
-writeback input = do
+writeback :: CPUM ()
+writeback = do
+  input <- asks inputMem
   ir <- gets wbIr
   result <- gets wbRe
 
@@ -173,185 +339,27 @@ writeback input = do
     Instruction.UType _ rd _ -> writeRF rd result
     Instruction.IType (Load size sign) rd _ _ -> do
       writeRF rd $ loadExtend (size, sign)
-
     Instruction.BType {} -> do
-      modify $ \s -> s { fePc = unpack result }
-
+      modify $ \s -> s {fePc = unpack result}
     Instruction.JType rd _ -> do
-      modify $ \s -> s { fePc = unpack result }
+      modify $ \s -> s {fePc = unpack result}
       pc <- gets fePc
       writeRF rd $ pack pc
-
     Instruction.IType Jump rd _ _ -> do
-      modify $ \s -> s { fePc = unpack result }
+      modify $ \s -> s {fePc = unpack result}
       pc <- gets fePc
       writeRF rd $ pack pc
-
     _ -> pure ()
 
-  -- Return whether we used the input for a load.
-  case ir of
-    Instruction.IType Load {} _ _ _ -> pure True
-    _ -> pure False
+readRF :: (MonadState Pipe m) => RegIdx -> m Word
+readRF idx = do
+  rf' <- gets rf
+  pure $ lookupRF idx rf'
 
--- | Interact with memory for load or store operations.
-memory :: MonadState Pipe m => m (Maybe Out)
-memory = do
-  result <- gets meRe
+writeRF :: (MonadState Pipe m) => RegIdx -> Word -> m ()
+writeRF idx val = do
+  rf' <- gets rf
+  modify $ \s -> s {rf = modifyRF idx val rf'}
 
-  out <- runMaybeT $ gets meIr >>= \case
-    Instruction.SType size _ _ rs2 -> do
-      r2 <- readRF rs2
-      let out = Out
-            { outAddress = unpack r2
-            , outWrite = pure (size, unpack result)
-            }
-      pure out
-
-    Instruction.IType Load {} _ _ _ -> do
-      let out = Out
-            { outAddress = unpack result
-            , outWrite = empty
-            }
-      pure out
-
-    _ -> empty
-
-  -- Propagate instruction register to the next stage
-  modify $ \s -> s { wbIr = meIr s, wbRe = meRe s }
-  pure out
-
--- | Execute arithmetic operations.
-execute :: MonadState Pipe m => m ()
-execute = do
-  -- Fetch alu operands
-  val <- runMaybeT $ do
-    ir <- gets exIr
-
-    -- Make sure there is no hazard.
-    ir' <- gets meIr
-    guard $ hazardRW ir ir'
-
-    case ir of
-      -- Unknown instruction
-      Invalid -> empty
-
-      Instruction.RType op _ rs1 rs2 -> do
-        r1 <- readRF rs1
-        r2 <- readRF rs2
-        pure (op, r1, r2)
-
-      Instruction.IType op _ rs1 imm -> do
-        -- Do addition for non arithmetic operations.
-        let op' = case op of
-              Arith arith -> arith
-              _ -> ADD
-
-        r1 <- readRF rs1
-        let imm' = signExtend imm
-        pure (op', r1, imm')
-
-      Instruction.SType _ imm rs1 _ -> do
-        r1 <- readRF rs1
-        let imm' = signExtend imm
-        pure (ADD, r1, imm')
-
-      Instruction.BType cmp imm rs1 rs2 -> do
-        r1 <- readRF rs1
-        r2 <- readRF rs2
-        let imm' = if branch cmp r1 r2 then signExtend imm else 4
-        pc <- gets $ pack . exPc
-        pure (ADD, pc, imm')
-
-      Instruction.UType base _ imm -> do
-        base' <- case base of
-          Zero -> pure 0
-          PC -> gets $ pack . exPc
-        let imm' = imm ++# 0
-        pure (ADD, base', imm')
-
-      Instruction.JType _ imm -> do
-        pc <- gets $ pack . exPc
-        let imm' = signExtend imm
-        pure (ADD, pc, imm')
-
-  ((op, lhs, rhs), ir) <- case val of
-    Just (op, lhs, rhs) -> do
-      ir <- gets exIr
-      pure ((op, lhs, rhs), ir)
-
-    _ -> pure ((ADD, 0, 0), nop)
-
-  let result = alu op lhs rhs
-  -- Compute alu operation and pass it to the next stage
-  modify $ \s -> s { meRe = result }
-
-  -- Propagate instruction register to the next stage
-  modify $ \s -> s { meIr = ir }
-
-
--- | Decode the current instruction.
-decode :: MonadState Pipe m => Maybe In -> m ()
-decode input = do
-  let ir = maybe nop Instruction.decode input
-  modify $ \s -> s { exIr = ir }
-
-  -- Propagate program counter to next stage.
-  modify $ \s -> s { exPc = dePc s }
-
-fetch :: MonadState Pipe m => m Out
-fetch = do
-  -- Get program counter.
-  pc <- gets fePc
-  
-  try $ do
-    let noHazard getIr = do
-          ir <- gets getIr
-          guard . not $ hazardPC ir
-
-    -- Ensure there is no branch in the pipeline.
-    noHazard exIr
-    noHazard meIr
-    noHazard wbIr
-
-    -- Propagate program counter to next stage.
-    modify $ \s -> s { dePc = pc }
-
-    -- Increment program counter for next fetch.
-    modify $ \s -> s { fePc = pc + 4 }
-
-  -- Fetch from memory
-  pure $ Out
-    { outAddress = pc
-    , outWrite = empty
-    }
-
-alu :: Arith -> Word -> Word -> Word
-alu op lhs rhs = case op of
-  ADD -> lhs + rhs
-  SUB -> lhs - rhs
-  XOR -> lhs .^. rhs
-  OR -> lhs .|. rhs
-  AND -> lhs .&. rhs
-  SLL -> lhs `shiftL` shiftBits rhs
-  SRL -> lhs `shiftR` shiftBits rhs
-  SRA -> pack $ sign lhs `shiftR` shiftBits rhs
-  SLT -> set $ sign lhs > sign rhs
-  SLTU -> set $ lhs > rhs
-  where
-    shiftBits s = fromIntegral $ slice d4 d0 s
-    sign = unpack @(Signed 32)
-    set b = if b then 1 else 0
-
-branch :: Comparison -> Word -> Word -> Bool
-branch op lhs rhs = case op of
-  EQ -> lhs == rhs
-  NE -> lhs /= rhs
-  LT -> sign lhs < sign rhs
-  GE -> sign lhs >= sign rhs
-  LTU -> lhs < rhs
-  GEU -> lhs >= rhs
-  where
-    sign = unpack @(Signed 32)
-
-
+try :: (Monad m) => MaybeT m () -> m ()
+try m = runMaybeT m >>= maybe (pure ()) pure

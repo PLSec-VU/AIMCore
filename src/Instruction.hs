@@ -1,87 +1,90 @@
 module Instruction
-  ( Instruction (..)
-  , decode
-  , encode
-  , nop
+  ( Instruction (..),
+    decode,
+    encode,
+    nop,
+    IOperation (..),
+    Arith (..),
+    Env (..),
+    Comparison (..),
+    Size (..),
+    Sign (..),
+    UBase (..),
+    getRd,
+    getRs1,
+    getRs2,
+  )
+where
 
-  , IOperation (..)
-  , Arith (..)
-  , Env (..)
-  , Comparison (..)
-  , Size (..)
-  , Sign (..)
-  , UBase (..)
-  ) where
-
-import Clash.Prelude hiding (Word, Ordering (..))
-import Prelude hiding (Word, Ordering (..), undefined)
+import Clash.Prelude hiding (Ordering (..), Word)
 import Data.Maybe (fromMaybe)
 import Types
+import Prelude hiding (Ordering (..), Word, undefined)
 
 -- | All arithmetic and logic operations.
 data Arith
-  = ADD
-  -- ^ Addition
-  | SUB
-  -- ^ Subtraction
-  | XOR
-  -- ^ Bitwise Exclusive Or
-  | OR
-  -- ^ Bitwise Or
-  | AND
-  -- ^ Bitwise And
-  | SLL
-  -- ^ Shift Left Logical
-  | SRL
-  -- ^ Shift Right Logical
-  | SRA
-  -- ^ Shift Right Arithmetic
-  | SLT
-  -- ^ Set Less Than
-  | SLTU
-  -- ^ Set Less Than Unsigned
-  deriving Show
+  = -- | Addition
+    ADD
+  | -- | Subtraction
+    SUB
+  | -- | Bitwise Exclusive Or
+    XOR
+  | -- | Bitwise Or
+    OR
+  | -- | Bitwise And
+    AND
+  | -- | Shift Left Logical
+    SLL
+  | -- | Shift Right Logical
+    SRL
+  | -- | Shift Right Arithmetic
+    SRA
+  | -- | Set Less Than
+    SLT
+  | -- | Set Less Than Unsigned
+    SLTU
+  deriving (Show)
 
 -- | Comparison operations.
 data Comparison
-  = EQ
-  -- ^ Equals
-  | NE
-  -- ^ Not Equals
-  | LT
-  -- ^ Less Than
-  | GE
-  -- ^ Greater or Equals than
-  | LTU
-  -- ^ Less Than Unsigned
-  | GEU
-  -- ^ Greater or Equals than Unsigned
-  deriving Show
+  = -- | Equals
+    EQ
+  | -- | Not Equals
+    NE
+  | -- | Less Than
+    LT
+  | -- | Greater or Equals than
+    GE
+  | -- | Less Than Unsigned
+    LTU
+  | -- | Greater or Equals than Unsigned
+    GEU
+  deriving (Show)
 
 -- | Word sizes that can be loaded or stored.
 data Size
   = Byte
   | Half
   | Word
-  deriving Show
+  deriving (Show)
 
 -- | Sign extension of a load operation.
 data Sign
   = Signed
   | Unsigned
-  deriving Show
+  deriving (Show)
 
 -- | The base for an upper type operation: lui or auipc.
 data UBase
   = PC
   | Zero
-  deriving Show
+  deriving (Show)
 
 -- | Environment operation: ecall or ebreak.
 data Env
   = Call
   | Break
-  deriving Show
+  deriving (Show)
 
 -- | Types of operations using the immediate encoding.
 data IOperation
@@ -89,30 +92,24 @@ data IOperation
   | Load Size Sign
   | Env Env
   | Jump
-  deriving Show
+  deriving (Show)
 
 -- | Decoded instructions
 data Instruction
-  = RType Arith RegIdx RegIdx RegIdx
-  -- ^ RType op rd rs1 rs2
-
-  | IType IOperation RegIdx RegIdx Imm
-  -- ^ IType op rd rs1 imm
-
-  | SType Size Imm RegIdx RegIdx
-  -- ^ SType size imm rs1 rs2
-
-  | BType Comparison Imm RegIdx RegIdx
-  -- ^ BType cmp imm rs1 rs2
-
-  | UType UBase RegIdx UImm
-  -- ^ UType base rd imm
-
-  | JType RegIdx UImm
-  -- ^ JType rd imm
-
+  = -- | RType op rd rs1 rs2
+    RType Arith RegIdx RegIdx RegIdx
+  | -- | IType op rd rs1 imm
+    IType IOperation RegIdx RegIdx Imm
+  | -- | SType size imm rs1 rs2
+    SType Size Imm RegIdx RegIdx
+  | -- | BType cmp imm rs1 rs2
+    BType Comparison Imm RegIdx RegIdx
+  | -- | UType base rd imm
+    UType UBase RegIdx UImm
+  | -- | JType rd imm
+    JType RegIdx UImm
   | Invalid
-  deriving Show
+  deriving (Show)
 
 -- | Decode a word to an instruction.
 --
@@ -129,17 +126,20 @@ decode word = fromMaybe Invalid $ do
   let funct7 = slice d31 d25 word
 
   let immI = slice d31 d20 word
-  let immS = slice d31 d25 word
-         ++# slice d11 d7 word
-  let immB = slice d31 d31 word
-         ++# slice d7 d7 word
-         ++# slice d30 d25 word
-         ++# slice d11 d8 word
+  let immS =
+        slice d31 d25 word
+          ++# slice d11 d7 word
+  let immB =
+        slice d31 d31 word
+          ++# slice d7 d7 word
+          ++# slice d30 d25 word
+          ++# slice d11 d8 word
   let immU = slice d31 d12 word
-  let immJ = slice d31 d31 word
-         ++# slice d19 d12 word
-         ++# slice d20 d20 word
-         ++# slice d30 d21 word
+  let immJ =
+        slice d31 d31 word
+          ++# slice d19 d12 word
+          ++# slice d20 d20 word
+          ++# slice d30 d21 word
 
   case opcode of
     -- R-Type
@@ -157,7 +157,7 @@ decode word = fromMaybe Invalid $ do
         (0x3, 0x00) -> pure SLTU
         _ -> empty
       pure $ RType arith rd rs1 rs2
-      
+
     -- I-Type arithmetic
     0b001_0011 -> do
       arith <- case funct3 of
@@ -188,7 +188,6 @@ decode word = fromMaybe Invalid $ do
 
     -- I-Type jump
     0b110_0111 | funct3 == 0x0 -> pure $ IType Jump rd rs1 immI
-
     -- I-Type environment
     0b111_0011 | funct3 == 0x0 -> do
       env <- case immI of
@@ -223,13 +222,10 @@ decode word = fromMaybe Invalid $ do
 
     -- U-Type load upper immediate
     0b011_0111 -> pure $ UType Zero rd immU
-
     -- U-Type add upper immediate to PC
     0b001_0111 -> pure $ UType PC rd immU
-
     -- J-Type
     0b110_1111 -> pure $ JType rd immJ
-
     _ -> empty
 
 -- | Decode a word to an instruction.
@@ -241,40 +237,38 @@ encode instruction = do
     RType op rd rs1 rs2 -> do
       let opcode = 0b011_0011 :: BitVector 7
       let (funct3, funct7) :: (BitVector 3, BitVector 7) = case op of
-            ADD  -> (0x0, 0x00)
-            SUB  -> (0x0, 0x20)
-            XOR  -> (0x4, 0x00)
-            OR   -> (0x6, 0x00)
-            AND  -> (0x7, 0x00)
-            SLL  -> (0x1, 0x00)
-            SRL  -> (0x5, 0x00)
-            SRA  -> (0x5, 0x20)
-            SLT  -> (0x2, 0x00)
+            ADD -> (0x0, 0x00)
+            SUB -> (0x0, 0x20)
+            XOR -> (0x4, 0x00)
+            OR -> (0x6, 0x00)
+            AND -> (0x7, 0x00)
+            SLL -> (0x1, 0x00)
+            SRL -> (0x5, 0x00)
+            SRA -> (0x5, 0x20)
+            SLT -> (0x2, 0x00)
             SLTU -> (0x3, 0x00)
 
       let rd' = pack rd
       let rs1' = pack rs1
       let rs2' = pack rs2
       funct7 ++# rs2' ++# rs1' ++# funct3 ++# rd' ++# opcode
-
     IType (Arith arith) rd rs1 imm -> do
       let opcode = 0b001_0011 :: BitVector 7
       let funct3 = case arith of
-            ADD  -> 0x0
-            XOR  -> 0x4
-            OR   -> 0x6
-            AND  -> 0x7
+            ADD -> 0x0
+            XOR -> 0x4
+            OR -> 0x6
+            AND -> 0x7
             SLL | slice d11 d5 imm == 0 -> 0x1
             SRL | slice d11 d5 imm == 0 -> 0x5
             SRA | slice d11 d5 imm == 0 -> 0x5
-            SLT  -> 0x2
+            SLT -> 0x2
             SLTU -> 0x3
-            _  -> error "Incorrect instruction"
+            _ -> error "Incorrect instruction"
 
       let rd' = pack rd
       let rs1' = pack rs1
       imm ++# rs1' ++# funct3 ++# rd' ++# opcode
-
     IType (Load size sign) rd rs1 imm -> do
       let opcode = 0b000_0011 :: BitVector 7
       let funct3 = case (size, sign) of
@@ -283,19 +277,17 @@ encode instruction = do
             (Word, Signed) -> 0x2
             (Byte, Unsigned) -> 0x4
             (Half, Unsigned) -> 0x5
-            _  -> error "Incorrect instruction"
+            _ -> error "Incorrect instruction"
 
       let rd' = pack rd
       let rs1' = pack rs1
       imm ++# rs1' ++# funct3 ++# rd' ++# opcode
-
     IType Jump rd rs1 imm -> do
       let opcode = 0b110_0111 :: BitVector 7
       let funct3 = 0x0
       let rd' = pack rd
       let rs1' = pack rs1
       imm ++# rs1' ++# funct3 ++# rd' ++# opcode
-
     IType (Env env) rd rs1 _ -> do
       let opcode = 0b111_0011 :: BitVector 7
       let funct3 = 0x0 :: BitVector 3
@@ -305,7 +297,6 @@ encode instruction = do
       let rd' = pack rd
       let rs1' = pack rs1
       imm ++# rs1' ++# funct3 ++# rd' ++# opcode
-
     SType size imm rs1 rs2 -> do
       let opcode = 0b010_0011 :: BitVector 7
       let funct3 :: BitVector 3 = case size of
@@ -319,15 +310,14 @@ encode instruction = do
       let rs1' = pack rs1
       let rs2' = pack rs2
       immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
-
     BType cmp imm rs1 rs2 -> do
       let opcode = 0b010_0011 :: BitVector 7
 
       let funct3 :: BitVector 3 = case cmp of
-            EQ  -> 0x0
-            NE  -> 0x1
-            LT  -> 0x4
-            GE  -> 0x5
+            EQ -> 0x0
+            NE -> 0x1
+            LT -> 0x4
+            GE -> 0x5
             LTU -> 0x6
             GEU -> 0x7
 
@@ -341,14 +331,12 @@ encode instruction = do
       let rs1' = pack rs1
       let rs2' = pack rs2
       imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11 ++# opcode
-
     UType base rd imm -> do
       let opcode :: BitVector 7 = case base of
             Zero -> 0b011_0111
             PC -> 0b001_0111
       let rd' = pack rd
       imm ++# rd' ++# opcode
-
     JType rd imm -> do
       let opcode :: BitVector 7 = 0b110_1111
 
@@ -361,8 +349,33 @@ encode instruction = do
 
       let rd' = pack rd
       imm20 ++# imm19to12 ++# imm11 ++# imm10to1 ++# rd' ++# opcode
-
     Invalid -> 0
 
 nop :: Instruction
 nop = RType ADD 0 0 0
+
+-- | Get the destination register of an instruction, if any.
+getRd :: (Alternative f) => Instruction -> f RegIdx
+getRd = \case
+  Instruction.RType _ rd _ _ -> pure rd
+  Instruction.IType _ rd _ _ -> pure rd
+  Instruction.UType _ rd _ -> pure rd
+  Instruction.JType rd _ -> pure rd
+  _ -> empty
+
+-- | Get the first source register of an instruction, if any.
+getRs1 :: (Alternative f) => Instruction -> f RegIdx
+getRs1 = \case
+  Instruction.RType _ _ rs1 _ -> pure rs1
+  Instruction.IType _ _ rs1 _ -> pure rs1
+  Instruction.SType _ _ rs1 _ -> pure rs1
+  Instruction.BType _ _ rs1 _ -> pure rs1
+  _ -> empty
+
+-- | Get the second source register of an instruction, if any.
+getRs2 :: (Alternative f) => Instruction -> f RegIdx
+getRs2 = \case
+  Instruction.RType _ _ _ rs2 -> pure rs2
+  Instruction.SType _ _ _ rs2 -> pure rs2
+  Instruction.BType _ _ _ rs2 -> pure rs2
+  _ -> empty
