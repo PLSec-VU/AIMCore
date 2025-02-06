@@ -37,7 +37,7 @@ simMemStep (Output addr val)
 
 simStep :: (KnownNat n) => Input -> Pipe -> MemM n (Input, Pipe)
 simStep i s = do
-  let (s', o) = pipe i s
+  let (s', o) = pipe s i
   traceM $
     unlines
       [ "simStep",
@@ -68,7 +68,7 @@ simulate cycles =
     initPipe =
       Pipe
         { rf = initRF,
-          fePc = 10,
+          fePc = 25,
           dePc = 0,
           exPc = 0,
           exIr = nop,
@@ -94,8 +94,20 @@ prog1 =
         SType Word 0 0 2
       ]
 
-prog2 :: Vec 10 Word
+prog2 :: Vec 2 Word
 prog2 =
+  map encode $
+    unsafeFromList
+      [ -- r2 := r0 + 5
+        IType (Arith ADD) 2 0 5,
+        -- mem[0 + r0] := r2
+        SType Word 0 0 2,
+        -- mem[1 + r0] := r2
+        SType Word 1 0 2
+      ]
+
+prog3 :: Vec 7 Word
+prog3 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5
@@ -111,11 +123,11 @@ prog2 =
         -- r6 := r4 + r5
         RType ADD 6 4 5,
         -- mem[1 + r0] := r6
-        SType Word 1 0 6,
-        -- r7 := mem[r0 + 1]
-        IType (Load Word Signed) 7 0 1,
-        -- r8 := r7 + r3
-        RType ADD 8 7 3,
-        -- mem[2 + r0] := r8
-        SType Word 2 0 8
+        SType Word 1 0 6
+        ---- r7 := mem[r0 + 1]
+        -- IType (Load Word Signed) 7 0 1,
+        ---- r8 := r7 + r3
+        -- RType ADD 8 7 3,
+        ---- mem[2 + r0] := r8
+        -- SType Word 2 0 8
       ]

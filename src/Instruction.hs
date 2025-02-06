@@ -43,7 +43,7 @@ data Arith
     SLT
   | -- | Set Less Than Unsigned
     SLTU
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Comparison operations.
 data Comparison
@@ -59,32 +59,32 @@ data Comparison
     LTU
   | -- | Greater or Equals than Unsigned
     GEU
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Word sizes that can be loaded or stored.
 data Size
   = Byte
   | Half
   | Word
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Sign extension of a load operation.
 data Sign
   = Signed
   | Unsigned
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | The base for an upper type operation: lui or auipc.
 data UBase
   = PC
   | Zero
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Environment operation: ecall or ebreak.
 data Env
   = Call
   | Break
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Types of operations using the immediate encoding.
 data IOperation
@@ -92,7 +92,7 @@ data IOperation
   | Load Size Sign
   | Env Env
   | Jump
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Decoded instructions
 data Instruction
@@ -109,7 +109,7 @@ data Instruction
   | -- | JType rd imm
     JType RegIdx UImm
   | Invalid
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | Decode a word to an instruction.
 --

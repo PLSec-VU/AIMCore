@@ -29,7 +29,7 @@ init = undefined
 data Input = Input
   { inputMem :: Word
   }
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | The output of the CPU.
 data Output = Output
@@ -38,7 +38,7 @@ data Output = Output
     outAddress :: Last Address,
     outWrite :: Last Word
   }
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 instance Semigroup Output where
   Output addr w <> Output addr' w' = Output (addr <> addr') (w <> w')
@@ -71,14 +71,14 @@ data Pipe = Pipe
     -- | ALU result register writeback stage
     wbRe :: Word
   }
-  deriving (Show)
+  deriving (Show, Generic, NFDataX)
 
 -- | The CPU monad.
 type CPUM = RWS Input Output Pipe
 
 -- | Run the CPU for one step.
-pipe :: Input -> Pipe -> (Pipe, Output)
-pipe = execRWS pipeM
+pipe :: Pipe -> Input -> (Pipe, Output)
+pipe = flip $ execRWS pipeM
 
 -- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
 -- is sequential. That is, it works like so:
@@ -98,10 +98,9 @@ pipe = execRWS pipeM
 -- This configuration may make it seem like the precise order of the stages is
 -- immaterial.  However, because the fields of `Output` use `Last`, this means
 -- that the *last* value written to the output is the actual output at the end
--- of a cycle. (This is also what enables the sequential pipeline in pure
--- Haskell to work.) So, since fetch comes first (and it always results in an
--- output), any output from later stages (i.e., memory) will be the actual
--- output (and to compensate the fetch still will simply not increment the pc).
+-- of a cycle. So, since fetch comes first (and it always results in an output),
+-- any output from later stages (i.e., memory) will be the actual output (and to
+-- compensate the fetch still will simply not increment the pc).
 --
 -- Interstage reads/writes from the pipeline state create new dependencies between
 -- stages. For example, writing to `dePc` in `decode` and then reading from `dePc`

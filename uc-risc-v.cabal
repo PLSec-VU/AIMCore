@@ -25,11 +25,13 @@ source-repository head
 
 library
   exposed-modules:
+      Hardware
       Instruction
       Pipe
       Pretty
       Regfile
       Simulate
+      Simulate2
       Types
   other-modules:
       Paths_uc_risc_v
@@ -50,6 +52,8 @@ library
       TemplateHaskell
       TypeApplications
       TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
@@ -81,6 +85,8 @@ executable uc-risc-v-exe
       TemplateHaskell
       TypeApplications
       TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -114,6 +120,8 @@ test-suite uc-risc-v-test
       TemplateHaskell
       TypeApplications
       TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5

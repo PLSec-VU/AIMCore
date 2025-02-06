@@ -32,6 +32,8 @@ default-extensions:
 - TemplateHaskell
 - TypeApplications
 - TypeOperators
+- DeriveAnyClass
+- DeriveGeneric
 
 dependencies:
 - base >= 4.7 && < 5
