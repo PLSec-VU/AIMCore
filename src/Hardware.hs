@@ -36,7 +36,7 @@ cpu = mealy pipe initPipe
 system :: (KnownNat m, HiddenClockResetEnable dom) => Vec m Word -> Signal dom Output
 system prog = out
   where
-    memOut = mkRAM d10 prog outAddr outW
+    memOut = mkRAM d25 prog outAddr outW
     out = cpu (Input <$> memOut)
     outAddr = (fromMaybe 0 . getLast . outAddress) <$> out
     outW =
