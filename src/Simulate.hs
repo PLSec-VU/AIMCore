@@ -3,6 +3,7 @@ module Simulate where
 import Clash.Prelude hiding (Ordering (..), Word, def, init)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
+import Control.Monad.RWS
 import Control.Monad.State
 import Data.Monoid
 import qualified Debug.Trace as DB
@@ -37,7 +38,7 @@ simMemStep (Output addr val)
 
 simStep :: (KnownNat n) => Input -> Pipe -> MemM n (Input, Pipe)
 simStep i s = do
-  let (s', o) = pipe s i
+  let (s', o) = simPipe s i
   traceM $
     unlines
       [ "simStep",
@@ -46,10 +47,54 @@ simStep i s = do
         "s",
         show s,
         "o",
-        show o
+        show o,
+        "s'",
+        show s'
       ]
   i' <- simMemStep o
   pure (i', s')
+
+simPipe :: Pipe -> Input -> (Pipe, Output)
+simPipe = flip $ execRWS simPipeM
+  where
+    simPipeM :: CPUM ()
+    simPipeM = do
+      s_fetch <- localS fetch
+      s_decode <- localS decode
+      s_execute <- localS execute
+      s_memory <- localS memory
+      s_writeback <- localS writeback
+      s <- get
+      traceM $
+        unlines
+          [ "s_writeback",
+            show s_writeback
+          ]
+
+      put $ Prelude.foldl1 (combinePipes s) [s_fetch, s_decode, s_execute, s_memory, s_writeback]
+
+    combinePipes orig p1 p2 =
+      Pipe
+        { rf = combine (rf orig) (rf p1) (rf p2),
+          fePc = combine (fePc orig) (fePc p1) (fePc p2),
+          dePc = combine (dePc orig) (dePc p1) (dePc p2),
+          exPc = combine (exPc orig) (exPc p1) (exPc p2),
+          exIr = combine (exIr orig) (exIr p1) (exIr p2),
+          meIr = combine (meIr orig) (meIr p1) (meIr p2),
+          meRe = combine (meRe orig) (meRe p1) (meRe p2),
+          wbIr = combine (wbIr orig) (wbIr p1) (wbIr p2),
+          wbRe = combine (wbRe orig) (wbRe p1) (wbRe p2)
+        }
+    combine orig a b
+      | orig == b = a
+      | orig == a = b
+      | otherwise = error "multiple writes to same value"
+    localS m = do
+      s <- get
+      m
+      s' <- get
+      put s
+      pure s'
 
 simulate :: (KnownNat n) => Int -> Vec n Word -> Vec n Word
 simulate cycles =

@@ -13,7 +13,7 @@ import Prelude hiding (Word, repeat, undefined, (!!), (++))
 
 -- | Register file used in this core.
 newtype Regfile = Regfile (Vec ((2 ^ 5) - 1) Word)
-  deriving (Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX)
 
 instance Pretty Regfile where
   pretty (Regfile rf) = vcat $ uncurry line <$> zip [0 :: Int ..] rf'

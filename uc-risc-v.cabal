@@ -31,7 +31,6 @@ library
       Pretty
       Regfile
       Simulate
-      Simulate2
       Types
   other-modules:
       Paths_uc_risc_v

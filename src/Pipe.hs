@@ -7,6 +7,12 @@ module Pipe
     Input (..),
     Output (..),
     Pipe (..),
+    fetch,
+    decode,
+    execute,
+    memory,
+    writeback,
+    CPUM,
   )
 where
 
