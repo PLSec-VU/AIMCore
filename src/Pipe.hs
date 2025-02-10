@@ -100,7 +100,8 @@ data Pipe = Pipe
 -- | Control lines. Must be `True` when there's a hazard.
 data Control = Control
   { ctrlRegStall :: Bool,
-    ctrlMeRegFwd :: Maybe (RegIdx, Word)
+    ctrlMeRegFwd :: Maybe (RegIdx, Word),
+    ctrlWbRegFwd :: Maybe (RegIdx, Word)
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -164,7 +165,8 @@ initCtrl :: Control
 initCtrl =
   Control
     { ctrlRegStall = False,
-      ctrlMeRegFwd = Nothing
+      ctrlMeRegFwd = Nothing,
+      ctrlWbRegFwd = Nothing
     }
 
 resetCtrl :: CPUM ()
@@ -323,7 +325,11 @@ memory = do
 
   instr <- gets meIr
 
-  res <- gets meRe
+  -- Forwarding
+  try $ do
+    rd <- getRd instr
+    res <- lift $ gets meRe
+    lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, res)}
 
   case instr of
     Instruction.SType size _ _ rs2 -> do
@@ -333,9 +339,6 @@ memory = do
     Instruction.IType Load {} _ _ _ -> do
       -- setLine $ \c -> c {ctrlMem = True}
       readRAM $ unpack result
-    -- Forwarding
-    Instruction.IType Arith {} _ _ _ -> do
-      setLines $ \c -> c {ctrlMeRegFwd = pure (fromJust $ getRd instr, res)}
     _ -> pure ()
 
   -- Propagate instruction register to the next stage
@@ -381,10 +384,11 @@ writeback = do
       pc <- gets fePc
       writeRF rd $ pack pc
     _ -> pure ()
-
-writeRF :: (MonadWriter Output m) => RegIdx -> Word -> m ()
-writeRF idx val =
-  tell $ mempty {outRd = pure (idx, val)}
+  where
+    writeRF idx val = do
+      setLines $ \c ->
+        c {ctrlWbRegFwd = pure (idx, val)}
+      tell $ mempty {outRd = pure (idx, val)}
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
