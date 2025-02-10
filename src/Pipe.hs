@@ -3,6 +3,8 @@
 {-# HLINT ignore "Use if" #-}
 module Pipe
   ( init,
+    initCtrl,
+    resetCtrl,
     pipe,
     Input (..),
     Output (..),
@@ -22,7 +24,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
 import qualified Instruction
@@ -52,10 +54,10 @@ data MemAccess = MemAccess
 data Output = Output
   { -- Choice of `Last` vs. `First` (from `Data.Monoid`)
     -- will affect the correct order of stages in `pipeM`.
-    outMem :: Last MemAccess,
-    outRs1 :: Last RegIdx,
-    outRs2 :: Last RegIdx,
-    outRd :: Last (RegIdx, Word)
+    outMem :: First MemAccess,
+    outRs1 :: First RegIdx,
+    outRs2 :: First RegIdx,
+    outRd :: First (RegIdx, Word)
   }
   deriving (Show, Generic, NFDataX)
 
@@ -97,10 +99,8 @@ data Pipe = Pipe
 
 -- | Control lines. Must be `True` when there's a hazard.
 data Control = Control
-  { -- | Reading from memory?
-    ctrlMem :: Bool,
-    -- | Branching?
-    ctrlBranch :: Bool
+  { ctrlRegStall :: Bool,
+    ctrlMeRegFwd :: Maybe (RegIdx, Word)
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -153,30 +153,39 @@ pipe = flip $ execRWS pipeM
 -- one stage and be read by exactly one stage---namely, the subsequent one.
 pipeM :: CPUM ()
 pipeM = do
-  fetch
-  decode
-  execute
-  memory
   writeback
+  memory
+  execute
+  decode
+  fetch
+  resetCtrl
+
+initCtrl :: Control
+initCtrl =
+  Control
+    { ctrlRegStall = False,
+      ctrlMeRegFwd = Nothing
+    }
+
+resetCtrl :: CPUM ()
+resetCtrl =
+  modify $ \s -> s {pipeCtrl = initCtrl}
 
 -- | The fetch stage.
 fetch :: CPUM ()
 fetch = do
-  -- Get program counter.
   pc <- gets fePc
-
-  stall <- checkLines [ctrlMem, ctrlBranch]
+  stall <- checkLines [ctrlRegStall]
 
   unless stall $
     modify $ \s ->
       s
-        { -- Propagate program counter to next stage.
+        { -- Increment program counter for next fetch.
           fePc = pc + 1,
-          -- Increment program counter for next fetch.
+          -- Propagate program counter to next stage.
           dePc = pc
         }
 
-  -- Fetch fromm memory.
   readRAM pc
 
 -- | Decode stage.
@@ -186,8 +195,6 @@ decode = do
   rs1 <- asks inputRs1
   rs2 <- asks inputRs2
 
-  hazardPC ir
-
   modify $ \s ->
     s
       { exIr = ir,
@@ -195,22 +202,23 @@ decode = do
         exRs1 = rs1,
         exRs2 = rs2
       }
-  where
-    hazardPC = \case
-      Instruction.BType {} -> setLine $ \c -> c {ctrlBranch = True}
-      _ -> pure ()
 
 -- | Execute stage.
 execute :: CPUM ()
 execute = do
   -- Fetch alu operands
   val <- runMaybeT $ do
-    ir <- gets exIr
-
     -- Make sure there is no hazard.
-    ir' <- gets meIr
-    guard $ hazardRW ir ir'
+    me_ir <- gets meIr
+    wb_ir <- gets wbIr
+    -- let stall = hazardRW ir me_ir || hazardRW ir wb_ir
 
+    -- when stall $ do
+    --  setLines $
+    --    \c -> c {ctrlRegStall = True}
+    --  mempty
+
+    ir <- gets exIr
     case ir of
       -- Unknown instruction
       Invalid -> empty
@@ -229,7 +237,10 @@ execute = do
         pure (op', r1, imm')
       Instruction.SType _ imm rs1 _ -> do
         r1 <- lift $ gets exRs1
-        r2 <- lift $ gets exRs2
+        r2 <-
+          if hazardRW ir me_ir
+            then gets (snd . fromJust . ctrlMeRegFwd . pipeCtrl)
+            else lift $ gets exRs2
         let imm' = signExtend imm
         modify $ \s -> s {meVal = r2}
         pure (ADD, r1, imm')
@@ -258,11 +269,6 @@ execute = do
 
   let result = alu op lhs rhs
 
-  --  -- Return whether we used the input for a load.
-  --  case ir of
-  --    Instruction.IType Load {} _ _ _ -> pure True
-  --    _ -> pure False
-
   modify $ \s ->
     s
       { meRe = result,
@@ -276,11 +282,11 @@ execute = do
     hazardRW :: Instruction -> Instruction -> Bool
     hazardRW src dst = isJust $ do
       rd <- getRd dst
-      unless (rd == 0) $
-        let chk getRs = do
-              rs <- getRs src
-              guard $ rs == rd
-         in chk getRs1 <|> chk getRs2
+      guard (rd /= 0)
+      let chk getRs = do
+            rs <- getRs src
+            guard $ rs == rd
+       in chk getRs1 <|> chk getRs2
 
     alu :: Arith -> Word -> Word -> Word
     alu op lhs rhs = case op of
@@ -317,14 +323,19 @@ memory = do
 
   instr <- gets meIr
 
+  res <- gets meRe
+
   case instr of
     Instruction.SType size _ _ rs2 -> do
-      setLine $ \c -> c {ctrlMem = True}
+      -- setLine $ \c -> c {ctrlMem = True}
       r2 <- gets meVal
       writeRAM (unpack result) (unpack r2)
     Instruction.IType Load {} _ _ _ -> do
-      setLine $ \c -> c {ctrlMem = True}
+      -- setLine $ \c -> c {ctrlMem = True}
       readRAM $ unpack result
+    -- Forwarding
+    Instruction.IType Arith {} _ _ _ -> do
+      setLines $ \c -> c {ctrlMeRegFwd = pure (fromJust $ getRd instr, res)}
     _ -> pure ()
 
   -- Propagate instruction register to the next stage
@@ -407,5 +418,5 @@ checkLines lines = do
   ctrl <- gets pipeCtrl
   pure $ or [test ctrl | test <- lines]
 
-setLine :: (MonadState Pipe m) => (Control -> Control) -> m ()
-setLine f = modify $ \s -> s {pipeCtrl = f $ pipeCtrl s}
+setLines :: (MonadState Pipe m) => (Control -> Control) -> m ()
+setLines f = modify $ \s -> s {pipeCtrl = f $ pipeCtrl s}

@@ -24,8 +24,8 @@ type MemM n = State (Mem n)
 traceM :: (Applicative f) => String -> f ()
 traceM = DB.traceM -- const $ pure ()
 
-ramRead :: (KnownNat n) => Word -> MemM n Word
-ramRead w = gets ((!! w) . memRAM)
+ramRead :: (KnownNat n) => Address -> MemM n Word
+ramRead addr = gets ((!! addr) . memRAM)
 
 ramWrite :: (KnownNat n) => Address -> Word -> MemM n ()
 ramWrite addr w =
@@ -43,9 +43,9 @@ simMemStep (Output mem rs1 rs2 rd) = do
       }
   where
     doRegFile = do
-      rs1' <- maybe (pure 0) readReg $ getLast rs1
-      rs2' <- maybe (pure 0) readReg $ getLast rs2
-      maybe (pure ()) (uncurry writeReg) $ getLast rd
+      rs1' <- maybe (pure 0) readReg $ getFirst rs1
+      rs2' <- maybe (pure 0) readReg $ getFirst rs2
+      maybe (pure ()) (uncurry writeReg) $ getFirst rd
       pure (rs1', rs2')
 
     readReg idx = do
@@ -55,9 +55,9 @@ simMemStep (Output mem rs1 rs2 rd) = do
       modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
 
     doMemory
-      | Just (MemAccess addr mval) <- getLast mem =
+      | Just (MemAccess addr mval) <- getFirst mem =
           case mval of
-            Nothing -> ramRead $ bitCoerce addr
+            Nothing -> ramRead addr
             Just val -> do
               ramWrite addr val
               pure 0
@@ -65,66 +65,50 @@ simMemStep (Output mem rs1 rs2 rd) = do
 
 simStep :: (KnownNat n) => Input -> Pipe -> MemM n (Input, Pipe)
 simStep i s = do
-  let (s', o) = simPipe s i
+  let (ctrl', s', o) = simPipe s i
   traceM $
     unlines
       [ "simStep",
-        "i",
+        "Input:",
+        "--------------------",
         show i,
-        "s",
+        "",
+        "State:",
+        "--------------------",
         show s,
-        "o",
+        "",
+        "Output:",
+        "--------------------",
         show o,
-        "s'",
-        show s'
+        "",
+        "New state:",
+        "--------------------",
+        show s',
+        "",
+        "Control:",
+        "--------------------",
+        show ctrl',
+        "",
+        "",
+        "",
+        ""
       ]
   i' <- simMemStep o
   pure (i', s')
 
-simPipe :: Pipe -> Input -> (Pipe, Output)
-simPipe = flip $ execRWS simPipeM
+simPipe :: Pipe -> Input -> (Control, Pipe, Output)
+simPipe = flip $ runRWS simPipeM
   where
-    simPipeM :: CPUM ()
+    simPipeM :: CPUM Control
     simPipeM = do
-      s_fetch <- localS fetch
-      s_decode <- localS decode
-      s_execute <- localS execute
-      s_memory <- localS memory
-      s_writeback <- localS writeback
-      s <- get
-      traceM $
-        unlines
-          [ "s_writeback",
-            show s_writeback
-          ]
-
-      put $ Prelude.foldl1 (combinePipes s) [s_fetch, s_decode, s_execute, s_memory, s_writeback]
-
-    combinePipes orig p1 p2 =
-      Pipe
-        { fePc = combine (fePc orig) (fePc p1) (fePc p2),
-          dePc = combine (dePc orig) (dePc p1) (dePc p2),
-          exPc = combine (exPc orig) (exPc p1) (exPc p2),
-          exIr = combine (exIr orig) (exIr p1) (exIr p2),
-          exRs1 = combine (exRs1 orig) (exRs1 p1) (exRs1 p2),
-          exRs2 = combine (exRs2 orig) (exRs2 p1) (exRs2 p2),
-          meIr = combine (meIr orig) (meIr p1) (meIr p2),
-          meRe = combine (meRe orig) (meRe p1) (meRe p2),
-          meVal = combine (meVal orig) (meVal p1) (meVal p2),
-          wbIr = combine (wbIr orig) (wbIr p1) (wbIr p2),
-          wbRe = combine (wbRe orig) (wbRe p1) (wbRe p2),
-          pipeCtrl = combine (pipeCtrl orig) (pipeCtrl p1) (pipeCtrl p2)
-        }
-    combine orig a b
-      | orig == b = a
-      | orig == a = b
-      | otherwise = error "multiple writes to same value"
-    localS m = do
-      s <- get
-      m
-      s' <- get
-      put s
-      pure s'
+      writeback
+      memory
+      execute
+      decode
+      fetch
+      ctrl <- gets pipeCtrl
+      resetCtrl
+      pure ctrl
 
 simulate :: (KnownNat n) => Int -> Vec n Word -> Mem n
 simulate cycles =
@@ -156,12 +140,6 @@ simulate cycles =
           wbIr = nop,
           wbRe = 0,
           pipeCtrl = initCtrl
-        }
-
-    initCtrl =
-      Control
-        { ctrlMem = False,
-          ctrlBranch = False
         }
 
 mkRAM :: ((n + m) ~ 25, KnownNat m) => Vec n Word -> Vec 50 Word
