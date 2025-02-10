@@ -43,9 +43,9 @@ simMemStep (Output mem rs1 rs2 rd) = do
       }
   where
     doRegFile = do
+      maybe (pure ()) (uncurry writeReg) $ getFirst rd
       rs1' <- maybe (pure 0) readReg $ getFirst rs1
       rs2' <- maybe (pure 0) readReg $ getFirst rs2
-      maybe (pure ()) (uncurry writeReg) $ getFirst rd
       pure (rs1', rs2')
 
     readReg idx = do
@@ -158,8 +158,24 @@ prog1 =
         SType Word 0 0 2
       ]
 
-prog2 :: Vec 2 Word
+prog2 :: Vec 5 Word
 prog2 =
+  map encode $
+    unsafeFromList
+      [ -- r2 := r0 + 5
+        IType (Arith ADD) 2 0 5,
+        -- mem[0 + r0] := r2
+        SType Word 0 0 2,
+        -- r3 := mem[r0 + 0],
+        IType (Load Word Signed) 3 0 0,
+        -- r4 := r0 + r3
+        IType (Arith ADD) 4 0 3,
+        -- mem[1 + r0] := r4
+        SType Word 1 0 4
+      ]
+
+prog3 :: Vec 2 Word
+prog3 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5
@@ -170,8 +186,8 @@ prog2 =
         SType Word 1 0 2
       ]
 
-prog3 :: Vec 7 Word
-prog3 =
+prog4 :: Vec 7 Word
+prog4 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5

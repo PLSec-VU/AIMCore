@@ -99,7 +99,8 @@ data Pipe = Pipe
 
 -- | Control lines. Must be `True` when there's a hazard.
 data Control = Control
-  { ctrlRegStall :: Bool,
+  { ctrlExMem :: Bool,
+    ctrlMemAccess :: Bool,
     ctrlMeRegFwd :: Maybe (RegIdx, Word),
     ctrlWbRegFwd :: Maybe (RegIdx, Word)
   }
@@ -164,7 +165,8 @@ pipeM = do
 initCtrl :: Control
 initCtrl =
   Control
-    { ctrlRegStall = False,
+    { ctrlExMem = False,
+      ctrlMemAccess = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing
     }
@@ -177,7 +179,7 @@ resetCtrl =
 fetch :: CPUM ()
 fetch = do
   pc <- gets fePc
-  stall <- checkLines [ctrlRegStall]
+  stall <- checkLines [ctrlExMem, ctrlMemAccess]
 
   unless stall $
     modify $ \s ->
@@ -194,88 +196,103 @@ fetch = do
 decode :: CPUM ()
 decode = do
   ir <- Instruction.decode <$> asks inputMem
-  rs1 <- asks inputRs1
-  rs2 <- asks inputRs2
+
+  readRf ir
 
   modify $ \s ->
     s
       { exIr = ir,
-        exPc = dePc s,
-        exRs1 = rs1,
-        exRs2 = rs2
+        exPc = dePc s
       }
+  where
+    readRf ir =
+      tell $
+        mempty
+          { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
+            outRs2 = pure $ fromMaybe 0 $ getRs2 ir
+          }
 
 -- | Execute stage.
 execute :: CPUM ()
 execute = do
-  -- Fetch alu operands
-  val <- runMaybeT $ do
-    -- Make sure there is no hazard.
-    me_ir <- gets meIr
-    wb_ir <- gets wbIr
-    -- let stall = hazardRW ir me_ir || hazardRW ir wb_ir
+  -- rs1 <- asks inputRs1
+  -- rs2 <- asks inputRs2
+  ir <- gets exIr
+  me_ir <- gets meIr
+  wb_ir <- gets wbIr
 
-    -- when stall $ do
-    --  setLines $
-    --    \c -> c {ctrlRegStall = True}
-    --  mempty
+  let stall = hazardLoad ir me_ir
 
-    ir <- gets exIr
-    case ir of
-      -- Unknown instruction
-      Invalid -> empty
-      Instruction.RType op _ rs1 rs2 -> do
-        r1 <- lift $ gets exRs1
-        r2 <- lift $ gets exRs2
-        pure (op, r1, r2)
-      Instruction.IType op _ rs1 imm -> do
-        -- Do addition for non arithmetic operations.
-        let op' = case op of
-              Arith arith -> arith
-              _ -> ADD
+  if stall
+    then do
+      setLines $
+        \c -> c {ctrlExMem = True}
+      modify $ \s ->
+        s
+          { meRe = 0,
+            meIr = nop
+          }
+    else do
+      -- Fetch alu operands
+      val <- runMaybeT $ do
+        case ir of
+          -- Unknown instruction
+          Invalid -> empty
+          Instruction.RType op _ rs1 rs2 -> do
+            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
+            r2 <- lift $ asks inputRs2 -- lift $ gets exRs2
+            pure (op, r1, r2)
+          Instruction.IType op _ rs1 imm -> do
+            -- Do addition for non arithmetic operations.
+            let op' = case op of
+                  Arith arith -> arith
+                  _ -> ADD
 
-        r1 <- lift $ gets exRs1
-        let imm' = signExtend imm
-        pure (op', r1, imm')
-      Instruction.SType _ imm rs1 _ -> do
-        r1 <- lift $ gets exRs1
-        r2 <-
-          if hazardRW ir me_ir
-            then gets (snd . fromJust . ctrlMeRegFwd . pipeCtrl)
-            else lift $ gets exRs2
-        let imm' = signExtend imm
-        modify $ \s -> s {meVal = r2}
-        pure (ADD, r1, imm')
-      Instruction.BType cmp imm rs1 rs2 -> do
-        r1 <- lift $ gets exRs1
-        r2 <- lift $ gets exRs2
-        let imm' = if branch cmp r1 r2 then signExtend imm else 4
-        pc <- gets $ pack . exPc
-        pure (ADD, pc, imm')
-      Instruction.UType base _ imm -> do
-        base' <- case base of
-          Zero -> pure 0
-          PC -> gets $ pack . exPc
-        let imm' = imm ++# 0
-        pure (ADD, base', imm')
-      Instruction.JType _ imm -> do
-        pc <- gets $ pack . exPc
-        let imm' = signExtend imm
-        pure (ADD, pc, imm')
+            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
+            let imm' = signExtend imm
+            pure (op', r1, imm')
+          Instruction.SType _ imm rs1 _ -> do
+            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
+            r2 <-
+              if hazardRW ir me_ir
+                then gets (snd . fromJust . ctrlMeRegFwd . pipeCtrl)
+                else
+                  if hazardRW ir wb_ir
+                    then gets (snd . fromJust . ctrlWbRegFwd . pipeCtrl)
+                    else lift $ asks inputRs2 -- lift $ gets exRs2
+            let imm' = signExtend imm
+            modify $ \s -> s {meVal = r2}
+            pure (ADD, r1, imm')
+          Instruction.BType cmp imm rs1 rs2 -> do
+            r1 <- lift $ asks inputRs1 --  lift $ gets exRs1
+            r2 <- lift $ asks inputRs2 -- lift $ gets exRs2
+            let imm' = if branch cmp r1 r2 then signExtend imm else 4
+            pc <- gets $ pack . exPc
+            pure (ADD, pc, imm')
+          Instruction.UType base _ imm -> do
+            base' <- case base of
+              Zero -> pure 0
+              PC -> gets $ pack . exPc
+            let imm' = imm ++# 0
+            pure (ADD, base', imm')
+          Instruction.JType _ imm -> do
+            pc <- gets $ pack . exPc
+            let imm' = signExtend imm
+            pure (ADD, pc, imm')
 
-  ((op, lhs, rhs), ir) <- case val of
-    Just (op, lhs, rhs) -> do
-      ir <- gets exIr
-      pure ((op, lhs, rhs), ir)
-    _ -> pure ((ADD, 0, 0), nop)
+      ((op, lhs, rhs), ir) <- case val of
+        Just (op, lhs, rhs) -> do
+          ir <- gets exIr
+          pure ((op, lhs, rhs), ir)
+        _ -> pure ((ADD, 0, 0), nop)
 
-  let result = alu op lhs rhs
+      let result = alu op lhs rhs
 
-  modify $ \s ->
-    s
-      { meRe = result,
-        meIr = ir
-      }
+      modify $ \s ->
+        s
+          { meRe = result,
+            meIr = ir
+          }
   where
     -- Read-Write hazard check.
     --
@@ -289,6 +306,14 @@ execute = do
             rs <- getRs src
             guard $ rs == rd
        in chk getRs1 <|> chk getRs2
+
+    hazardLoad :: Instruction -> Instruction -> Bool
+    hazardLoad ex_ir@(IType Load {} _ _ _) mem_ir = isJust $ do
+      rs1 <- getRs1 ex_ir
+      rs2 <- getRs2 ex_ir
+      rd <- getRd mem_ir
+      guard $ (rd == rs1) || (rd == rs2)
+    hazardLoad _ _ = False
 
     alu :: Arith -> Word -> Word -> Word
     alu op lhs rhs = case op of
@@ -333,11 +358,11 @@ memory = do
 
   case instr of
     Instruction.SType size _ _ rs2 -> do
-      -- setLine $ \c -> c {ctrlMem = True}
+      setLines $ \c -> c {ctrlMemAccess = True}
       r2 <- gets meVal
       writeRAM (unpack result) (unpack r2)
     Instruction.IType Load {} _ _ _ -> do
-      -- setLine $ \c -> c {ctrlMem = True}
+      setLines $ \c -> c {ctrlMemAccess = True}
       readRAM $ unpack result
     _ -> pure ()
 
@@ -347,6 +372,16 @@ memory = do
       { wbIr = meIr s,
         wbRe = meRe s
       }
+
+-- where
+--  hazardRW :: Instruction -> Instruction -> Bool
+--  hazardRW src dst = isJust $ do
+--    rd <- getRd dst
+--    guard (rd /= 0)
+--    let chk getRs = do
+--          rs <- getRs src
+--          guard $ rs == rd
+--     in chk getRs1 <|> chk getRs2
 
 -- | Commit computations to the register file.
 --
