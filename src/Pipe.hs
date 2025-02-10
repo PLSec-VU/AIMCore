@@ -14,6 +14,7 @@ module Pipe
     writeback,
     CPUM,
     MemAccess (..),
+    Control (..),
   )
 where
 
@@ -88,9 +89,20 @@ data Pipe = Pipe
     -- | Instruction register writeback stage
     wbIr :: Instruction,
     -- | ALU result register writeback stage
-    wbRe :: Word
+    wbRe :: Word,
+    -- | Control lines
+    pipeCtrl :: Control
   }
   deriving (Show, Generic, NFDataX)
+
+-- | Control lines. Must be `True` when there's a hazard.
+data Control = Control
+  { -- | Reading from memory?
+    ctrlMem :: Bool,
+    -- | Branching?
+    ctrlBranch :: Bool
+  }
+  deriving (Show, Eq, Generic, NFDataX)
 
 -- | The CPU monad.
 type CPUM = RWS Input Output Pipe
@@ -153,16 +165,9 @@ fetch = do
   -- Get program counter.
   pc <- gets fePc
 
-  try $ do
-    let noHazard getIr = do
-          ir <- gets getIr
-          guard . not $ hazardPC ir
+  stall <- checkLines [ctrlMem, ctrlBranch]
 
-    -- Ensure there is no branch in the pipeline.
-    noHazard exIr
-    noHazard meIr
-    noHazard wbIr
-
+  unless stall $
     modify $ \s ->
       s
         { -- Propagate program counter to next stage.
@@ -173,14 +178,6 @@ fetch = do
 
   -- Fetch fromm memory.
   readRAM pc
-  where
-    -- Returns `True` if the given instruction may modify the program counter.
-    hazardPC :: Instruction -> Bool
-    hazardPC = \case
-      Instruction.JType {} -> True
-      Instruction.IType Jump _ _ _ -> True
-      Instruction.BType {} -> True
-      _ -> False
 
 -- | Decode stage.
 decode :: CPUM ()
@@ -188,6 +185,9 @@ decode = do
   ir <- Instruction.decode <$> asks inputMem
   rs1 <- asks inputRs1
   rs2 <- asks inputRs2
+
+  hazardPC ir
+
   modify $ \s ->
     s
       { exIr = ir,
@@ -195,6 +195,10 @@ decode = do
         exRs1 = rs1,
         exRs2 = rs2
       }
+  where
+    hazardPC = \case
+      Instruction.BType {} -> setLine $ \c -> c {ctrlBranch = True}
+      _ -> pure ()
 
 -- | Execute stage.
 execute :: CPUM ()
@@ -315,9 +319,11 @@ memory = do
 
   case instr of
     Instruction.SType size _ _ rs2 -> do
+      setLine $ \c -> c {ctrlMem = True}
       r2 <- gets meVal
       writeRAM (unpack result) (unpack r2)
-    Instruction.IType Load {} _ _ _ ->
+    Instruction.IType Load {} _ _ _ -> do
+      setLine $ \c -> c {ctrlMem = True}
       readRAM $ unpack result
     _ -> pure ()
 
@@ -395,3 +401,11 @@ writeRAM addr val =
                 memVal = Just val
               }
       }
+
+checkLines :: (MonadState Pipe m) => [Control -> Bool] -> m Bool
+checkLines lines = do
+  ctrl <- gets pipeCtrl
+  pure $ or [test ctrl | test <- lines]
+
+setLine :: (MonadState Pipe m) => (Control -> Control) -> m ()
+setLine f = modify $ \s -> s {pipeCtrl = f $ pipeCtrl s}

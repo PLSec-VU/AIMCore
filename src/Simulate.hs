@@ -112,7 +112,8 @@ simPipe = flip $ execRWS simPipeM
           meRe = combine (meRe orig) (meRe p1) (meRe p2),
           meVal = combine (meVal orig) (meVal p1) (meVal p2),
           wbIr = combine (wbIr orig) (wbIr p1) (wbIr p2),
-          wbRe = combine (wbRe orig) (wbRe p1) (wbRe p2)
+          wbRe = combine (wbRe orig) (wbRe p1) (wbRe p2),
+          pipeCtrl = combine (pipeCtrl orig) (pipeCtrl p1) (pipeCtrl p2)
         }
     combine orig a b
       | orig == b = a
@@ -153,7 +154,14 @@ simulate cycles =
           meRe = 0,
           meVal = 0,
           wbIr = nop,
-          wbRe = 0
+          wbRe = 0,
+          pipeCtrl = initCtrl
+        }
+
+    initCtrl =
+      Control
+        { ctrlMem = False,
+          ctrlBranch = False
         }
 
 mkRAM :: ((n + m) ~ 25, KnownNat m) => Vec n Word -> Vec 50 Word
