@@ -13,28 +13,55 @@ import Regfile
 import Types
 import Prelude hiding (Ordering (..), Word, init, map, not, repeat, undefined, (!!), (&&), (++), (||))
 
-type MemM n = State (Vec n Word)
+data Mem n = Mem
+  { memRAM :: Vec n Word,
+    memRf :: Regfile
+  }
+  deriving (Eq, Show, Generic, NFDataX)
+
+type MemM n = State (Mem n)
 
 traceM :: (Applicative f) => String -> f ()
 traceM = DB.traceM -- const $ pure ()
 
-memRead :: (KnownNat n) => Word -> MemM n Word
-memRead w = gets (!! w)
+ramRead :: (KnownNat n) => Word -> MemM n Word
+ramRead w = gets ((!! w) . memRAM)
 
-memWrite :: (KnownNat n) => Address -> Word -> MemM n ()
-memWrite addr w =
-  modify $ replace addr w
+ramWrite :: (KnownNat n) => Address -> Word -> MemM n ()
+ramWrite addr w =
+  modify $ \s -> s {memRAM = replace addr w $ memRAM s}
 
 simMemStep :: (KnownNat n) => Output -> MemM n Input
-simMemStep (Output addr val)
-  | Just addr' <- getLast addr,
-    Just val' <- getLast val = do
-      memWrite addr' val'
-      pure $ Input 0
-  | Just addr' <- getLast addr,
-    Nothing <- getLast val =
-      Input <$> memRead (bitCoerce addr')
-  | otherwise = pure $ Input 0
+simMemStep (Output mem rs1 rs2 rd) = do
+  (rs1', rs2') <- doRegFile
+  mem_in <- doMemory
+  pure $
+    Input
+      { inputMem = mem_in,
+        inputRs1 = rs1',
+        inputRs2 = rs2'
+      }
+  where
+    doRegFile = do
+      rs1' <- maybe (pure 0) readReg $ getLast rs1
+      rs2' <- maybe (pure 0) readReg $ getLast rs2
+      maybe (pure ()) (uncurry writeReg) $ getLast rd
+      pure (rs1', rs2')
+
+    readReg idx = do
+      gets $ lookupRF idx . memRf
+
+    writeReg idx val = do
+      modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
+
+    doMemory
+      | Just (MemAccess addr mval) <- getLast mem =
+          case mval of
+            Nothing -> ramRead $ bitCoerce addr
+            Just val -> do
+              ramWrite addr val
+              pure 0
+      | otherwise = pure 0
 
 simStep :: (KnownNat n) => Input -> Pipe -> MemM n (Input, Pipe)
 simStep i s = do
@@ -75,13 +102,15 @@ simPipe = flip $ execRWS simPipeM
 
     combinePipes orig p1 p2 =
       Pipe
-        { rf = combine (rf orig) (rf p1) (rf p2),
-          fePc = combine (fePc orig) (fePc p1) (fePc p2),
+        { fePc = combine (fePc orig) (fePc p1) (fePc p2),
           dePc = combine (dePc orig) (dePc p1) (dePc p2),
           exPc = combine (exPc orig) (exPc p1) (exPc p2),
           exIr = combine (exIr orig) (exIr p1) (exIr p2),
+          exRs1 = combine (exRs1 orig) (exRs1 p1) (exRs1 p2),
+          exRs2 = combine (exRs2 orig) (exRs2 p1) (exRs2 p2),
           meIr = combine (meIr orig) (meIr p1) (meIr p2),
           meRe = combine (meRe orig) (meRe p1) (meRe p2),
+          meVal = combine (meVal orig) (meVal p1) (meVal p2),
           wbIr = combine (wbIr orig) (wbIr p1) (wbIr p2),
           wbRe = combine (wbRe orig) (wbRe p1) (wbRe p2)
         }
@@ -96,9 +125,9 @@ simPipe = flip $ execRWS simPipeM
       put s
       pure s'
 
-simulate :: (KnownNat n) => Int -> Vec n Word -> Vec n Word
+simulate :: (KnownNat n) => Int -> Vec n Word -> Mem n
 simulate cycles =
-  execState $ simulate' initInput initPipe cycles
+  execState (simulate' initInput initPipe cycles) . flip Mem initRF
   where
     simulate' i s cycles
       | cycles <= 0 = pure ()
@@ -108,17 +137,21 @@ simulate cycles =
 
     initInput =
       Input
-        { inputMem = 0
+        { inputMem = 0,
+          inputRs1 = 0,
+          inputRs2 = 0
         }
     initPipe =
       Pipe
-        { rf = initRF,
-          fePc = 25,
+        { fePc = 25,
           dePc = 0,
           exPc = 0,
           exIr = nop,
+          exRs1 = 0,
+          exRs2 = 0,
           meIr = nop,
           meRe = 0,
+          meVal = 0,
           wbIr = nop,
           wbRe = 0
         }

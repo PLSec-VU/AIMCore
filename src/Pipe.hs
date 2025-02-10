@@ -13,10 +13,11 @@ module Pipe
     memory,
     writeback,
     CPUM,
+    MemAccess (..),
   )
 where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init)
+import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
@@ -33,7 +34,16 @@ init = undefined
 
 -- | The input to the CPU.
 data Input = Input
-  { inputMem :: Word
+  { inputMem :: Word,
+    inputRs1 :: Word,
+    inputRs2 :: Word
+  }
+  deriving (Show, Generic, NFDataX)
+
+-- | A memory access
+data MemAccess = MemAccess
+  { memAddress :: Address,
+    memVal :: Maybe Word
   }
   deriving (Show, Generic, NFDataX)
 
@@ -41,26 +51,23 @@ data Input = Input
 data Output = Output
   { -- Choice of `Last` vs. `First` (from `Data.Monoid`)
     -- will affect the correct order of stages in `pipeM`.
-    outAddress :: Last Address,
-    outWrite :: Last Word
+    outMem :: Last MemAccess,
+    outRs1 :: Last RegIdx,
+    outRs2 :: Last RegIdx,
+    outRd :: Last (RegIdx, Word)
   }
   deriving (Show, Generic, NFDataX)
 
 instance Semigroup Output where
-  Output addr w <> Output addr' w' = Output (addr <> addr') (w <> w')
+  Output mem rs1 rs2 rd <> Output mem' rs1' rs2' rd' =
+    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd')
 
 instance Monoid Output where
-  mempty = Output mempty mempty
+  mempty = Output mempty mempty mempty mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
 data Pipe = Pipe
-  { -- | Register file
-    -- Shouldn't we just have registers corresponding to the rs1 and rs2
-    -- instruction registers in the pipe state? Not sure about the entire
-    -- register file---usually rs1 and rs2 appear to be fetched during `decode`
-    -- and then forwarded via pipeline registers.
-    rf :: Regfile,
-    -- | Program counter fetch stage
+  { -- | Program counter fetch stage
     fePc :: Address,
     -- | Program counter decode stage
     dePc :: Address,
@@ -68,10 +75,16 @@ data Pipe = Pipe
     exPc :: Address,
     -- | Instruction register execute stage
     exIr :: Instruction,
+    -- | Regster 1
+    exRs1 :: Word,
+    -- | Register 2
+    exRs2 :: Word,
     -- | Instruction register memory stage
     meIr :: Instruction,
     -- | ALU result register memory stage
     meRe :: Word,
+    -- | Memory value to write
+    meVal :: Word,
     -- | Instruction register writeback stage
     wbIr :: Instruction,
     -- | ALU result register writeback stage
@@ -159,10 +172,7 @@ fetch = do
         }
 
   -- Fetch fromm memory.
-  tell $
-    mempty
-      { outAddress = pure pc
-      }
+  readRAM pc
   where
     -- Returns `True` if the given instruction may modify the program counter.
     hazardPC :: Instruction -> Bool
@@ -176,10 +186,14 @@ fetch = do
 decode :: CPUM ()
 decode = do
   ir <- Instruction.decode <$> asks inputMem
+  rs1 <- asks inputRs1
+  rs2 <- asks inputRs2
   modify $ \s ->
     s
       { exIr = ir,
-        exPc = dePc s
+        exPc = dePc s,
+        exRs1 = rs1,
+        exRs2 = rs2
       }
 
 -- | Execute stage.
@@ -197,8 +211,8 @@ execute = do
       -- Unknown instruction
       Invalid -> empty
       Instruction.RType op _ rs1 rs2 -> do
-        r1 <- readRF rs1
-        r2 <- readRF rs2
+        r1 <- lift $ gets exRs1
+        r2 <- lift $ gets exRs2
         pure (op, r1, r2)
       Instruction.IType op _ rs1 imm -> do
         -- Do addition for non arithmetic operations.
@@ -206,16 +220,18 @@ execute = do
               Arith arith -> arith
               _ -> ADD
 
-        r1 <- readRF rs1
+        r1 <- lift $ gets exRs1
         let imm' = signExtend imm
         pure (op', r1, imm')
       Instruction.SType _ imm rs1 _ -> do
-        r1 <- readRF rs1
+        r1 <- lift $ gets exRs1
+        r2 <- lift $ gets exRs2
         let imm' = signExtend imm
+        modify $ \s -> s {meVal = r2}
         pure (ADD, r1, imm')
       Instruction.BType cmp imm rs1 rs2 -> do
-        r1 <- readRF rs1
-        r2 <- readRF rs2
+        r1 <- lift $ gets exRs1
+        r2 <- lift $ gets exRs2
         let imm' = if branch cmp r1 r2 then signExtend imm else 4
         pc <- gets $ pack . exPc
         pure (ADD, pc, imm')
@@ -299,17 +315,10 @@ memory = do
 
   case instr of
     Instruction.SType size _ _ rs2 -> do
-      r2 <- readRF rs2
-      tell $
-        Output
-          { outAddress = pure $ unpack result,
-            outWrite = pure $ unpack r2
-          }
+      r2 <- gets meVal
+      writeRAM (unpack result) (unpack r2)
     Instruction.IType Load {} _ _ _ ->
-      tell $
-        mempty
-          { outAddress = pure $ unpack result
-          }
+      readRAM $ unpack result
     _ -> pure ()
 
   -- Propagate instruction register to the next stage
@@ -356,15 +365,33 @@ writeback = do
       writeRF rd $ pack pc
     _ -> pure ()
 
-readRF :: (MonadState Pipe m) => RegIdx -> m Word
-readRF idx = do
-  rf' <- gets rf
-  pure $ lookupRF idx rf'
-
-writeRF :: (MonadState Pipe m) => RegIdx -> Word -> m ()
-writeRF idx val = do
-  rf' <- gets rf
-  modify $ \s -> s {rf = modifyRF idx val rf'}
+writeRF :: (MonadWriter Output m) => RegIdx -> Word -> m ()
+writeRF idx val =
+  tell $ mempty {outRd = pure (idx, val)}
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
+
+readRAM :: (MonadWriter Output m) => Address -> m ()
+readRAM addr =
+  tell $
+    mempty
+      { outMem =
+          pure $
+            MemAccess
+              { memAddress = addr,
+                memVal = Nothing
+              }
+      }
+
+writeRAM :: (MonadWriter Output m) => Address -> Word -> m ()
+writeRAM addr val =
+  tell $
+    mempty
+      { outMem =
+          pure $
+            MemAccess
+              { memAddress = addr,
+                memVal = Just val
+              }
+      }
