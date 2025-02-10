@@ -174,8 +174,24 @@ prog2 =
         SType Word 1 0 4
       ]
 
-prog3 :: Vec 2 Word
+prog3 :: Vec 5 Word
 prog3 =
+  map encode $
+    unsafeFromList
+      [ -- r2 := r0 + 3
+        IType (Arith ADD) 2 0 3,
+        -- r3 := r0 + r2
+        RType ADD 3 0 2,
+        -- r2 == r3 ? jump pc + 2
+        BType EQ 2 2 3,
+        -- mem[0 + r0] := r2
+        SType Word 0 0 2,
+        -- mem[1 + r0] := r2
+        SType Word 1 0 2
+      ]
+
+prog4 :: Vec 2 Word
+prog4 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5
@@ -186,8 +202,8 @@ prog3 =
         SType Word 1 0 2
       ]
 
-prog4 :: Vec 7 Word
-prog4 =
+prog5 :: Vec 7 Word
+prog5 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5

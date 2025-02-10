@@ -102,7 +102,8 @@ data Control = Control
   { ctrlExMem :: Bool,
     ctrlMemAccess :: Bool,
     ctrlMeRegFwd :: Maybe (RegIdx, Word),
-    ctrlWbRegFwd :: Maybe (RegIdx, Word)
+    ctrlWbRegFwd :: Maybe (RegIdx, Word),
+    ctrlExBranch :: Maybe Address
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -168,7 +169,8 @@ initCtrl =
     { ctrlExMem = False,
       ctrlMemAccess = False,
       ctrlMeRegFwd = Nothing,
-      ctrlWbRegFwd = Nothing
+      ctrlWbRegFwd = Nothing,
+      ctrlExBranch = Nothing
     }
 
 resetCtrl :: CPUM ()
@@ -181,11 +183,12 @@ fetch = do
   pc <- gets fePc
   stall <- checkLines [ctrlExMem, ctrlMemAccess]
 
-  unless stall $
+  unless stall $ do
+    branchAddr <- gets $ ctrlExBranch . pipeCtrl
     modify $ \s ->
       s
         { -- Increment program counter for next fetch.
-          fePc = pc + 1,
+          fePc = fromMaybe (pc + 1) branchAddr,
           -- Propagate program counter to next stage.
           dePc = pc
         }
@@ -199,11 +202,14 @@ decode = do
 
   readRf ir
 
-  modify $ \s ->
-    s
-      { exIr = ir,
-        exPc = dePc s
-      }
+  stall <- gets $ isJust . ctrlExBranch . pipeCtrl
+
+  unless stall $
+    modify $ \s ->
+      s
+        { exIr = ir,
+          exPc = dePc s
+        }
   where
     readRf ir =
       tell $
@@ -239,8 +245,8 @@ execute = do
           -- Unknown instruction
           Invalid -> empty
           Instruction.RType op _ rs1 rs2 -> do
-            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
-            r2 <- lift $ asks inputRs2 -- lift $ gets exRs2
+            r1 <- lift $ asks inputRs1
+            r2 <- lift $ asks inputRs2
             pure (op, r1, r2)
           Instruction.IType op _ rs1 imm -> do
             -- Do addition for non arithmetic operations.
@@ -248,27 +254,30 @@ execute = do
                   Arith arith -> arith
                   _ -> ADD
 
-            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
+            r1 <- lift $ asks inputRs1
             let imm' = signExtend imm
             pure (op', r1, imm')
           Instruction.SType _ imm rs1 _ -> do
-            r1 <- lift $ asks inputRs1 -- lift $ gets exRs1
+            r1 <- lift $ asks inputRs1
             r2 <-
               if hazardRW ir me_ir
                 then gets (snd . fromJust . ctrlMeRegFwd . pipeCtrl)
                 else
                   if hazardRW ir wb_ir
                     then gets (snd . fromJust . ctrlWbRegFwd . pipeCtrl)
-                    else lift $ asks inputRs2 -- lift $ gets exRs2
+                    else lift $ asks inputRs2
             let imm' = signExtend imm
             modify $ \s -> s {meVal = r2}
             pure (ADD, r1, imm')
           Instruction.BType cmp imm rs1 rs2 -> do
-            r1 <- lift $ asks inputRs1 --  lift $ gets exRs1
-            r2 <- lift $ asks inputRs2 -- lift $ gets exRs2
-            let imm' = if branch cmp r1 r2 then signExtend imm else 4
+            r1 <- lift $ asks inputRs1
+            r2 <- lift $ asks inputRs2
             pc <- gets $ pack . exPc
-            pure (ADD, pc, imm')
+            let doBranch = branch cmp r1 r2
+            when doBranch $
+              setLines $
+                \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+            pure (ADD, 0, 0)
           Instruction.UType base _ imm -> do
             base' <- case base of
               Zero -> pure 0
