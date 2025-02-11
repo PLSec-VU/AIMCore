@@ -130,43 +130,58 @@ pipe = flip $ execRWS pipeM
 -- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
 -- is sequential. That is, it works like so:
 --
---    fetch ──state──> decode ──state──> execute ──state──> memory ──state──> writeback
+--    writeback──state──> memory ──state──> execute ──state──> decode ──state──> fetch
+--
+-- The stages appear in reverse-order because they only send data forward
+-- through the pipeline registers. This means---when simulated in pure
+-- Haskell---that each stage only modifies the state of stages that have already
+-- executed because the stages only have forward dependencies. This enables each
+-- stage to update the state without affecting the execution of stages that have
+-- yet to execute during the current tick.
+--
+-- That is, any writes to the `Pipe` state appear as if they're semantically atomic,
+-- even if they operationally aren't in the pure simulation.
+--
+-- The control lines are an exception here because they send data backwards
+-- through the pipeline and *will* affect the current tick. Another exception is
+-- the fields of `Output`, which are all packaged inside of a `First` type.
+-- This means that the *first* value written to the output is the actual output
+-- at the end of a cycle. Since the stages are written in reverse-order, this
+-- correspond with the last write of the in-order pipeline having precedence.
+-- E.g., outputs from the `writeback` stage take precedence over the other stages.
 --
 -- When synthesized by Clash, the registers will be allocated to the state and
 -- they will be hooked up to each stage like so:
 --
 --    state
---     ├── fetch
---     ├── decode
---     ├── execute
+--     ├── writeback
 --     ├── memory
---     └── writeback
+--     ├── execute
+--     ├── decode
+--     └── fetch
 --
 -- This configuration may make it seem like the precise order of the stages is
--- immaterial.  However, because the fields of `Output` use `Last`, this means
--- that the *last* value written to the output is the actual output at the end
--- of a cycle. So, since fetch comes first (and it always results in an output),
--- any output from later stages (i.e., memory) will be the actual output (and to
--- compensate the fetch still will simply not increment the pc).
+-- immaterial, but recall that they definitely do matter at least for `Output`
+-- due to the use of `First`.
 --
--- Interstage reads/writes from the pipeline state create new dependencies between
--- stages. For example, writing to `dePc` in `decode` and then reading from `dePc`
--- results in:
+-- Interstage reads/writes from the pipeline state create new dependencies
+-- between stages. For example, writing to `wbRe` in `memory` and then reading
+-- from `wbRe` in the `writeback` stage results in:
 --
 --    state
---     ├── fetch
+--     ├── writeback
+--     |     ^
 --     |     |
---     |    dePc
+--     |    wbRe
 --     |     |
---     |     v
---     ├── decode
---     ├── execute
 --     ├── memory
---     └── writeback
+--     ├── execute
+--     ├── decode
+--     └── etch
 --
--- i.e., `dePc` becomes part of the pipeline registers between the fetch and decode stages.
--- This means that each register in the `Pipe` state should be written to by exactly
--- one stage and be read by exactly one stage---namely, the subsequent one.
+-- i.e., `wbRe` becomes part of the pipeline registers between the `memory` and
+-- `writeback` stages. These dependencies implicitly define the ordering of the
+-- pipeline via data dependencies.
 pipeM :: CPUM ()
 pipeM = do
   writeback
@@ -198,11 +213,12 @@ fetch = do
   stall <- checkLines [ctrlExMem, ctrlMemAccess]
 
   unless stall $ do
-    branchAddr <- gets $ ctrlExBranch . pipeCtrl
+    mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
+
     modify $ \s ->
       s
         { -- Increment program counter for next fetch.
-          fePc = fromMaybe (pc + 1) branchAddr,
+          fePc = fromMaybe (pc + 1) mBranchAddr,
           -- Propagate program counter to next stage.
           dePc = pc
         }
@@ -216,11 +232,9 @@ decode = do
 
   readRf ir
 
-  stall <- gets $ isJust . ctrlExBranch . pipeCtrl
-  stall2 <- gets $ ctrlExMem . pipeCtrl
-  stall3 <- gets $ ctrlFirstCycle . pipeCtrl
+  stall <- checkLines [ctrlExMem, ctrlFirstCycle, isJust . ctrlExBranch]
 
-  unless (stall || stall2 || stall3) $ do
+  unless stall $ do
     modify $ \s ->
       s
         { exIr = ir,
@@ -240,31 +254,6 @@ execute = do
   ir <- gets exIr
   me_ir <- gets meIr
   wb_ir <- gets wbIr
-
-  one <- runMaybeT rs1
-  two <- runMaybeT rs2
-
-  traceM $
-    unlines
-      [ "ir",
-        show ir,
-        "me_ir",
-        show me_ir,
-        "wb_ir",
-        show wb_ir,
-        "one",
-        show one,
-        "two",
-        show two
-        -- "hazardRW True ir me_ir",
-        -- show (hazardRW True ir me_ir),
-        -- "hazardRW True ir wb_ir",
-        -- show (hazardRW True ir wb_ir),
-        -- "hazardRW False ir me_ir",
-        -- show (hazardRW False ir me_ir),
-        -- "hazardRW False ir wb_ir",
-        -- show (hazardRW False ir wb_ir)
-      ]
 
   -- Need to save the forwarded values on a stall! Maybe?
   let stall = hazardLoad ir me_ir
