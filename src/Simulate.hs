@@ -169,7 +169,7 @@ prog2 =
         -- r3 := mem[r0 + 0],
         IType (Load Word Signed) 3 0 0,
         -- r4 := r0 + r3
-        IType (Arith ADD) 4 0 3,
+        RType ADD 4 0 3,
         -- mem[1 + r0] := r4
         SType Word 1 0 4
       ]
@@ -226,4 +226,24 @@ prog5 =
         -- RType ADD 8 7 3,
         ---- mem[2 + r0] := r8
         -- SType Word 2 0 8
+      ]
+
+sumTo :: Int -> Vec 7 Word
+sumTo n =
+  map encode $
+    unsafeFromList
+      [ -- r1 := r0 + n
+        IType (Arith ADD) 1 0 $ fromIntegral n,
+        -- r2 := 0 (res = 0)
+        IType (Arith ADD) 2 0 0,
+        -- r1 == r0 ? jump pc + 5
+        BType EQ 4 1 0,
+        -- r2 := r2 + r1 (res += n)
+        RType ADD 2 2 3,
+        -- r1 := r1 - 1 (n -= 1)
+        IType (Arith ADD) 1 1 (-1),
+        -- jump back to the branch
+        JType 0 (-3),
+        -- store result in mem[0]
+        SType Word 0 0 2
       ]

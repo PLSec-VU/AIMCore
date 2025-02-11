@@ -204,7 +204,7 @@ decode = do
 
   stall <- gets $ isJust . ctrlExBranch . pipeCtrl
 
-  unless stall $
+  unless (stall) $ do
     modify $ \s ->
       s
         { exIr = ir,
@@ -221,14 +221,11 @@ decode = do
 -- | Execute stage.
 execute :: CPUM ()
 execute = do
-  -- rs1 <- asks inputRs1
-  -- rs2 <- asks inputRs2
   ir <- gets exIr
   me_ir <- gets meIr
-  wb_ir <- gets wbIr
 
+  -- Need to save the forwarded values on a stall! Maybe?
   let stall = hazardLoad ir me_ir
-
   if stall
     then do
       setLines $
@@ -244,34 +241,28 @@ execute = do
         case ir of
           -- Unknown instruction
           Invalid -> empty
-          Instruction.RType op _ rs1 rs2 -> do
-            r1 <- lift $ asks inputRs1
-            r2 <- lift $ asks inputRs2
+          Instruction.RType op _ _ _ -> do
+            r1 <- rs1
+            r2 <- rs2
             pure (op, r1, r2)
-          Instruction.IType op _ rs1 imm -> do
+          Instruction.IType op _ _ imm -> do
             -- Do addition for non arithmetic operations.
             let op' = case op of
                   Arith arith -> arith
                   _ -> ADD
 
-            r1 <- lift $ asks inputRs1
+            r1 <- rs1
             let imm' = signExtend imm
             pure (op', r1, imm')
-          Instruction.SType _ imm rs1 _ -> do
-            r1 <- lift $ asks inputRs1
-            r2 <-
-              if hazardRW ir me_ir
-                then gets (snd . fromJust . ctrlMeRegFwd . pipeCtrl)
-                else
-                  if hazardRW ir wb_ir
-                    then gets (snd . fromJust . ctrlWbRegFwd . pipeCtrl)
-                    else lift $ asks inputRs2
+          Instruction.SType _ imm _ _ -> do
+            r1 <- rs1
+            r2 <- rs2
             let imm' = signExtend imm
             modify $ \s -> s {meVal = r2}
             pure (ADD, r1, imm')
-          Instruction.BType cmp imm rs1 rs2 -> do
-            r1 <- lift $ asks inputRs1
-            r2 <- lift $ asks inputRs2
+          Instruction.BType cmp imm _ _ -> do
+            r1 <- rs1
+            r2 <- rs2
             pc <- gets $ pack . exPc
             let doBranch = branch cmp r1 r2
             when doBranch $
@@ -286,8 +277,9 @@ execute = do
             pure (ADD, base', imm')
           Instruction.JType _ imm -> do
             pc <- gets $ pack . exPc
-            let imm' = signExtend imm
-            pure (ADD, pc, imm')
+            setLines $
+              \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+            pure (ADD, 0, 0)
 
       ((op, lhs, rhs), ir) <- case val of
         Just (op, lhs, rhs) -> do
@@ -303,18 +295,40 @@ execute = do
             meIr = ir
           }
   where
-    -- Read-Write hazard check.
-    --
-    -- Returns true if there is a read-write hazard between the source registers
-    -- of the first instruction and the destination of the second instruction.
-    hazardRW :: Instruction -> Instruction -> Bool
-    hazardRW src dst = isJust $ do
+    rs1 :: MaybeT CPUM Word
+    rs1 = lift $ regWithFwd True $ asks inputRs1
+
+    rs2 :: MaybeT CPUM Word
+    rs2 = lift $ regWithFwd False $ asks inputRs2
+
+    regWithFwd :: Bool -> CPUM Word -> CPUM Word
+    regWithFwd reg def = do
+      ir <- gets exIr
+      me_ir <- gets meIr
+      wb_ir <- gets wbIr
+      fmap
+        fromJust
+        $ runMaybeT
+        $ msum
+          [ do
+              guard (hazardRW reg ir me_ir)
+              snd <$> MaybeT (gets $ ctrlMeRegFwd . pipeCtrl),
+            do
+              guard (hazardRW reg ir wb_ir)
+              snd <$> MaybeT (gets $ ctrlWbRegFwd . pipeCtrl),
+            lift def
+          ]
+
+    hazardRW :: Bool -> Instruction -> Instruction -> Bool
+    hazardRW reg src dst = isJust $ do
       rd <- getRd dst
       guard (rd /= 0)
       let chk getRs = do
             rs <- getRs src
             guard $ rs == rd
-       in chk getRs1 <|> chk getRs2
+       in if reg
+            then chk getRs1
+            else chk getRs2
 
     hazardLoad :: Instruction -> Instruction -> Bool
     hazardLoad ex_ir@(IType Load {} _ _ _) mem_ir = isJust $ do
