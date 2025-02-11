@@ -311,7 +311,7 @@ encode instruction = do
       let rs2' = pack rs2
       immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
     BType cmp imm rs1 rs2 -> do
-      let opcode = 0b010_0011 :: BitVector 7
+      let opcode = 0b110_0011 :: BitVector 7
 
       let funct3 :: BitVector 3 = case cmp of
             EQ -> 0x0
