@@ -26,6 +26,7 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Monoid
+import Debug.Trace
 import Instruction hiding (decode)
 import qualified Instruction
 import Regfile
@@ -86,7 +87,7 @@ data Pipe = Pipe
     meIr :: Instruction,
     -- | ALU result register memory stage
     meRe :: Word,
-    -- | Memory value to write
+    -- | Memory value to write for stores (`meRe` only contains the address).
     meVal :: Word,
     -- | Instruction register writeback stage
     wbIr :: Instruction,
@@ -97,12 +98,24 @@ data Pipe = Pipe
   }
   deriving (Show, Generic, NFDataX)
 
--- | Control lines. Must be `True` when there's a hazard.
+-- | Control lines.
 data Control = Control
-  { ctrlExMem :: Bool,
+  { -- | `True` during the first step of execution. Needed to prevent the
+    -- `decode` stage from sending out garbage.
+    ctrlFirstCycle :: Bool,
+    -- | `True` when an instruction depends on a prior load instruction. Set in the `execute` stage
+    -- and stalls the pipeline.
+    ctrlExMem :: Bool,
+    -- | `True` during a memory read/write, set in the `memory` stage.
     ctrlMemAccess :: Bool,
+    -- | Forwards the `rd` register from the `memory` stage to the `execute` stage.
+    -- The `RegIdx` payload is necessary to know what the destination register is for
+    -- the instruction in the `memory` stage: it's too late to check this in the `execute` stage
+    -- because it will already have been overwritten with the instruction for the next cycle.
     ctrlMeRegFwd :: Maybe (RegIdx, Word),
+    -- | Forwards the `rd` register from the `writeback` stage to the `execute` stage.
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
+    -- | The result of a branch computatoin. Set in the `execute` stage and contains the new PC.
     ctrlExBranch :: Maybe Address
   }
   deriving (Show, Eq, Generic, NFDataX)
@@ -166,7 +179,8 @@ pipeM = do
 initCtrl :: Control
 initCtrl =
   Control
-    { ctrlExMem = False,
+    { ctrlFirstCycle = True,
+      ctrlExMem = False,
       ctrlMemAccess = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
@@ -175,7 +189,7 @@ initCtrl =
 
 resetCtrl :: CPUM ()
 resetCtrl =
-  modify $ \s -> s {pipeCtrl = initCtrl}
+  modify $ \s -> s {pipeCtrl = initCtrl {ctrlFirstCycle = False}}
 
 -- | The fetch stage.
 fetch :: CPUM ()
@@ -203,8 +217,10 @@ decode = do
   readRf ir
 
   stall <- gets $ isJust . ctrlExBranch . pipeCtrl
+  stall2 <- gets $ ctrlExMem . pipeCtrl
+  stall3 <- gets $ ctrlFirstCycle . pipeCtrl
 
-  unless (stall) $ do
+  unless (stall || stall2 || stall3) $ do
     modify $ \s ->
       s
         { exIr = ir,
@@ -223,6 +239,32 @@ execute :: CPUM ()
 execute = do
   ir <- gets exIr
   me_ir <- gets meIr
+  wb_ir <- gets wbIr
+
+  one <- runMaybeT rs1
+  two <- runMaybeT rs2
+
+  traceM $
+    unlines
+      [ "ir",
+        show ir,
+        "me_ir",
+        show me_ir,
+        "wb_ir",
+        show wb_ir,
+        "one",
+        show one,
+        "two",
+        show two
+        -- "hazardRW True ir me_ir",
+        -- show (hazardRW True ir me_ir),
+        -- "hazardRW True ir wb_ir",
+        -- show (hazardRW True ir wb_ir),
+        -- "hazardRW False ir me_ir",
+        -- show (hazardRW False ir me_ir),
+        -- "hazardRW False ir wb_ir",
+        -- show (hazardRW False ir wb_ir)
+      ]
 
   -- Need to save the forwarded values on a stall! Maybe?
   let stall = hazardLoad ir me_ir
@@ -309,19 +351,22 @@ execute = do
       fmap
         fromJust
         $ runMaybeT
-        $ msum
-          [ do
-              guard (hazardRW reg ir me_ir)
-              snd <$> MaybeT (gets $ ctrlMeRegFwd . pipeCtrl),
-            do
-              guard (hazardRW reg ir wb_ir)
-              snd <$> MaybeT (gets $ ctrlWbRegFwd . pipeCtrl),
-            lift def
-          ]
+        $ do
+          msum
+            [ do
+                (meFwdIdx, meFwdVal) <- MaybeT (gets $ ctrlMeRegFwd . pipeCtrl)
+                guard (hazardRW reg ir meFwdIdx)
+                pure meFwdVal,
+              do
+                (wbFwdIdx, wbFwdVal) <- MaybeT (gets $ ctrlWbRegFwd . pipeCtrl)
+                guard (hazardRW reg ir wbFwdIdx)
+                pure wbFwdVal,
+              lift
+                def
+            ]
 
-    hazardRW :: Bool -> Instruction -> Instruction -> Bool
-    hazardRW reg src dst = isJust $ do
-      rd <- getRd dst
+    hazardRW :: Bool -> Instruction -> RegIdx -> Bool
+    hazardRW reg src rd = isJust $ do
       guard (rd /= 0)
       let chk getRs = do
             rs <- getRs src
@@ -331,7 +376,7 @@ execute = do
             else chk getRs2
 
     hazardLoad :: Instruction -> Instruction -> Bool
-    hazardLoad ex_ir@(IType Load {} _ _ _) mem_ir = isJust $ do
+    hazardLoad ex_ir mem_ir@(IType Load {} _ _ _) = isJust $ do
       rs1 <- getRs1 ex_ir
       rs2 <- getRs2 ex_ir
       rd <- getRd mem_ir
@@ -370,7 +415,6 @@ execute = do
 memory :: CPUM ()
 memory = do
   result <- gets meRe
-
   instr <- gets meIr
 
   -- Forwarding
@@ -396,16 +440,6 @@ memory = do
         wbRe = meRe s
       }
 
--- where
---  hazardRW :: Instruction -> Instruction -> Bool
---  hazardRW src dst = isJust $ do
---    rd <- getRd dst
---    guard (rd /= 0)
---    let chk getRs = do
---          rs <- getRs src
---          guard $ rs == rd
---     in chk getRs1 <|> chk getRs2
-
 -- | Commit computations to the register file.
 --
 -- Returns whether we used the memory access for the writeback. This useful to
@@ -415,6 +449,11 @@ writeback = do
   input <- asks inputMem
   ir <- gets wbIr
   result <- gets wbRe
+
+  runMaybeT $ do
+    rd <- getRd ir
+    lift $ setLines $ \c ->
+      c {ctrlWbRegFwd = pure (rd, result)}
 
   -- We could do a lot better here. It's just annoying to deal with the type
   -- naturals.
@@ -430,7 +469,10 @@ writeback = do
     Instruction.IType (Arith _) rd _ _ -> writeRF rd result
     Instruction.UType _ rd _ -> writeRF rd result
     Instruction.IType (Load size sign) rd _ _ -> do
-      writeRF rd $ loadExtend (size, sign)
+      let val = loadExtend (size, sign)
+      setLines $ \c ->
+        c {ctrlWbRegFwd = pure (rd, val)}
+      writeRF rd val
     Instruction.BType {} -> do
       modify $ \s -> s {fePc = unpack result}
     Instruction.JType rd _ -> do
@@ -443,9 +485,7 @@ writeback = do
       writeRF rd $ pack pc
     _ -> pure ()
   where
-    writeRF idx val = do
-      setLines $ \c ->
-        c {ctrlWbRegFwd = pure (idx, val)}
+    writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
 
 try :: (Monad m) => MaybeT m () -> m ()

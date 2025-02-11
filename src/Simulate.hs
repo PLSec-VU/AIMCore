@@ -12,6 +12,7 @@ import Pipe
 import Regfile
 import Types
 import Prelude hiding (Ordering (..), Word, init, map, not, repeat, undefined, (!!), (&&), (++), (||))
+import qualified Prelude
 
 data Mem n = Mem
   { memRAM :: Vec n Word,
@@ -63,12 +64,14 @@ simMemStep (Output mem rs1 rs2 rd) = do
               pure 0
       | otherwise = pure 0
 
-simStep :: (KnownNat n) => Input -> Pipe -> MemM n (Input, Pipe)
-simStep i s = do
+simStep :: (KnownNat n) => Int -> Input -> Pipe -> MemM n (Input, Pipe)
+simStep cycle i s = do
   let (ctrl', s', o) = simPipe s i
   traceM $
     unlines
-      [ "simStep",
+      [ "Step: " Prelude.++ show cycle,
+        "-------------------- ",
+        "",
         "Input:",
         "--------------------",
         show i,
@@ -80,10 +83,6 @@ simStep i s = do
         "Output:",
         "--------------------",
         show o,
-        "",
-        "New state:",
-        "--------------------",
-        show s',
         "",
         "Control:",
         "--------------------",
@@ -114,11 +113,11 @@ simulate :: (KnownNat n) => Int -> Vec n Word -> Mem n
 simulate cycles =
   execState (simulate' initInput initPipe cycles) . flip Mem initRF
   where
-    simulate' i s cycles
-      | cycles <= 0 = pure ()
+    simulate' i s cycles'
+      | cycles' <= 0 = pure ()
       | otherwise = do
-          (i', s') <- simStep i s
-          simulate' i' s' $ cycles - 1
+          (i', s') <- simStep (cycles - cycles') i s
+          simulate' i' s' $ cycles' - 1
 
     initInput =
       Input
@@ -202,7 +201,7 @@ prog4 =
         SType Word 1 0 2
       ]
 
-prog5 :: Vec 7 Word
+prog5 :: Vec 3 Word
 prog5 =
   map encode $
     unsafeFromList
@@ -211,15 +210,15 @@ prog5 =
         -- mem[0 + r0] := r2
         SType Word 0 0 2,
         -- r3 := mem[r0 + 0]
-        IType (Load Word Signed) 3 0 0,
-        -- r4 := r3 + r3
-        RType ADD 4 3 3,
-        -- r5 := r4 - r3
-        RType SUB 5 4 3,
-        -- r6 := r4 + r5
-        RType ADD 6 4 5,
-        -- mem[1 + r0] := r6
-        SType Word 1 0 6
+        IType (Load Word Signed) 3 0 0
+        ---- r4 := r3 + r3
+        -- RType ADD 4 3 3,
+        ---- r5 := r4 - r3
+        -- RType SUB 5 4 3,
+        ---- r6 := r4 + r5
+        -- RType ADD 6 4 5,
+        ---- mem[1 + r0] := r6
+        -- SType Word 1 0 6,
         ---- r7 := mem[r0 + 1]
         -- IType (Load Word Signed) 7 0 1,
         ---- r8 := r7 + r3
