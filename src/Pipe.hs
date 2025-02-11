@@ -38,8 +38,13 @@ init = undefined
 
 -- | The input to the CPU.
 data Input = Input
-  { inputMem :: Word,
+  { -- | Reads from memory.
+    inputMem :: Word,
+    -- | Read from the register file (corresponding to the index requested in
+    -- the `Output`'s `outRs1` field).
     inputRs1 :: Word,
+    -- | Read from the register file (corresponding to the index requested in
+    -- the `Output`'s `outRs2` field).
     inputRs2 :: Word
   }
   deriving (Show, Generic, NFDataX)
@@ -47,17 +52,23 @@ data Input = Input
 -- | A memory access
 data MemAccess = MemAccess
   { memAddress :: Address,
+    -- | The word to be written, if there is one. If set to `Nothing`, then the
+    -- `MemAccess` is a read. Otherwise, it's a write.
     memVal :: Maybe Word
   }
   deriving (Show, Generic, NFDataX)
 
 -- | The output of the CPU.
 data Output = Output
-  { -- Choice of `Last` vs. `First` (from `Data.Monoid`)
-    -- will affect the correct order of stages in `pipeM`.
+  { -- | A memory access.
     outMem :: First MemAccess,
+    -- | A read request from the register file; stores it in the `inputRs1`
+    -- field of `Input` on the next tick.
     outRs1 :: First RegIdx,
+    -- | A read request from the register file; stores it in the `inputRs2`
+    -- field of `Input` on the next tick.
     outRs2 :: First RegIdx,
+    -- | A write to the register file.
     outRd :: First (RegIdx, Word)
   }
   deriving (Show, Generic, NFDataX)
@@ -93,7 +104,7 @@ data Pipe = Pipe
     wbIr :: Instruction,
     -- | ALU result register writeback stage
     wbRe :: Word,
-    -- | Control lines
+    -- | Control/forwarding lines.
     pipeCtrl :: Control
   }
   deriving (Show, Generic, NFDataX)
@@ -103,19 +114,24 @@ data Control = Control
   { -- | `True` during the first step of execution. Needed to prevent the
     -- `decode` stage from sending out garbage.
     ctrlFirstCycle :: Bool,
-    -- | `True` when an instruction depends on a prior load instruction. Set in the `execute` stage
-    -- and stalls the pipeline.
+    -- | `True` when an instruction depends on a prior load instruction. Set in
+    -- the `execute` stage. Stalls the pipeline.
     ctrlExMem :: Bool,
-    -- | `True` during a memory read/write, set in the `memory` stage.
+    -- | `True` when there's a load hazard in the `execute` stage (i.e., a
+    -- dependency on a load instruction that hasn't accessed memory yet). Set
+    -- in the `exeute` stage. Stalls the pipeline.
     ctrlMemAccess :: Bool,
-    -- | Forwards the `rd` register from the `memory` stage to the `execute` stage.
-    -- The `RegIdx` payload is necessary to know what the destination register is for
-    -- the instruction in the `memory` stage: it's too late to check this in the `execute` stage
-    -- because it will already have been overwritten with the instruction for the next cycle.
+    -- | Forwards the rd register from the `memory` stage to the `execute`
+    -- stage.  The `RegIdx` payload is necessary to know what the destination
+    -- register is for the instruction in the `memory` stage: it's too late to
+    -- check this in the `execute` stage because it will already have been
+    -- overwritten with the instruction for the next cycle.
     ctrlMeRegFwd :: Maybe (RegIdx, Word),
-    -- | Forwards the `rd` register from the `writeback` stage to the `execute` stage.
+    -- | Forwards the `rd` register from the `writeback` stage to the `execute`
+    -- stage.
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
-    -- | The result of a branch computatoin. Set in the `execute` stage and contains the new PC.
+    -- | The result of a branch computatoin. Set in the `execute` stage and
+    -- contains the new PC.
     ctrlExBranch :: Maybe Address
   }
   deriving (Show, Eq, Generic, NFDataX)
