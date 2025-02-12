@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module Simulate where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
@@ -30,16 +32,7 @@ class (Monad m) => MonadMemory m where
   regRead :: RegIdx -> m Word
   regWrite :: RegIdx -> Word -> m ()
 
-instance (KnownNat n, Monad m) => MonadMemory (StateT (Mem n) m) where
-  ramRead addr = gets ((!! addr) . memRAM)
-  ramWrite addr w =
-    modify $ \s -> s {memRAM = replace addr w $ memRAM s}
-  regRead idx = do
-    gets $ lookupRF idx . memRf
-  regWrite idx val = do
-    modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
-
-instance (KnownNat n, Monad m, Monoid w) => MonadMemory (RWST r w (Mem n) m) where
+instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
   ramRead addr = gets ((!! addr) . memRAM)
   ramWrite addr w =
     modify $ \s -> s {memRAM = replace addr w $ memRAM s}
