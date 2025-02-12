@@ -1,17 +1,21 @@
 module Simulate where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init)
+import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Control.Monad.State
+import Control.Monad.Writer
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified Debug.Trace as DB
 import Instruction hiding (decode)
 import Pipe
 import Regfile
+import Text.Read (readMaybe)
 import Types
-import Prelude hiding (Ordering (..), Word, init, map, not, repeat, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
 import qualified Prelude
 
 data Mem n = Mem
@@ -20,19 +24,42 @@ data Mem n = Mem
   }
   deriving (Eq, Show, Generic, NFDataX)
 
-type MemM n = State (Mem n)
+class (Monad m) => MonadMemory m where
+  ramRead :: Address -> m Word
+  ramWrite :: Address -> Word -> m ()
+  regRead :: RegIdx -> m Word
+  regWrite :: RegIdx -> Word -> m ()
 
-traceM :: (Applicative f) => String -> f ()
-traceM = DB.traceM -- const $ pure ()
+instance (KnownNat n, Monad m) => MonadMemory (StateT (Mem n) m) where
+  ramRead addr = gets ((!! addr) . memRAM)
+  ramWrite addr w =
+    modify $ \s -> s {memRAM = replace addr w $ memRAM s}
+  regRead idx = do
+    gets $ lookupRF idx . memRf
+  regWrite idx val = do
+    modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
 
-ramRead :: (KnownNat n) => Address -> MemM n Word
-ramRead addr = gets ((!! addr) . memRAM)
+instance (KnownNat n, Monad m, Monoid w) => MonadMemory (RWST r w (Mem n) m) where
+  ramRead addr = gets ((!! addr) . memRAM)
+  ramWrite addr w =
+    modify $ \s -> s {memRAM = replace addr w $ memRAM s}
+  regRead idx = do
+    gets $ lookupRF idx . memRf
+  regWrite idx val = do
+    modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
 
-ramWrite :: (KnownNat n) => Address -> Word -> MemM n ()
-ramWrite addr w =
-  modify $ \s -> s {memRAM = replace addr w $ memRAM s}
+type Log = [String]
 
-simMemStep :: (KnownNat n) => Output -> MemM n Input
+log :: (MonadWriter Log m) => String -> m ()
+log = tell . pure
+
+report :: (MonadWriter Log m, MonadIO m) => m a -> m a
+report m = do
+  (a, w) <- listen m
+  liftIO $ putStrLn $ unlines w
+  pure a
+
+simMemStep :: forall m. (MonadMemory m) => Output -> m Input
 simMemStep (Output mem rs1 rs2 rd) = do
   (rs1', rs2') <- doRegFile
   mem_in <- doMemory
@@ -43,18 +70,14 @@ simMemStep (Output mem rs1 rs2 rd) = do
         inputRs2 = rs2'
       }
   where
+    doRegFile :: m (Word, Word)
     doRegFile = do
-      maybe (pure ()) (uncurry writeReg) $ getFirst rd
-      rs1' <- maybe (pure 0) readReg $ getFirst rs1
-      rs2' <- maybe (pure 0) readReg $ getFirst rs2
+      maybe (pure ()) (uncurry regWrite) $ getFirst rd
+      rs1' <- maybe (pure 0) regRead $ getFirst rs1
+      rs2' <- maybe (pure 0) regRead $ getFirst rs2
       pure (rs1', rs2')
 
-    readReg idx = do
-      gets $ lookupRF idx . memRf
-
-    writeReg idx val = do
-      modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
-
+    doMemory :: m Word
     doMemory
       | Just (MemAccess addr mval) <- getFirst mem =
           case mval of
@@ -63,37 +86,6 @@ simMemStep (Output mem rs1 rs2 rd) = do
               ramWrite addr val
               pure 0
       | otherwise = pure 0
-
-simStep :: (KnownNat n) => Int -> Input -> Pipe -> MemM n (Input, Pipe)
-simStep cycle i s = do
-  let (ctrl', s', o) = simPipe s i
-  traceM $
-    unlines
-      [ "Step: " Prelude.++ show cycle,
-        "-------------------- ",
-        "",
-        "Input:",
-        "--------------------",
-        show i,
-        "",
-        "State:",
-        "--------------------",
-        show s,
-        "",
-        "Output:",
-        "--------------------",
-        show o,
-        "",
-        "Control:",
-        "--------------------",
-        show ctrl',
-        "",
-        "",
-        "",
-        ""
-      ]
-  i' <- simMemStep o
-  pure (i', s')
 
 simPipe :: Pipe -> Input -> (Control, Pipe, Output)
 simPipe = flip $ runRWS simPipeM
@@ -109,37 +101,49 @@ simPipe = flip $ runRWS simPipeM
       resetCtrl
       pure ctrl
 
-simulate :: (KnownNat n) => Int -> Vec n Word -> Mem n
-simulate cycles =
-  execState (simulate' initInput initPipe cycles) . flip Mem initRF
-  where
-    simulate' i s cycles'
-      | cycles' <= 0 = pure ()
-      | otherwise = do
-          (i', s') <- simStep (cycles - cycles') i s
-          simulate' i' s' $ cycles' - 1
+simStep :: (MonadWriter Log m, MonadMemory m) => Input -> Pipe -> m (Input, Pipe)
+simStep i s = do
+  let (ctrl', s', o) = simPipe s i
+  log $
+    unlines
+      [ "Input:",
+        "--------------------",
+        show i,
+        "",
+        "State:",
+        "--------------------",
+        show s,
+        "",
+        "Output:",
+        "--------------------",
+        show o,
+        "",
+        "Control:",
+        "--------------------",
+        show ctrl'
+      ]
+  i' <- simMemStep o
+  pure (i', s')
 
-    initInput =
-      Input
-        { inputMem = 0,
-          inputRs1 = 0,
-          inputRs2 = 0
-        }
-    initPipe =
-      Pipe
-        { fePc = 25,
-          dePc = 0,
-          exPc = 0,
-          exIr = nop,
-          exRs1 = 0,
-          exRs2 = 0,
-          meIr = nop,
-          meRe = 0,
-          meVal = 0,
-          wbIr = nop,
-          wbRe = 0,
-          pipeCtrl = initCtrl
-        }
+iterateM :: (Monad m) => Int -> (a -> m a) -> a -> m a
+iterateM 0 _ a = pure a
+iterateM n m a = iterateM (n - 1) m =<< m a
+
+simIO :: forall n. (KnownNat n) => Vec n Word -> IO ()
+simIO =
+  void
+    . runRWST
+      (simulate initInput initPipe 0)
+      ()
+    . flip Mem initRF
+  where
+    simulate :: Input -> Pipe -> Int -> RWST () Log (Mem n) IO ()
+    simulate i s n =
+      void $ forever $ do
+        lift $ putStrLn "Press Enter to continue or enter a number to do that many steps."
+        n <- (fromMaybe 1 . readMaybe) <$> lift getLine
+        (i', s') <- iterateM n (report . uncurry simStep) (i, s)
+        simulate i' s' n
 
 mkRAM :: ((n + m) ~ 25, KnownNat m) => Vec n Word -> Vec 50 Word
 mkRAM prog =

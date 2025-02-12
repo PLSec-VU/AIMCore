@@ -3,6 +3,8 @@
 {-# HLINT ignore "Use if" #-}
 module Pipe
   ( init,
+    initInput,
+    initPipe,
     initCtrl,
     resetCtrl,
     pipe,
@@ -206,6 +208,31 @@ pipeM = do
   decode
   fetch
   resetCtrl
+
+initInput :: Input
+initInput =
+  Input
+    { inputMem = 0,
+      inputRs1 = 0,
+      inputRs2 = 0
+    }
+
+initPipe :: Pipe
+initPipe =
+  Pipe
+    { fePc = 25,
+      dePc = 0,
+      exPc = 0,
+      exIr = nop,
+      exRs1 = 0,
+      exRs2 = 0,
+      meIr = nop,
+      meRe = 0,
+      meVal = 0,
+      wbIr = nop,
+      wbRe = 0,
+      pipeCtrl = initCtrl
+    }
 
 initCtrl :: Control
 initCtrl =
