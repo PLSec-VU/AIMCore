@@ -188,7 +188,7 @@ pipe = flip $ execRWS pipeM
 --
 --    state
 --     ├── writeback
---     |     ^
+--     |    /|\
 --     |     |
 --     |    wbRe
 --     |     |
@@ -200,6 +200,8 @@ pipe = flip $ execRWS pipeM
 -- i.e., `wbRe` becomes part of the pipeline registers between the `memory` and
 -- `writeback` stages. These dependencies implicitly define the ordering of the
 -- pipeline via data dependencies.
+
+-- | The CPU.
 pipeM :: CPUM ()
 pipeM = do
   writeback
@@ -234,6 +236,7 @@ initPipe =
       pipeCtrl = initCtrl
     }
 
+-- | Initial control lines.
 initCtrl :: Control
 initCtrl =
   Control
@@ -245,6 +248,7 @@ initCtrl =
       ctrlExBranch = Nothing
     }
 
+-- | The control lines need to be reset every tick.
 resetCtrl :: CPUM ()
 resetCtrl =
   modify $ \s -> s {pipeCtrl = initCtrl {ctrlFirstCycle = False}}
@@ -266,7 +270,8 @@ fetch = do
           dePc = pc
         }
 
-  readRAM pc
+    -- Fetch the next instruction from memory.
+    readRAM pc
 
 -- | Decode stage.
 decode :: CPUM ()
