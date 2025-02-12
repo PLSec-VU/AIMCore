@@ -32,7 +32,7 @@ class (Monad m) => MonadMemory m where
   regRead :: RegIdx -> m Word
   regWrite :: RegIdx -> Word -> m ()
 
-instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
+instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
   ramRead addr = gets ((!! addr) . memRAM)
   ramWrite addr w =
     modify $ \s -> s {memRAM = replace addr w $ memRAM s}
