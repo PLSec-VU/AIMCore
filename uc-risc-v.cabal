@@ -60,6 +60,8 @@ library
     , composition
     , mtl >=2.2.2
     , pretty
+    , tasty
+    , tasty-hunit
     , transformers
   default-language: Haskell2010
 
@@ -93,6 +95,8 @@ executable uc-risc-v-exe
     , composition
     , mtl >=2.2.2
     , pretty
+    , tasty
+    , tasty-hunit
     , transformers
     , uc-risc-v
   default-language: Haskell2010
@@ -128,6 +132,8 @@ test-suite uc-risc-v-test
     , composition
     , mtl >=2.2.2
     , pretty
+    , tasty
+    , tasty-hunit
     , transformers
     , uc-risc-v
   default-language: Haskell2010

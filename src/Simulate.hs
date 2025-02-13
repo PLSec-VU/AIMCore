@@ -1,3 +1,4 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Simulate where
@@ -17,7 +18,7 @@ import Pipe
 import Regfile
 import Text.Read (readMaybe)
 import Types
-import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 import qualified Prelude
 
 data Mem n = Mem
@@ -122,6 +123,19 @@ iterateM :: (Monad m) => Int -> (a -> m a) -> a -> m a
 iterateM 0 _ a = pure a
 iterateM n m a = iterateM (n - 1) m =<< m a
 
+simToHalt :: forall n. (KnownNat n) => Vec n Word -> Mem n
+simToHalt =
+  fst
+    . execRWS
+      (simulate initInput initPipe)
+      ()
+    . flip Mem initRF
+  where
+    simulate :: Input -> Pipe -> RWS () Log (Mem n) ()
+    simulate _ s
+      | pipeHalt s = pure ()
+    simulate i s = simStep i s >>= uncurry simulate
+
 simIO :: forall n. (KnownNat n) => Vec n Word -> IO ()
 simIO =
   void
@@ -138,20 +152,23 @@ simIO =
         (i', s') <- iterateM n (report . uncurry simStep) (i, s)
         simulate i' s' n
 
-mkRAM :: ((n + m) ~ 25, KnownNat m) => Vec n Word -> Vec 50 Word
-mkRAM prog =
-  (repeat 0 :: Vec 25 Word)
-    ++ prog
-    ++ repeat 0
+-- mkRAM :: (KnownNat n) => Vec n Word -> Vec ((+) RAM_SIZE RAM_SIZE) Word
 
-prog1 :: Vec 2 Word
+type RAM_SIZE = 50
+
+mkRAM :: Vec n Word -> Vec ((+) RAM_SIZE ((+) n 20)) Word
+mkRAM prog =
+  (repeat 0 :: Vec RAM_SIZE Word) ++ prog ++ repeat 0
+
+prog1 :: Vec 3 Word
 prog1 =
   map encode $
     unsafeFromList
       [ -- r2 := r0 + 5
         IType (Arith ADD) 2 0 5,
         -- mem[0 + r0] := r2
-        SType Word 0 0 2
+        SType Word 0 0 2,
+        halt
       ]
 
 prog2 :: Vec 5 Word
@@ -222,24 +239,4 @@ prog5 =
         -- RType ADD 8 7 3,
         ---- mem[2 + r0] := r8
         -- SType Word 2 0 8
-      ]
-
-sumTo :: Int -> Vec 7 Word
-sumTo n =
-  map encode $
-    unsafeFromList
-      [ -- r1 := r0 + n
-        IType (Arith ADD) 1 0 $ fromIntegral n,
-        -- r2 := 0 (res = 0)
-        IType (Arith ADD) 2 0 0,
-        -- r1 == r0 ? jump pc + 5
-        BType EQ 4 1 0,
-        -- r2 := r2 + r1 (res += n)
-        RType ADD 2 2 3,
-        -- r1 := r1 - 1 (n -= 1)
-        IType (Arith ADD) 1 1 (-1),
-        -- jump back to the branch
-        JType 0 (-3),
-        -- store result in mem[0]
-        SType Word 0 0 2
       ]

@@ -29,7 +29,7 @@ import Control.Monad.Trans.Maybe
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Monoid
 import Debug.Trace
-import Instruction hiding (decode)
+import Instruction hiding (decode, halt)
 import qualified Instruction
 import Regfile
 import Types
@@ -107,7 +107,9 @@ data Pipe = Pipe
     -- | ALU result register writeback stage
     wbRe :: Word,
     -- | Control/forwarding lines.
-    pipeCtrl :: Control
+    pipeCtrl :: Control,
+    -- | Are we done?
+    pipeHalt :: Bool
   }
   deriving (Show, Generic, NFDataX)
 
@@ -222,7 +224,7 @@ initInput =
 initPipe :: Pipe
 initPipe =
   Pipe
-    { fePc = 25,
+    { fePc = 50,
       dePc = 0,
       exPc = 0,
       exIr = nop,
@@ -233,7 +235,8 @@ initPipe =
       meVal = 0,
       wbIr = nop,
       wbRe = 0,
-      pipeCtrl = initCtrl
+      pipeCtrl = initCtrl,
+      pipeHalt = False
     }
 
 -- | Initial control lines.
@@ -252,6 +255,11 @@ initCtrl =
 resetCtrl :: CPUM ()
 resetCtrl =
   modify $ \s -> s {pipeCtrl = initCtrl {ctrlFirstCycle = False}}
+
+-- | Stop the CPU.
+halt :: CPUM ()
+halt =
+  modify $ \s -> s {pipeHalt = True}
 
 -- | The fetch stage.
 fetch :: CPUM ()
@@ -300,6 +308,11 @@ decode = do
 execute :: CPUM ()
 execute = do
   ir <- gets exIr
+
+  when
+    (ir == Instruction.halt)
+    halt
+
   me_ir <- gets meIr
   wb_ir <- gets wbIr
 
@@ -319,6 +332,7 @@ execute = do
       val <- runMaybeT $ do
         case ir of
           -- Unknown instruction
+          EBREAK -> empty
           Invalid -> empty
           Instruction.RType op _ _ _ -> do
             r1 <- rs1

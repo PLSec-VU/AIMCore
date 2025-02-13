@@ -42,6 +42,8 @@ dependencies:
 - mtl >= 2.2.2
 - transformers
 - pretty
+- tasty
+- tasty-hunit
 
 ghc-options:
 - -Wall
