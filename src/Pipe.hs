@@ -134,7 +134,7 @@ data Control = Control
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
-    -- | The result of a branch computatoin. Set in the `execute` stage and
+    -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
     ctrlExBranch :: Maybe Address
   }
@@ -289,6 +289,17 @@ decode = do
   readRf ir
 
   stall <- checkLines [ctrlExMem, ctrlFirstCycle, isJust . ctrlExBranch]
+
+  if stall
+    then modify $ \s ->
+      s
+        { exIr = nop
+        }
+    else modify $ \s ->
+      s
+        { exIr = ir,
+          exPc = dePc s
+        }
 
   unless stall $ do
     modify $ \s ->
@@ -524,16 +535,6 @@ writeback = do
       setLines $ \c ->
         c {ctrlWbRegFwd = pure (rd, val)}
       writeRF rd val
-    Instruction.BType {} -> do
-      modify $ \s -> s {fePc = unpack result}
-    Instruction.JType rd _ -> do
-      modify $ \s -> s {fePc = unpack result}
-      pc <- gets fePc
-      writeRF rd $ pack pc
-    Instruction.IType Jump rd _ _ -> do
-      modify $ \s -> s {fePc = unpack result}
-      pc <- gets fePc
-      writeRF rd $ pack pc
     _ -> pure ()
   where
     writeRF idx val =

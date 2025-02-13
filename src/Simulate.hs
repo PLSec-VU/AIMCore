@@ -185,7 +185,7 @@ prog2 =
         SType Word 1 0 4
       ]
 
-prog3 :: Vec 5 Word
+prog3 :: Vec 6 Word
 prog3 =
   map encode $
     unsafeFromList
@@ -198,7 +198,8 @@ prog3 =
         -- mem[0 + r0] := r2
         SType Word 0 0 2,
         -- mem[1 + r0] := r2
-        SType Word 1 0 2
+        SType Word 1 0 2,
+        halt
       ]
 
 prog4 :: Vec 2 Word
