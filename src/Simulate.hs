@@ -152,8 +152,6 @@ simIO =
         (i', s') <- iterateM n (report . uncurry simStep) (i, s)
         simulate i' s' n
 
--- mkRAM :: (KnownNat n) => Vec n Word -> Vec ((+) RAM_SIZE RAM_SIZE) Word
-
 type RAM_SIZE = 50
 
 mkRAM :: Vec n Word -> Vec ((+) RAM_SIZE ((+) n 20)) Word
