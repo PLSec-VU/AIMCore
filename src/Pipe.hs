@@ -118,15 +118,14 @@ data Control = Control
   { -- | `True` during the first step of execution. Needed to prevent the
     -- `decode` stage from sending out garbage.
     ctrlFirstCycle :: Bool,
-    -- | `True` when an instruction depends on a prior load instruction. Set in
-    -- the `execute` stage. Stalls the pipeline.
-    ctrlLoadHazard :: Bool,
     -- | `True` when a later stage is accessing the memory, meaning
     -- that the memory inputs are not valid at the current stage.
     ctrlDecodeLoad :: Bool,
     ctrlExLoad :: Bool,
-    ctrlMeMemory :: Bool,
-    ctrlInvalidMemInputs :: Bool,
+    -- | A stage has written to the output with a memory request.
+    ctrlMemOutputActive :: Bool,
+    -- | The memory input is a read from memory request.
+    ctrlMemInputActive :: Bool,
     -- | Forwards the rd register from the `memory` stage to the `execute`
     -- stage.  The `RegIdx` payload is necessary to know what the destination
     -- register is for the instruction in the `memory` stage: it's too late to
@@ -246,11 +245,10 @@ initCtrl :: Control
 initCtrl =
   Control
     { ctrlFirstCycle = True,
-      ctrlLoadHazard = False,
       ctrlDecodeLoad = False,
       ctrlExLoad = False,
-      ctrlMeMemory = False,
-      ctrlInvalidMemInputs = False,
+      ctrlMemOutputActive = False,
+      ctrlMemInputActive = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing
@@ -274,13 +272,18 @@ fetch = do
   -- other reads/writes occur in subsequent stages.
   readRAM pc
 
-  -- Have to always stall incrementing the program counter on any load
-  -- instruction because we cannot tell early enough if there's actually a load
-  -- hazard since that occurs in the `decode` stage.
+  stall <-
+    checkLines
+      [ -- Have to always stall incrementing the program counter on any load
+        -- instruction because we cannot tell early enough if there's actually a load
+        -- hazard since that occurs in the `decode` stage.
+        ctrlDecodeLoad,
+        -- We stall on `ctrlMemOutputActive` because that means next cycle the
+        -- memory will be unavailable to read an instruction from, so we shouldn't
+        -- increment the program counter.
+        ctrlMemOutputActive
+      ]
 
-  -- Should stall one cycle earlier,
-  -- so on the memory stage instead of writeback.
-  stall <- checkLines [ctrlDecodeLoad, ctrlMeMemory] -- ctrlInvalidMemInputs]
   unless stall $ do
     mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
 
@@ -297,41 +300,32 @@ decode :: CPUM ()
 decode = do
   ir <- Instruction.decode <$> asks inputMem
   ex_ir <- gets exIr
-
-  -- Check if the current instructionn will have a load hazard in the execution
-  -- stage. We only need to check the instruction that's currently in the
-  -- execution stage because the value can be forwarded from the memory and
-  -- writeback stages.
-
-  let loadHazard = hazardLoad ir ex_ir
+  readRf ir
 
   case ir of
     IType Load {} _ _ _ ->
       setLines $ \c -> c {ctrlDecodeLoad = True}
     _ -> pure ()
 
-  setLines $
-    \c -> c {ctrlLoadHazard = loadHazard}
-
   stall <-
-    -- (loadHazard ||)
     checkLines
-      [ ctrlFirstCycle,
+      [ -- First cycle = gibberish from memory, so we stall.
+        ctrlFirstCycle,
+        -- This means that the branch was taken, so we have to stall and wait
+        -- until the next cycle to get the correct instruction.
         isJust . ctrlExBranch,
-        ctrlInvalidMemInputs,
+        -- If the memory input is active (i.e., there's a load down the pipe),
+        -- stall.
+        ctrlMemInputActive,
+        -- A load hazard; right now this triggers for all loads, but I think we only
+        -- need to trigger it on actual load hazards (which we can figure out).
         ctrlExLoad
       ]
 
-  if stall
-    then do
-      modify $ \s ->
-        s
-          { exIr = nop
-          }
-    else do
-      readRf ir
-
-      modify $ \s ->
+  modify $ \s ->
+    if stall
+      then s {exIr = nop}
+      else
         s
           { exIr = ir,
             exPc = dePc s
@@ -343,14 +337,6 @@ decode = do
           { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
             outRs2 = pure $ fromMaybe 0 $ getRs2 ir
           }
-
-    hazardLoad :: Instruction -> Instruction -> Bool
-    hazardLoad de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
-      rs1 <- getRs1 de_ir
-      rs2 <- getRs2 de_ir
-      rd <- getRd ex_ir
-      guard $ (rd == rs1) || (rd == rs2)
-    hazardLoad _ _ = False
 
 -- | Execute stage.
 execute :: CPUM ()
@@ -511,12 +497,14 @@ memory = do
       r2 <- gets meVal
       writeRAM (unpack result) (unpack r2)
       setLines $ \c ->
-        c {ctrlMeMemory = True}
+        c {ctrlMemOutputActive = True}
     Instruction.IType Load {} _ _ _ -> do
-      -- Don't forward loads that haven't happened yet
-      setLines $ \c -> c {ctrlMeRegFwd = Nothing}
+      setLines $ \c -> c {}
       setLines $ \c ->
-        c {ctrlMeMemory = True}
+        c -- Don't forward loads that haven't happened yet
+          { ctrlMeRegFwd = Nothing,
+            ctrlMemOutputActive = True
+          }
       readRAM $ unpack result
     _ -> pure ()
 
@@ -560,12 +548,12 @@ writeback = do
       setLines $ \c ->
         c
           { ctrlWbRegFwd = pure (rd, val),
-            ctrlInvalidMemInputs = True
+            ctrlMemInputActive = True
           }
       writeRF rd val
     Instruction.SType {} ->
       setLines $ \c ->
-        c {ctrlInvalidMemInputs = True}
+        c {ctrlMemInputActive = True}
     _ -> pure ()
 
   when
