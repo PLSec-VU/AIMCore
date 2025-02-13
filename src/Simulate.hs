@@ -169,7 +169,7 @@ prog1 =
         halt
       ]
 
-prog2 :: Vec 5 Word
+prog2 :: Vec 6 Word
 prog2 =
   map encode $
     unsafeFromList
@@ -182,7 +182,8 @@ prog2 =
         -- r4 := r0 + r3
         RType ADD 4 0 3,
         -- mem[1 + r0] := r4
-        SType Word 1 0 4
+        SType Word 1 0 4,
+        halt
       ]
 
 prog3 :: Vec 6 Word

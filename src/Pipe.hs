@@ -286,27 +286,28 @@ decode :: CPUM ()
 decode = do
   ir <- Instruction.decode <$> asks inputMem
 
-  readRf ir
+  -- Fix this
+  hazardLoad <- checkLines [ctrlExMem]
 
-  stall <- checkLines [ctrlExMem, ctrlFirstCycle, isJust . ctrlExBranch]
+  stall <- checkLines [ctrlFirstCycle, isJust . ctrlExBranch]
 
-  if stall
-    then modify $ \s ->
-      s
-        { exIr = nop
-        }
-    else modify $ \s ->
-      s
-        { exIr = ir,
-          exPc = dePc s
-        }
+  --  And fix this too.
+  if hazardLoad
+    then pure ()
+    else
+      if stall
+        then modify $ \s ->
+          s
+            { exIr = nop
+            }
+        else do
+          readRf ir
 
-  unless stall $ do
-    modify $ \s ->
-      s
-        { exIr = ir,
-          exPc = dePc s
-        }
+          modify $ \s ->
+            s
+              { exIr = ir,
+                exPc = dePc s
+              }
   where
     readRf ir =
       tell $
@@ -327,7 +328,6 @@ execute = do
   me_ir <- gets meIr
   wb_ir <- gets wbIr
 
-  -- Need to save the forwarded values on a stall! Maybe?
   let stall = hazardLoad ir me_ir
   if stall
     then do

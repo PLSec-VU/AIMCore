@@ -27,7 +27,7 @@ mkTest s (CPUTest prog expected) =
   testCase s $
     let ram = memRAM $ simToHalt $ mkRAM prog
      in forM_ expected $ \(loc, res) ->
-          res @?= ram !! loc
+          ram !! loc @?= res
 
 tests :: TestTree
 tests =
