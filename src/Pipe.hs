@@ -120,11 +120,13 @@ data Control = Control
     ctrlFirstCycle :: Bool,
     -- | `True` when an instruction depends on a prior load instruction. Set in
     -- the `execute` stage. Stalls the pipeline.
-    ctrlExMem :: Bool,
-    -- | `True` when there's a load hazard in the `execute` stage (i.e., a
-    -- dependency on a load instruction that hasn't accessed memory yet). Set
-    -- in the `exeute` stage. Stalls the pipeline.
-    ctrlMemAccess :: Bool,
+    ctrlLoadHazard :: Bool,
+    -- | `True` when a later stage is accessing the memory, meaning
+    -- that the memory inputs are not valid at the current stage.
+    ctrlDecodeLoad :: Bool,
+    ctrlExLoad :: Bool,
+    ctrlMeMemory :: Bool,
+    ctrlInvalidMemInputs :: Bool,
     -- | Forwards the rd register from the `memory` stage to the `execute`
     -- stage.  The `RegIdx` payload is necessary to know what the destination
     -- register is for the instruction in the `memory` stage: it's too late to
@@ -244,8 +246,11 @@ initCtrl :: Control
 initCtrl =
   Control
     { ctrlFirstCycle = True,
-      ctrlExMem = False,
-      ctrlMemAccess = False,
+      ctrlLoadHazard = False,
+      ctrlDecodeLoad = False,
+      ctrlExLoad = False,
+      ctrlMeMemory = False,
+      ctrlInvalidMemInputs = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing
@@ -265,8 +270,17 @@ halt =
 fetch :: CPUM ()
 fetch = do
   pc <- gets fePc
-  stall <- checkLines [ctrlExMem, ctrlMemAccess]
+  -- Fetch the next instruction from memory.  Will only actually happen if no
+  -- other reads/writes occur in subsequent stages.
+  readRAM pc
 
+  -- Have to always stall incrementing the program counter on any load
+  -- instruction because we cannot tell early enough if there's actually a load
+  -- hazard since that occurs in the `decode` stage.
+
+  -- Should stall one cycle earlier,
+  -- so on the memory stage instead of writeback.
+  stall <- checkLines [ctrlDecodeLoad, ctrlMeMemory] -- ctrlInvalidMemInputs]
   unless stall $ do
     mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
 
@@ -278,36 +292,50 @@ fetch = do
           dePc = pc
         }
 
-    -- Fetch the next instruction from memory.
-    readRAM pc
-
 -- | Decode stage.
 decode :: CPUM ()
 decode = do
   ir <- Instruction.decode <$> asks inputMem
+  ex_ir <- gets exIr
 
-  -- Fix this
-  hazardLoad <- checkLines [ctrlExMem]
+  -- Check if the current instructionn will have a load hazard in the execution
+  -- stage. We only need to check the instruction that's currently in the
+  -- execution stage because the value can be forwarded from the memory and
+  -- writeback stages.
 
-  stall <- checkLines [ctrlFirstCycle, isJust . ctrlExBranch]
+  let loadHazard = hazardLoad ir ex_ir
 
-  --  And fix this too.
-  if hazardLoad
-    then pure ()
-    else
-      if stall
-        then modify $ \s ->
-          s
-            { exIr = nop
-            }
-        else do
-          readRf ir
+  case ir of
+    IType Load {} _ _ _ ->
+      setLines $ \c -> c {ctrlDecodeLoad = True}
+    _ -> pure ()
 
-          modify $ \s ->
-            s
-              { exIr = ir,
-                exPc = dePc s
-              }
+  setLines $
+    \c -> c {ctrlLoadHazard = loadHazard}
+
+  stall <-
+    -- (loadHazard ||)
+    checkLines
+      [ ctrlFirstCycle,
+        isJust . ctrlExBranch,
+        ctrlInvalidMemInputs,
+        ctrlExLoad
+      ]
+
+  if stall
+    then do
+      modify $ \s ->
+        s
+          { exIr = nop
+          }
+    else do
+      readRf ir
+
+      modify $ \s ->
+        s
+          { exIr = ir,
+            exPc = dePc s
+          }
   where
     readRf ir =
       tell $
@@ -316,88 +344,89 @@ decode = do
             outRs2 = pure $ fromMaybe 0 $ getRs2 ir
           }
 
+    hazardLoad :: Instruction -> Instruction -> Bool
+    hazardLoad de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
+      rs1 <- getRs1 de_ir
+      rs2 <- getRs2 de_ir
+      rd <- getRd ex_ir
+      guard $ (rd == rs1) || (rd == rs2)
+    hazardLoad _ _ = False
+
 -- | Execute stage.
 execute :: CPUM ()
 execute = do
   ir <- gets exIr
 
-  when
-    (ir == Instruction.halt)
-    halt
-
   me_ir <- gets meIr
   wb_ir <- gets wbIr
 
-  let stall = hazardLoad ir me_ir
-  if stall
-    then do
-      setLines $
-        \c -> c {ctrlExMem = True}
-      modify $ \s ->
-        s
-          { meRe = 0,
-            meIr = nop
-          }
-    else do
-      -- Fetch alu operands
-      val <- runMaybeT $ do
-        case ir of
-          -- Unknown instruction
-          EBREAK -> empty
-          Invalid -> empty
-          Instruction.RType op _ _ _ -> do
-            r1 <- rs1
-            r2 <- rs2
-            pure (op, r1, r2)
-          Instruction.IType op _ _ imm -> do
-            -- Do addition for non arithmetic operations.
-            let op' = case op of
-                  Arith arith -> arith
-                  _ -> ADD
+  -- Fetch alu operands
+  val <- runMaybeT $ do
+    case ir of
+      -- Unknown instruction
+      EBREAK -> empty
+      Invalid -> empty
+      Instruction.RType op _ _ _ -> do
+        r1 <- rs1
+        r2 <- rs2
+        pure (op, r1, r2)
+      Instruction.IType op _ _ imm -> do
+        -- Do addition for non arithmetic operations.
+        let op' = case op of
+              Arith arith -> arith
+              _ -> ADD
 
-            r1 <- rs1
-            let imm' = signExtend imm
-            pure (op', r1, imm')
-          Instruction.SType _ imm _ _ -> do
-            r1 <- rs1
-            r2 <- rs2
-            let imm' = signExtend imm
-            modify $ \s -> s {meVal = r2}
-            pure (ADD, r1, imm')
-          Instruction.BType cmp imm _ _ -> do
-            r1 <- rs1
-            r2 <- rs2
-            pc <- gets $ pack . exPc
-            let doBranch = branch cmp r1 r2
-            when doBranch $
-              setLines $
-                \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
-            pure (ADD, 0, 0)
-          Instruction.UType base _ imm -> do
-            base' <- case base of
-              Zero -> pure 0
-              PC -> gets $ pack . exPc
-            let imm' = imm ++# 0
-            pure (ADD, base', imm')
-          Instruction.JType _ imm -> do
-            pc <- gets $ pack . exPc
+        r1 <- rs1
+        case op of
+          Load {} ->
             setLines $
-              \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
-            pure (ADD, 0, 0)
+              \c -> c {ctrlExLoad = True}
+          _ -> pure ()
 
-      ((op, lhs, rhs), ir) <- case val of
-        Just (op, lhs, rhs) -> do
-          ir <- gets exIr
-          pure ((op, lhs, rhs), ir)
-        _ -> pure ((ADD, 0, 0), nop)
+        let imm' = signExtend imm
+        pure (op', r1, imm')
+      Instruction.SType _ imm _ _ -> do
+        r1 <- rs1
+        r2 <- rs2
+        let imm' = signExtend imm
+        modify $ \s -> s {meVal = r2}
+        pure (ADD, r1, imm')
+      Instruction.BType cmp imm _ _ -> do
+        r1 <- rs1
+        r2 <- rs2
+        pc <- gets $ pack . exPc
+        let doBranch = branch cmp r1 r2
+        when doBranch $
+          setLines $
+            \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+        pure (ADD, 0, 0)
+      Instruction.UType base _ imm -> do
+        base' <- case base of
+          Zero -> pure 0
+          PC -> gets $ pack . exPc
+        let imm' = imm ++# 0
+        pure (ADD, base', imm')
+      Instruction.JType _ imm -> do
+        pc <- gets $ pack . exPc
+        setLines $
+          \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+        pure (ADD, 0, 0)
 
-      let result = alu op lhs rhs
+  ((op, lhs, rhs), ir) <- case val of
+    Just (op, lhs, rhs) -> do
+      ir <- gets exIr
+      pure ((op, lhs, rhs), ir)
+    _ -> pure ((ADD, 0, 0), nop)
 
-      modify $ \s ->
-        s
-          { meRe = result,
-            meIr = ir
-          }
+  let result = alu op lhs rhs
+
+  old_ir <- gets exIr
+
+  modify $ \s ->
+    s
+      { meRe = result,
+        meIr = if old_ir == EBREAK then EBREAK else ir
+      }
   where
     rs1 :: MaybeT CPUM Word
     rs1 = lift $ regWithFwd True $ asks inputRs1
@@ -437,14 +466,6 @@ execute = do
             then chk getRs1
             else chk getRs2
 
-    hazardLoad :: Instruction -> Instruction -> Bool
-    hazardLoad ex_ir mem_ir@(IType Load {} _ _ _) = isJust $ do
-      rs1 <- getRs1 ex_ir
-      rs2 <- getRs2 ex_ir
-      rd <- getRd mem_ir
-      guard $ (rd == rs1) || (rd == rs2)
-    hazardLoad _ _ = False
-
     alu :: Arith -> Word -> Word -> Word
     alu op lhs rhs = case op of
       ADD -> lhs + rhs
@@ -479,7 +500,7 @@ memory = do
   result <- gets meRe
   instr <- gets meIr
 
-  -- Forwarding
+  -- Store Forwarding
   try $ do
     rd <- getRd instr
     res <- lift $ gets meRe
@@ -487,11 +508,15 @@ memory = do
 
   case instr of
     Instruction.SType size _ _ rs2 -> do
-      setLines $ \c -> c {ctrlMemAccess = True}
       r2 <- gets meVal
       writeRAM (unpack result) (unpack r2)
+      setLines $ \c ->
+        c {ctrlMeMemory = True}
     Instruction.IType Load {} _ _ _ -> do
-      setLines $ \c -> c {ctrlMemAccess = True}
+      -- Don't forward loads that haven't happened yet
+      setLines $ \c -> c {ctrlMeRegFwd = Nothing}
+      setLines $ \c ->
+        c {ctrlMeMemory = True}
       readRAM $ unpack result
     _ -> pure ()
 
@@ -533,9 +558,19 @@ writeback = do
     Instruction.IType (Load size sign) rd _ _ -> do
       let val = loadExtend (size, sign)
       setLines $ \c ->
-        c {ctrlWbRegFwd = pure (rd, val)}
+        c
+          { ctrlWbRegFwd = pure (rd, val),
+            ctrlInvalidMemInputs = True
+          }
       writeRF rd val
+    Instruction.SType {} ->
+      setLines $ \c ->
+        c {ctrlInvalidMemInputs = True}
     _ -> pure ()
+
+  when
+    (ir == Instruction.halt)
+    halt
   where
     writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
