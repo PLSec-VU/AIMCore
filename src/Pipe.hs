@@ -115,16 +115,13 @@ data Pipe = Pipe
 
 -- | Control lines.
 data Control = Control
-  { -- | `True` during the first step of execution. Needed to prevent the
-    -- `decode` stage from sending out garbage.
+  { -- | `True` during the first step of execution.
     ctrlFirstCycle :: Bool,
-    -- | `True` when a later stage is accessing the memory, meaning
-    -- that the memory inputs are not valid at the current stage.
+    -- | `True` when the instruction in the `decode` stage is a load.
     ctrlDecodeLoad :: Bool,
-    ctrlExLoad :: Bool,
-    -- | A stage has written to the output with a memory request.
+    -- | `True` when the instruction in the `execute` stage is a load.
     ctrlMemOutputActive :: Bool,
-    -- | The memory input is a read from memory request.
+    -- | `True` when the memory input is a read from memory request.
     ctrlMemInputActive :: Bool,
     -- | Forwards the rd register from the `memory` stage to the `execute`
     -- stage.  The `RegIdx` payload is necessary to know what the destination
@@ -246,7 +243,6 @@ initCtrl =
   Control
     { ctrlFirstCycle = True,
       ctrlDecodeLoad = False,
-      ctrlExLoad = False,
       ctrlMemOutputActive = False,
       ctrlMemInputActive = False,
       ctrlMeRegFwd = Nothing,
@@ -308,19 +304,17 @@ decode = do
     _ -> pure ()
 
   stall <-
-    checkLines
-      [ -- First cycle = gibberish from memory, so we stall.
-        ctrlFirstCycle,
-        -- This means that the branch was taken, so we have to stall and wait
-        -- until the next cycle to get the correct instruction.
-        isJust . ctrlExBranch,
-        -- If the memory input is active (i.e., there's a load down the pipe),
-        -- stall.
-        ctrlMemInputActive,
-        -- A load hazard; right now this triggers for all loads, but I think we only
-        -- need to trigger it on actual load hazards (which we can figure out).
-        ctrlExLoad
-      ]
+    (loadHazard ir ex_ir ||)
+      <$> checkLines
+        [ -- First cycle = gibberish from memory, so we stall.
+          ctrlFirstCycle,
+          -- This means that the branch was taken, so we have to stall and wait
+          -- until the next cycle to get the correct instruction.
+          isJust . ctrlExBranch,
+          -- If the memory input is active (i.e., there's a load down the pipe),
+          -- stall.
+          ctrlMemInputActive
+        ]
 
   modify $ \s ->
     if stall
@@ -337,6 +331,14 @@ decode = do
           { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
             outRs2 = pure $ fromMaybe 0 $ getRs2 ir
           }
+
+    loadHazard :: Instruction -> Instruction -> Bool
+    loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
+      rs1 <- getRs1 de_ir
+      rs2 <- getRs2 de_ir
+      rd <- getRd ex_ir
+      guard $ (rd == rs1) || (rd == rs2)
+    loadHazard _ _ = False
 
 -- | Execute stage.
 execute :: CPUM ()
@@ -363,11 +365,6 @@ execute = do
               _ -> ADD
 
         r1 <- rs1
-        case op of
-          Load {} ->
-            setLines $
-              \c -> c {ctrlExLoad = True}
-          _ -> pure ()
 
         let imm' = signExtend imm
         pure (op', r1, imm')
@@ -499,7 +496,6 @@ memory = do
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
     Instruction.IType Load {} _ _ _ -> do
-      setLines $ \c -> c {}
       setLines $ \c ->
         c -- Don't forward loads that haven't happened yet
           { ctrlMeRegFwd = Nothing,
