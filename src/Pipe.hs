@@ -2,8 +2,7 @@
 
 {-# HLINT ignore "Use if" #-}
 module Pipe
-  ( init,
-    initInput,
+  ( initInput,
     initPipe,
     initCtrl,
     resetCtrl,
@@ -28,15 +27,10 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Monoid
-import Debug.Trace
 import Instruction hiding (decode, halt)
 import qualified Instruction
-import Regfile
 import Types
 import Prelude hiding (Ordering (..), Word, init, not, undefined, (&&), (||))
-
--- Fix
-init = undefined
 
 -- | The input to the CPU.
 data Input = Input
@@ -337,7 +331,7 @@ decode = do
       rs1 <- getRs1 de_ir
       rs2 <- getRs2 de_ir
       rd <- getRd ex_ir
-      guard $ (rd == rs1) || (rd == rs2)
+      guard $ rd == rs1 || rd == rs2
     loadHazard _ _ = False
 
 -- | Execute stage.
@@ -345,14 +339,11 @@ execute :: CPUM ()
 execute = do
   ir <- gets exIr
 
-  me_ir <- gets meIr
-  wb_ir <- gets wbIr
-
   -- Fetch alu operands
-  val <- runMaybeT $ do
+  aluInputs <- runMaybeT $
     case ir of
-      -- Unknown instruction
       EBREAK -> empty
+      -- Unknown instruction
       Invalid -> empty
       Instruction.RType op _ _ _ -> do
         r1 <- rs1
@@ -363,9 +354,7 @@ execute = do
         let op' = case op of
               Arith arith -> arith
               _ -> ADD
-
         r1 <- rs1
-
         let imm' = signExtend imm
         pure (op', r1, imm')
       Instruction.SType _ imm _ _ -> do
@@ -382,7 +371,7 @@ execute = do
         when doBranch $
           setLines $
             \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
-        pure (ADD, 0, 0)
+        empty
       Instruction.UType base _ imm -> do
         base' <- case base of
           Zero -> pure 0
@@ -393,61 +382,41 @@ execute = do
         pc <- gets $ pack . exPc
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
-        pure (ADD, 0, 0)
-
-  ((op, lhs, rhs), ir) <- case val of
-    Just (op, lhs, rhs) -> do
-      ir <- gets exIr
-      pure ((op, lhs, rhs), ir)
-    _ -> pure ((ADD, 0, 0), nop)
-
-  let result = alu op lhs rhs
-
-  old_ir <- gets exIr
+        empty
 
   modify $ \s ->
-    s
-      { meRe = result,
-        meIr = if old_ir == EBREAK then EBREAK else ir
-      }
+    let aluNOP = (ADD, 0, 0)
+        (op, lhs, rhs) = fromMaybe aluNOP aluInputs
+        result = alu op lhs rhs
+     in s
+          { meRe = result,
+            meIr = ir
+          }
   where
     rs1 :: MaybeT CPUM Word
-    rs1 = lift $ regWithFwd True $ asks inputRs1
+    rs1 = lift $ regWithFwd getRs1 =<< asks inputRs1
 
     rs2 :: MaybeT CPUM Word
-    rs2 = lift $ regWithFwd False $ asks inputRs2
+    rs2 = lift $ regWithFwd getRs2 =<< asks inputRs2
 
-    regWithFwd :: Bool -> CPUM Word -> CPUM Word
-    regWithFwd reg def = do
+    regWithFwd :: (Instruction -> Maybe RegIdx) -> Word -> CPUM Word
+    regWithFwd getR def = do
       ir <- gets exIr
       me_ir <- gets meIr
       wb_ir <- gets wbIr
+      let checkForFwd line = do
+            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . pipeCtrl
+            guard (hazardRW getR ir fwdIdx)
+            pure fwdVal
       fmap
-        fromJust
+        (fromMaybe def)
         $ runMaybeT
-        $ do
-          msum
-            [ do
-                (meFwdIdx, meFwdVal) <- MaybeT (gets $ ctrlMeRegFwd . pipeCtrl)
-                guard (hazardRW reg ir meFwdIdx)
-                pure meFwdVal,
-              do
-                (wbFwdIdx, wbFwdVal) <- MaybeT (gets $ ctrlWbRegFwd . pipeCtrl)
-                guard (hazardRW reg ir wbFwdIdx)
-                pure wbFwdVal,
-              lift
-                def
-            ]
+        $ checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
 
-    hazardRW :: Bool -> Instruction -> RegIdx -> Bool
-    hazardRW reg src rd = isJust $ do
-      guard (rd /= 0)
-      let chk getRs = do
-            rs <- getRs src
-            guard $ rs == rd
-       in if reg
-            then chk getRs1
-            else chk getRs2
+    hazardRW :: (Instruction -> Maybe RegIdx) -> Instruction -> RegIdx -> Bool
+    hazardRW getR src rd = isJust $ do
+      rs <- getR src
+      guard $ rd /= 0 && rs == rd
 
     alu :: Arith -> Word -> Word -> Word
     alu op lhs rhs = case op of
@@ -477,7 +446,6 @@ execute = do
       where
         sign = unpack @(Signed 32)
 
--- | Memory stage; interact with memory for load or store operations.
 memory :: CPUM ()
 memory = do
   result <- gets meRe
@@ -497,14 +465,14 @@ memory = do
         c {ctrlMemOutputActive = True}
     Instruction.IType Load {} _ _ _ -> do
       setLines $ \c ->
-        c -- Don't forward loads that haven't happened yet
-          { ctrlMeRegFwd = Nothing,
+        c
+          { -- Don't forward loads that haven't happened yet
+            ctrlMeRegFwd = Nothing,
             ctrlMemOutputActive = True
           }
       readRAM $ unpack result
     _ -> pure ()
 
-  -- Propagate instruction register to the next stage
   modify $ \s ->
     s
       { wbIr = meIr s,
@@ -512,16 +480,13 @@ memory = do
       }
 
 -- | Commit computations to the register file.
---
--- Returns whether we used the memory access for the writeback. This useful to
--- determine whether this word should be decoded as an instruction.
 writeback :: CPUM ()
 writeback = do
   input <- asks inputMem
   ir <- gets wbIr
   result <- gets wbRe
 
-  runMaybeT $ do
+  try $ do
     rd <- getRd ir
     lift $ setLines $ \c ->
       c {ctrlWbRegFwd = pure (rd, result)}
