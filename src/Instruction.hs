@@ -348,13 +348,18 @@ encode instruction = do
 
       -- Note: The first bit of the imm is always 0, which is not stored
       -- directly. This is why the slices are all indexed at (-1) offset.
+      -- let imm10to1 = slice d9 d0 imm
+      -- let imm11 = slice d10 d10 imm
+      -- let imm19to12 = slice d18 d11 imm
+      -- let imm20 = slice d19 d19 imm
+
       let imm10to1 = slice d9 d0 imm
       let imm11 = slice d10 d10 imm
       let imm19to12 = slice d18 d11 imm
       let imm20 = slice d19 d19 imm
 
       let rd' = pack rd
-      imm20 ++# imm19to12 ++# imm11 ++# imm10to1 ++# rd' ++# opcode
+      imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
     Invalid -> 0
 
 nop :: Instruction
