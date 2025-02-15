@@ -96,6 +96,8 @@ data Pipe = Pipe
     meRe :: Word,
     -- | Memory value to write for stores (`meRe` only contains the address).
     meVal :: Word,
+    -- | Did we branch in the `execute` stage on this instruction?
+    meBranch :: Bool,
     -- | Instruction register writeback stage
     wbIr :: Instruction,
     -- | ALU result register writeback stage
@@ -128,8 +130,14 @@ data Control = Control
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
-    ctrlExBranch :: Maybe Address
+    ctrlExBranch :: Maybe Address,
+    -- | The result of a branch computation. Set in the `execute` stage and
+    -- contains the new PC.
+    ctrlMemBranch :: Bool
   }
+  -- \| Need propagate whether a branch instruction is in the `memory` stage
+  -- so we can stall the decode stall another cycle.
+
   deriving (Show, Eq, Generic, NFDataX)
 
 -- | The CPU monad.
@@ -225,6 +233,7 @@ initPipe =
       meIr = nop,
       meRe = 0,
       meVal = 0,
+      meBranch = False,
       wbIr = nop,
       wbRe = 0,
       pipeCtrl = initCtrl,
@@ -241,7 +250,8 @@ initCtrl =
       ctrlMemInputActive = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
-      ctrlExBranch = Nothing
+      ctrlExBranch = Nothing,
+      ctrlMemBranch = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -307,7 +317,11 @@ decode = do
           isJust . ctrlExBranch,
           -- If the memory input is active (i.e., there's a load down the pipe),
           -- stall.
-          ctrlMemInputActive
+          ctrlMemInputActive,
+          -- Is there a branch instruction in the memory stage for which we take
+          -- the branch? Then the current instruction in the `decode` stage is
+          -- stale and we have to stall.
+          ctrlMemBranch
         ]
 
   modify $ \s ->
@@ -338,6 +352,7 @@ decode = do
 execute :: CPUM ()
 execute = do
   ir <- gets exIr
+  modify $ \s -> s {meBranch = False}
 
   -- Fetch alu operands
   aluInputs <- runMaybeT $
@@ -368,7 +383,8 @@ execute = do
         r2 <- rs2
         pc <- gets $ pack . exPc
         let doBranch = branch cmp r1 r2
-        when doBranch $
+        when doBranch $ do
+          modify $ \s -> s {meBranch = True}
           setLines $
             \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
         empty
@@ -380,6 +396,7 @@ execute = do
         pure (ADD, base', imm')
       Instruction.JType _ imm -> do
         pc <- gets $ pack . exPc
+        modify $ \s -> s {meBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
         empty
@@ -471,6 +488,14 @@ memory = do
             ctrlMemOutputActive = True
           }
       readRAM $ unpack result
+    Instruction.BType {} -> do
+      branched <- gets meBranch
+      when branched $
+        setLines $ \c ->
+          c {ctrlMemBranch = True}
+    Instruction.JType {} ->
+      setLines $ \c ->
+        c {ctrlMemBranch = True}
     _ -> pure ()
 
   modify $ \s ->

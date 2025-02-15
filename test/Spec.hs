@@ -112,15 +112,15 @@ sumTo n =
         IType (Arith ADD) 1 0 $ fromIntegral n,
         -- r2 := 0 (res = 0)
         IType (Arith ADD) 2 0 0,
-        -- r1 == r0 ? jump pc + 5
+        -- r1 == r0 ? jump pc + 4
         BType EQ 4 1 0,
         -- r2 := r2 + r1 (res += n)
-        RType ADD 2 2 3,
+        RType ADD 2 2 1,
         -- r1 := r1 - 1 (n -= 1)
         IType (Arith ADD) 1 1 (-1),
         -- jump back to the branch
         JType 0 (-3),
-        -- store result in mem[0]
+        -- mem[0] := r2
         SType Word 0 0 2,
         halt
       ]
