@@ -486,6 +486,15 @@ writeback = do
   ir <- gets wbIr
   result <- gets wbRe
 
+  when (ir == Instruction.halt) $ do
+    -- Flush the pipeline
+    modify $ \s ->
+      s
+        { meIr = nop,
+          exIr = nop
+        }
+    halt
+
   try $ do
     rd <- getRd ir
     lift $ setLines $ \c ->
@@ -516,10 +525,6 @@ writeback = do
       setLines $ \c ->
         c {ctrlMemInputActive = True}
     _ -> pure ()
-
-  when
-    (ir == Instruction.halt)
-    halt
   where
     writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
