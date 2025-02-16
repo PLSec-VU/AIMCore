@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Hardware
+      HardwareSim
       Instruction
       Pipe
       Pretty
