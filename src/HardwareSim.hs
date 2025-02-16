@@ -31,7 +31,8 @@ cpu = mealy pipe initPipe
 system :: (HiddenClockResetEnable dom) => Vec m Word -> Signal dom Output
 system prog = out
   where
-    out = cpu input
+    cpuInput = register initInput input
+    out = cpu cpuInput
     regfile = mkRegfile $ mkRegAccess <$> out
     ram = mkRAM prog (mkMemRead <$> out) (mkMemWrite <$> out)
     input = (\mread (rs1, rs2) -> Input mread rs1 rs2) <$> ram <*> regfile
@@ -65,13 +66,3 @@ mkRAM ::
   Signal dom (Maybe (Address, Word)) ->
   Signal dom Word
 mkRAM = blockRam . Simulate.mkRAM
-
-prog1 =
-  map encode $
-    -- r2 := r0 + 5
-    IType (Arith ADD) 2 0 5
-      :>
-      -- mem[0 + r0] := r2
-      SType Word 0 0 2
-      :> halt
-      :> Nil
