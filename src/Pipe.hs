@@ -65,16 +65,18 @@ data Output = Output
     -- field of `Input` on the next tick.
     outRs2 :: First RegIdx,
     -- | A write to the register file.
-    outRd :: First (RegIdx, Word)
+    outRd :: First (RegIdx, Word),
+    -- | Are we done?
+    outHalt :: First Bool
   }
   deriving (Show, Generic, NFDataX)
 
 instance Semigroup Output where
-  Output mem rs1 rs2 rd <> Output mem' rs1' rs2' rd' =
-    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd')
+  Output mem rs1 rs2 rd hlt <> Output mem' rs1' rs2' rd' hlt' =
+    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (hlt <> hlt')
 
 instance Monoid Output where
-  mempty = Output mempty mempty mempty mempty
+  mempty = Output mempty mempty mempty mempty mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
 data Pipe = Pipe
@@ -511,6 +513,13 @@ writeback = do
   ir <- gets wbIr
   result <- gets wbRe
 
+  halted <- gets pipeHalt
+
+  when halted $ do
+    tell $
+      mempty {outHalt = pure True}
+    readRAM 0
+
   when (ir == Instruction.halt) $ do
     -- Flush the pipeline
     modify $ \s ->
@@ -518,6 +527,7 @@ writeback = do
         { meIr = nop,
           exIr = nop
         }
+    readRAM 0
     halt
 
   try $ do

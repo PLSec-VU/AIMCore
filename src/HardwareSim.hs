@@ -10,6 +10,7 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor
+import Data.Either
 import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified Debug.Trace as DB
@@ -22,23 +23,32 @@ import Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 import qualified Prelude
 
-simN :: (KnownNat m) => Vec m Word -> Int -> [Output]
+simN :: Vec m Word -> Int -> [Either Output Word]
 simN prog n = sampleN @System n $ system prog
+
+simToHalt :: Vec m Word -> Word
+simToHalt prog =
+  Prelude.head $ rights $ simN prog maxBound
 
 cpu :: (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
 cpu = mealy pipe initPipe
 
-system :: (HiddenClockResetEnable dom) => Vec m Word -> Signal dom Output
+system :: (HiddenClockResetEnable dom) => Vec m Word -> Signal dom (Either Output Word)
 system prog = out
   where
+    out =
+      mux
+        (fromMaybe False . getFirst . outHalt <$> cpuOut)
+        (Right <$> ram)
+        (Left <$> cpuOut)
     cpuInput = register initInput input
-    out = cpu cpuInput
-    regfile = mkRegfile $ mkRegAccess <$> out
-    ram = mkRAM prog (mkMemRead <$> out) (mkMemWrite <$> out)
+    cpuOut = cpu cpuInput
+    regfile = mkRegfile $ mkRegAccess <$> cpuOut
+    ram = mkRAM prog (mkMemRead <$> cpuOut) (mkMemWrite <$> cpuOut)
     input = (\mread (rs1, rs2) -> Input mread rs1 rs2) <$> ram <*> regfile
     mkMemRead = maybe 0 memAddress . getFirst . outMem
     mkMemWrite = ((\ma -> (memAddress ma,) <$> memVal ma) =<<) . getFirst . outMem
-    mkRegAccess (Output _ mr1 mr2 mrd) =
+    mkRegAccess (Output _ mr1 mr2 mrd _) =
       RegAccess
         { regRs1 = fromMaybe 0 $ getFirst mr1,
           regRs2 = fromMaybe 0 $ getFirst mr2,
@@ -66,3 +76,13 @@ mkRAM ::
   Signal dom (Maybe (Address, Word)) ->
   Signal dom Word
 mkRAM = blockRam . Simulate.mkRAM
+
+prog1 =
+  map encode $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :> halt
+      :> Nil

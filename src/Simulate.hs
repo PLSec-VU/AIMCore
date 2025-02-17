@@ -54,7 +54,7 @@ report m = do
   pure a
 
 simMemStep :: forall m. (MonadMemory m) => Output -> m Input
-simMemStep (Output mem rs1 rs2 rd) = do
+simMemStep (Output mem rs1 rs2 rd hlt) = do
   (rs1', rs2') <- doRegFile
   mem_in <- doMemory
   pure $
