@@ -25,7 +25,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Data.Maybe (fromJust, fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode, halt)
 import qualified Instruction
@@ -226,7 +226,7 @@ initInput =
 initPipe :: Pipe
 initPipe =
   Pipe
-    { fePc = 50,
+    { fePc = 4 * 50,
       dePc = 0,
       exPc = 0,
       exIr = nop,
@@ -292,7 +292,7 @@ fetch = do
     modify $ \s ->
       s
         { -- Increment program counter for next fetch.
-          fePc = fromMaybe (pc + 1) mBranchAddr,
+          fePc = fromMaybe (pc + 4) mBranchAddr,
           -- Propagate program counter to next stage.
           dePc = pc
         }
@@ -421,8 +421,6 @@ execute = do
     regWithFwd :: (Instruction -> Maybe RegIdx) -> Word -> CPUM Word
     regWithFwd getR def = do
       ir <- gets exIr
-      me_ir <- gets meIr
-      wb_ir <- gets wbIr
       let checkForFwd line = do
             (fwdIdx, fwdVal) <- MaybeT $ gets $ line . pipeCtrl
             guard (hazardRW getR ir fwdIdx)

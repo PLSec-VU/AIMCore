@@ -13,6 +13,7 @@ import Control.Monad.Writer
 import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified Debug.Trace as DB
+import GHC.TypeNats
 import Instruction hiding (decode)
 import Pipe
 import Regfile
@@ -22,10 +23,26 @@ import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, u
 import qualified Prelude
 
 data Mem n = Mem
-  { memRAM :: Vec n Word,
+  { memRAM :: Vec n Byte,
     memRf :: Regfile
   }
   deriving (Eq, Show, Generic, NFDataX)
+
+readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
+readWord addr m =
+  (m !! (addr + 3)) ++# (m !! (addr + 2)) ++# (m !! (addr + 1)) ++# (m !! addr)
+
+writeWord :: (KnownNat n) => Address -> Word -> Vec n Byte -> Vec n Byte
+writeWord addr w mem =
+  let b0 = slice d7 d0 w
+      b1 = slice d15 d8 w
+      b2 = slice d23 d16 w
+      b3 = slice d31 d24 w
+   in replace addr b0 $
+        replace (addr + 1) b1 $
+          replace (addr + 2) b2 $
+            replace (addr + 3) b3 $
+              mem
 
 class (Monad m) => MonadMemory m where
   ramRead :: Address -> m Word
@@ -34,9 +51,9 @@ class (Monad m) => MonadMemory m where
   regWrite :: RegIdx -> Word -> m ()
 
 instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
-  ramRead addr = gets ((!! addr) . memRAM)
+  ramRead addr = gets $ readWord addr . memRAM
   ramWrite addr w =
-    modify $ \s -> s {memRAM = replace addr w $ memRAM s}
+    modify $ \s -> s {memRAM = writeWord addr w $ memRAM s}
   regRead idx = do
     gets $ lookupRF idx . memRf
   regWrite idx val = do
@@ -123,10 +140,10 @@ iterateM :: (Monad m) => Int -> (a -> m a) -> a -> m a
 iterateM 0 _ a = pure a
 iterateM n m a = iterateM (n - 1) m =<< m a
 
-simToHalt' :: (KnownNat n) => Vec n Word -> Word
-simToHalt' = (!! 0) . memRAM . simToHalt
+simToHalt' :: (KnownNat n) => Vec n Byte -> Word
+simToHalt' = (readWord 0) . memRAM . simToHalt
 
-simToHalt :: forall n. (KnownNat n) => Vec n Word -> Mem n
+simToHalt :: forall n. (KnownNat n) => Vec n Byte -> Mem n
 simToHalt =
   fst
     . execRWS
@@ -139,7 +156,7 @@ simToHalt =
       | pipeHalt s = pure ()
     simulate i s = simStep i s >>= uncurry simulate
 
-simIO :: forall n. (KnownNat n) => Vec n Word -> IO ()
+simIO :: forall n. (KnownNat n) => Vec n Byte -> IO ()
 simIO =
   void
     . runRWST
@@ -155,8 +172,10 @@ simIO =
         (i', s') <- iterateM n (report . uncurry simStep) (i, s)
         simulate i' s' n
 
-type RAM_SIZE = 50
+type RAM_SIZE = (GHC.TypeNats.*) 4 50
 
-mkRAM :: Vec n Word -> Vec ((+) RAM_SIZE ((+) n 20)) Word
+type MEM_SIZE n = (+) RAM_SIZE ((+) ((GHC.TypeNats.*) n 4) RAM_SIZE)
+
+mkRAM :: (KnownNat n) => Vec n Word -> Vec (MEM_SIZE n) Byte
 mkRAM prog =
-  (repeat 0 :: Vec RAM_SIZE Word) ++ prog ++ repeat 0
+  (repeat 0 :: Vec RAM_SIZE Byte) ++ vecWordToByte prog ++ repeat 0
