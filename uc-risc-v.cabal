@@ -27,6 +27,7 @@ library
   exposed-modules:
       HardwareSim
       Instruction
+      Leak
       Pipe
       Pretty
       Regfile
