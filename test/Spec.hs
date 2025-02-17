@@ -3,6 +3,7 @@ module Main where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
+import qualified HardwareSim
 import Instruction
 import Pipe
 import Regfile
@@ -22,12 +23,19 @@ data CPUTest n = CPUTest
   }
   deriving (Show, Eq)
 
-mkTest :: (KnownNat (RAM_SIZE + (n + 20))) => String -> CPUTest n -> TestTree
-mkTest s (CPUTest prog expected) =
+mkPureTest :: (KnownNat (RAM_SIZE + (n + 20))) => String -> CPUTest n -> TestTree
+mkPureTest s (CPUTest prog expected) =
   testCase s $
     let ram = memRAM $ simToHalt $ mkRAM prog
      in forM_ expected $ \(loc, res) ->
           ram !! loc @?= res
+
+mkCmpTest :: (KnownNat (RAM_SIZE + (n + 20))) => String -> Vec n Word -> TestTree
+mkCmpTest s prog =
+  testCase s $
+    let pure_mem0 = simToHalt' $ mkRAM prog
+        clash_mem0 = HardwareSim.simToHalt prog
+     in pure_mem0 @?= clash_mem0
 
 tests :: TestTree
 tests =
@@ -35,74 +43,87 @@ tests =
     "Haskell simulation tests"
     [ testGroup
         "Basic programs"
-        [ mkTest
+        [ mkPureTest
             "test 1"
             CPUTest
-              { testProg =
-                  map encode $
-                    -- r2 := r0 + 5
-                    IType (Arith ADD) 2 0 5
-                      :>
-                      -- mem[0 + r0] := r2
-                      SType Word 0 0 2
-                      :> halt
-                      :> Nil,
+              { testProg = prog1,
                 testExpected = [(0, 5)]
               },
-          mkTest
+          mkPureTest
             "test 2"
             CPUTest
-              { testProg =
-                  map encode $
-                    -- r2 := r0 + 5
-                    IType (Arith ADD) 2 0 5
-                      :>
-                      -- mem[0 + r0] := r2
-                      SType Word 0 0 2
-                      :>
-                      -- r3 := mem[r0 + 0],
-                      IType (Load Word Signed) 3 0 0
-                      :>
-                      -- r4 := r0 + r3
-                      RType ADD 4 0 3
-                      :>
-                      -- mem[1 + r0] := r4
-                      SType Word 1 0 4
-                      :> halt
-                      :> Nil,
+              { testProg = prog2,
                 testExpected = [(0, 5), (1, 5)]
               },
-          mkTest
+          mkPureTest
             "test 3"
             CPUTest
-              { testProg =
-                  map encode $
-                    -- r2 := r0 + 3
-                    IType (Arith ADD) 2 0 3
-                      :>
-                      -- r3 := r0 + r2
-                      RType ADD 3 0 2
-                      :>
-                      -- r2 == r3 ? jump pc + 2
-                      BType EQ 2 2 3
-                      :>
-                      -- mem[0 + r0] := r2
-                      SType Word 0 0 2
-                      :>
-                      -- mem[1 + r0] := r2
-                      SType Word 1 0 2
-                      :> halt
-                      :> Nil,
+              { testProg = prog3,
                 testExpected = [(0, 0), (1, 3)]
               },
-          mkTest
+          mkPureTest
             "sumTo 10"
             CPUTest
               { testProg = sumTo 10,
                 testExpected = [(0, sum [0 .. 10])]
               }
+        ],
+      testGroup
+        "Pure and clash simulations should agree."
+        [ mkCmpTest "test 1" prog1,
+          mkCmpTest "test 2" prog2,
+          mkCmpTest "test 3" prog3,
+          mkCmpTest "sumTo 10" $ sumTo 10
         ]
     ]
+
+prog1 =
+  map encode $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :> halt
+      :> Nil
+
+prog2 =
+  map encode $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :>
+      -- r3 := mem[r0 + 0],
+      IType (Load Word Signed) 3 0 0
+      :>
+      -- r4 := r0 + r3
+      RType ADD 4 0 3
+      :>
+      -- mem[1 + r0] := r4
+      SType Word 1 0 4
+      :> halt
+      :> Nil
+
+prog3 =
+  map encode $
+    -- r2 := r0 + 3
+    IType (Arith ADD) 2 0 3
+      :>
+      -- r3 := r0 + r2
+      RType ADD 3 0 2
+      :>
+      -- r2 == r3 ? jump pc + 2
+      BType EQ 2 2 3
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :>
+      -- mem[1 + r0] := r2
+      SType Word 1 0 2
+      :> halt
+      :> Nil
 
 sumTo :: Int -> Vec 8 Word
 sumTo n =

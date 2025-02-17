@@ -123,6 +123,9 @@ iterateM :: (Monad m) => Int -> (a -> m a) -> a -> m a
 iterateM 0 _ a = pure a
 iterateM n m a = iterateM (n - 1) m =<< m a
 
+simToHalt' :: (KnownNat n) => Vec n Word -> Word
+simToHalt' = (!! 0) . memRAM . simToHalt
+
 simToHalt :: forall n. (KnownNat n) => Vec n Word -> Mem n
 simToHalt =
   fst
