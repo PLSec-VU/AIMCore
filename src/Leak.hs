@@ -26,9 +26,8 @@ data LeakInst
   | LOther
   deriving (Eq, Ord, Show)
 
--- This isn't right; the LeakState shouldn't have to keep its own version
--- of the RAM and register file since any reads are fed into the core's input.
--- I guess it's technically not wrong to do so, though.
+-- This isn't right; the LeakState shouldn't keep its own version of the RAM and
+-- register file since any reads are fed into the core's input.
 data LeakState n = LeakState
   { leakRF :: Regfile,
     leakRAM :: Vec n Byte,
