@@ -48,6 +48,7 @@ data Input = Input
 -- | A memory access
 data MemAccess = MemAccess
   { memAddress :: Address,
+    memSize :: Size,
     -- | The word to be written, if there is one. If set to `Nothing`, then the
     -- `MemAccess` is a read. Otherwise, it's a write.
     memVal :: Maybe Word
@@ -477,7 +478,7 @@ memory = do
   case instr of
     Instruction.SType size _ _ rs2 -> do
       r2 <- gets meVal
-      writeRAM (unpack result) (unpack r2)
+      writeRAM (unpack result) size (unpack r2)
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
     Instruction.IType Load {} _ _ _ -> do
@@ -580,18 +581,20 @@ readRAM addr =
           pure $
             MemAccess
               { memAddress = addr,
+                memSize = Word,
                 memVal = Nothing
               }
       }
 
-writeRAM :: (MonadWriter Output m) => Address -> Word -> m ()
-writeRAM addr val =
+writeRAM :: (MonadWriter Output m) => Address -> Size -> Word -> m ()
+writeRAM addr size val =
   tell $
     mempty
       { outMem =
           pure $
             MemAccess
               { memAddress = addr,
+                memSize = size,
                 memVal = Just val
               }
       }

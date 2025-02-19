@@ -32,28 +32,35 @@ readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =
   (m !! (addr + 3)) ++# (m !! (addr + 2)) ++# (m !! (addr + 1)) ++# (m !! addr)
 
-writeWord :: (KnownNat n) => Address -> Word -> Vec n Byte -> Vec n Byte
-writeWord addr w mem =
+write :: (KnownNat n) => Size -> Address -> Word -> Vec n Byte -> Vec n Byte
+write size addr w mem =
   let b0 = slice d7 d0 w
       b1 = slice d15 d8 w
       b2 = slice d23 d16 w
       b3 = slice d31 d24 w
-   in replace addr b0 $
-        replace (addr + 1) b1 $
-          replace (addr + 2) b2 $
-            replace (addr + 3) b3 $
-              mem
+      writeByte =
+        replace addr b0
+      writeHalf =
+        replace (addr + 1) b1 . writeByte
+      writeWord =
+        replace (addr + 3) b3
+          . replace (addr + 2) b2
+          . writeHalf
+   in case size of
+        Byte -> writeByte mem
+        Half -> writeHalf mem
+        Word -> writeWord mem
 
 class (Monad m) => MonadMemory m where
   ramRead :: Address -> m Word
-  ramWrite :: Address -> Word -> m ()
+  ramWrite :: Address -> Size -> Word -> m ()
   regRead :: RegIdx -> m Word
   regWrite :: RegIdx -> Word -> m ()
 
 instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
   ramRead addr = gets $ readWord addr . memRAM
-  ramWrite addr w =
-    modify $ \s -> s {memRAM = writeWord addr w $ memRAM s}
+  ramWrite addr size w =
+    modify $ \s -> s {memRAM = write size addr w $ memRAM s}
   regRead idx = do
     gets $ lookupRF idx . memRf
   regWrite idx val = do
@@ -90,11 +97,11 @@ simMemStep (Output mem rs1 rs2 rd hlt) = do
 
     doMemory :: m Word
     doMemory
-      | Just (MemAccess addr mval) <- getFirst mem =
+      | Just (MemAccess addr size mval) <- getFirst mem =
           case mval of
             Nothing -> ramRead addr
             Just val -> do
-              ramWrite addr val
+              ramWrite addr size val
               pure 0
       | otherwise = pure 0
 
