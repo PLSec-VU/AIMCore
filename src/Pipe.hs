@@ -401,7 +401,7 @@ execute = do
         modify $ \s -> s {meBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
-        empty
+        pure (ADD, pc, 4)
 
   modify $ \s ->
     let aluNOP = (ADD, 0, 0)
@@ -557,6 +557,8 @@ writeback = do
     Instruction.SType {} ->
       setLines $ \c ->
         c {ctrlMemInputActive = True}
+    Instruction.JType rd _ ->
+      writeRF rd result
     _ -> pure ()
   where
     writeRF idx val =
