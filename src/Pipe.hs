@@ -30,7 +30,7 @@ import Data.Monoid
 import Instruction hiding (decode, halt)
 import qualified Instruction
 import Types
-import Prelude hiding (Ordering (..), Word, init, not, undefined, (&&), (||))
+import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 -- | The input to the CPU.
 data Input = Input
@@ -476,7 +476,7 @@ memory = do
     lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, res)}
 
   case instr of
-    Instruction.SType size _ _ rs2 -> do
+    Instruction.SType size _ _ _ -> do
       r2 <- gets meVal
       writeRAM (unpack result) size (unpack r2)
       setLines $ \c ->
@@ -600,9 +600,9 @@ writeRAM addr size val =
       }
 
 checkLines :: (MonadState Pipe m) => [Control -> Bool] -> m Bool
-checkLines lines = do
+checkLines ls = do
   ctrl <- gets pipeCtrl
-  pure $ or [test ctrl | test <- lines]
+  pure $ or [test ctrl | test <- ls]
 
 setLines :: (MonadState Pipe m) => (Control -> Control) -> m ()
 setLines f = modify $ \s -> s {pipeCtrl = f $ pipeCtrl s}
