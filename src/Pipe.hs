@@ -18,6 +18,8 @@ module Pipe
     CPUM,
     MemAccess (..),
     Control (..),
+    alu,
+    branch,
   )
 where
 
@@ -367,6 +369,13 @@ execute = do
         r1 <- rs1
         r2 <- rs2
         pure (op, r1, r2)
+      Instruction.IType Jump _ _ imm -> do
+        pc <- gets $ pack . exPc
+        r1 <- rs1
+        modify $ \s -> s {meBranch = True}
+        setLines $
+          \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD r1 (signExtend imm)}
+        pure (ADD, pc, 4)
       Instruction.IType op _ _ imm -> do
         -- Do addition for non arithmetic operations.
         let op' = case op of
@@ -436,33 +445,33 @@ execute = do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
 
-    alu :: Arith -> Word -> Word -> Word
-    alu op lhs rhs = case op of
-      ADD -> lhs + rhs
-      SUB -> lhs - rhs
-      XOR -> lhs .^. rhs
-      OR -> lhs .|. rhs
-      AND -> lhs .&. rhs
-      SLL -> lhs `shiftL` shiftBits rhs
-      SRL -> lhs `shiftR` shiftBits rhs
-      SRA -> pack $ sign lhs `shiftR` shiftBits rhs
-      SLT -> set $ sign lhs > sign rhs
-      SLTU -> set $ lhs > rhs
-      where
-        shiftBits s = fromIntegral $ slice d4 d0 s
-        sign = unpack @(Signed 32)
-        set b = if b then 1 else 0
+alu :: Arith -> Word -> Word -> Word
+alu op lhs rhs = case op of
+  ADD -> lhs + rhs
+  SUB -> lhs - rhs
+  XOR -> lhs .^. rhs
+  OR -> lhs .|. rhs
+  AND -> lhs .&. rhs
+  SLL -> lhs `shiftL` shiftBits rhs
+  SRL -> lhs `shiftR` shiftBits rhs
+  SRA -> pack $ sign lhs `shiftR` shiftBits rhs
+  SLT -> set $ sign lhs > sign rhs
+  SLTU -> set $ lhs > rhs
+  where
+    shiftBits s = fromIntegral $ slice d4 d0 s
+    sign = unpack @(Signed 32)
+    set b = if b then 1 else 0
 
-    branch :: Comparison -> Word -> Word -> Bool
-    branch op lhs rhs = case op of
-      EQ -> lhs == rhs
-      NE -> lhs /= rhs
-      LT -> sign lhs < sign rhs
-      GE -> sign lhs >= sign rhs
-      LTU -> lhs < rhs
-      GEU -> lhs >= rhs
-      where
-        sign = unpack @(Signed 32)
+branch :: Comparison -> Word -> Word -> Bool
+branch op lhs rhs = case op of
+  EQ -> lhs == rhs
+  NE -> lhs /= rhs
+  LT -> sign lhs < sign rhs
+  GE -> sign lhs >= sign rhs
+  LTU -> lhs < rhs
+  GEU -> lhs >= rhs
+  where
+    sign = unpack @(Signed 32)
 
 memory :: CPUM ()
 memory = do
