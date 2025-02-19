@@ -5,10 +5,13 @@ import Control.Monad
 import Control.Monad.State
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Monoid
+import Data.Tuple (swap)
+import GHC.TypeNats
 import Instruction hiding (decode, halt)
 import qualified Instruction
 import Pipe
 import Regfile
+import Simulate (readWord)
 import Types
 import Prelude hiding (Ordering (..), Word, init, not, undefined, (!!), (&&), (||))
 
@@ -19,19 +22,29 @@ obs = memAddress . fromJust . getFirst . outMem
 
 -- | Instructions passed to the Simulator
 data LeakInst
-  = LBranch Bool Address
-  | LJ RegIdx Address
-  | LJAbsolute RegIdx Address
-  | LAddPC Address
+  = LJ Address
   | LOther
   deriving (Eq, Ord, Show)
 
-data LeakState n = LState
+-- This isn't right; the LeakState shouldn't have to keep its own version
+-- of the RAM and register file since any reads are fed into the core's input.
+-- I guess it's technically not wrong to do so, though.
+data LeakState n = LeakState
   { leakRF :: Regfile,
     leakRAM :: Vec n Byte,
-    leakBubble :: Bool
+    leakBubble :: Bool,
+    leakPc :: Address
   }
   deriving (Eq, Show)
+
+initLeak :: Vec n Word -> LeakState ((GHC.TypeNats.*) n 4)
+initLeak prog =
+  LeakState
+    { leakRF = initRF,
+      leakRAM = vecWordToByte prog,
+      leakBubble = False,
+      leakPc = 4 * 50
+    }
 
 type LeakM n = State (LeakState n)
 
@@ -60,8 +73,8 @@ leak mem =
           writeRF rd =<< readRAM (unpack val)
           pure LOther
         Jump -> do
-          writeRF rd res
-          pure $ LJAbsolute rd $ bitCoerce res
+          writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+          pure $ LJ $ bitCoerce res
         Env {} -> error ""
     SType size imm r1 r2 -> do
       addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
@@ -70,43 +83,77 @@ leak mem =
       pure LOther
     BType cmp imm r1 r2 -> do
       branched <- branch cmp <$> readRF r1 <*> readRF r2
-      pure $ LBranch branched $ unpack $ signExtend imm
+      if branched
+        then
+          LJ . bitCoerce
+            <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+        else pure LOther
     UType Zero rd imm -> do
       let imm' = imm ++# 0 `shiftL` 12
       writeRF rd $ imm'
       pure LOther
-    UType PC rd imm ->
+    UType PC rd imm -> do
       let imm' = imm ++# 0 `shiftL` 12
-       in pure $ LAddPC $ unpack imm'
-    JType rd imm ->
-      pure $ LJ rd $ bitCoerce $ signExtend imm
+      writeRF rd imm'
+      pure LOther
+    JType rd imm -> do
+      writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+      LJ . bitCoerce
+        <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+
+leakRun :: (KnownNat n) => LeakState n -> Word -> (LeakState n, LeakInst)
+leakRun s i = swap $ runState (leak i) s
+
+leakStep :: (KnownNat n) => (LeakState n, SimState) -> Word -> ((LeakState n, SimState), Address)
+leakStep (ls, ss) i = ((ls', ss'), pc)
+  where
+    (ls', inst) = leakRun ls i
+    (ss', pc) = simRun ss inst
+
+simOn :: Int -> Vec n Word -> [Address]
+simOn n prog = simOn' n initState
+  where
+    simOn' 0 _ = mempty
+    simOn' _ _ = mempty
+    simOn' n s =
+      let (s', pc) = leakStep s
+       in pc : simOn' (n - 1) s'
+    initState = (initLeak prog, initSim)
 
 type SimM = State SimState
 
 data SimState = SimState
   { simPc :: Address,
-    simNextPc :: Address,
     simInstr :: LeakInst
   }
   deriving (Show, Eq)
 
+initSim :: SimState
+initSim =
+  SimState
+    { simPc = 4 * 50,
+      simInstr = LOther
+    }
+
 simFetch :: LeakInst -> SimM Address
-simFetch _ = gets simNextPc
+simFetch _ = gets simPc
 
 simExecute :: SimM ()
 simExecute = do
   instr <- gets simInstr
   case instr of
-    LBranch branch imm
-      | branch ->
-          modify $ \s -> s {simNextPc = simPc s + imm}
-      | otherwise ->
-          modify $ \s -> s {simNextPc = simPc s + 4}
+    LJ pc' ->
+      modify $ \s -> s {simPc = pc'}
     LOther ->
-      modify $ \s -> s {simNextPc = simPc s + 4}
+      modify $ \s -> s {simPc = simPc s + 4}
 
-simMemory :: SimM ()
-simMemory = undefined
+simTick :: LeakInst -> SimM Address
+simTick inst = do
+  simExecute
+  simFetch inst
+
+simRun :: SimState -> LeakInst -> (SimState, Address)
+simRun s i = swap $ runState (simTick i) s
 
 readRF :: RegIdx -> LeakM n Word
 readRF idx = gets $ lookupRF idx . leakRF
