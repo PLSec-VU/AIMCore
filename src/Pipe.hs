@@ -493,6 +493,9 @@ memory = do
       when branched $
         setLines $ \c ->
           c {ctrlMemBranch = True}
+    Instruction.IType Jump _ _ _ ->
+      setLines $ \c ->
+        c {ctrlMemBranch = True}
     Instruction.JType {} ->
       setLines $ \c ->
         c {ctrlMemBranch = True}
@@ -557,6 +560,8 @@ writeback = do
     Instruction.SType {} ->
       setLines $ \c ->
         c {ctrlMemInputActive = True}
+    Instruction.IType Jump rd _ _ ->
+      writeRF rd result
     Instruction.JType rd _ ->
       writeRF rd result
     _ -> pure ()
