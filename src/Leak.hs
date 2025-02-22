@@ -27,11 +27,24 @@ obs = memAddress . fromJust . getFirst . outMem
 --  | Jump (Address -> Address)
 --  | Nop
 
+-- data Hazard a
+--   = WithHazard RegIdx a
+--   | NoHazard
+
+data WithReg a
+  = Constant a
+  | Unary RegIdx (Word -> a)
+  | Binary RegIdx RegIdx (Word -> Word -> a)
+
+data JumpType
+  = Offset
+  | Absolute
+
 data LeakInst
-  = RegStore RegIdx Word
-  | MemLoad RegIdx (Word -> Address)
+  = RegStore RegIdx (WithReg Word)
+  | MemLoad RegIdx (WithReg Address)
   | MemStore Address
-  | Jump (Either (Address -> Address) Address)
+  | Jump JumpType Address
   | Nop
 
 -- data Pipeline =
@@ -106,18 +119,40 @@ instOut inst =
 leak :: Input -> LeakM ()
 leak (Input mem rs1 rs2) = do
   case Instruction.decode mem of
-    RType op rd _ _ ->
+    RType op rd r1 r2 ->
       tell $
-        mempty {leakOutInst = pure $ RegStore rd $ alu op rs1 rs2}
-    IType (Load size sign) rd rs1 imm ->
+        mempty {leakOutInst = pure $ RegStore rd $ Binary r1 r2 $ alu op}
+    IType iop rd r1 imm -> do
+      let op =
+            case iop of
+              Arith op' -> op'
+              _ -> ADD
+          comp_res rs1 = alu op rs1 $ signExtend imm
+      case iop of
+        Arith {} ->
+          tell $
+            mempty
+              { leakOutInst = pure $ RegStore rd $ Unary r1 comp_res
+              }
+        Load size sign -> do
+          let loadExtend rs1 = \case
+                (Byte, Signed) -> signExtend $ slice d7 d0 $ comp_res rs1
+                (Byte, Unsigned) -> zeroExtend $ slice d7 d0 $ comp_res rs1
+                (Half, Signed) -> signExtend $ slice d15 d0 $ comp_res rs1
+                (Half, Unsigned) -> signExtend $ slice d15 d0 $ comp_res rs1
+                (Word, _) -> signExtend $ slice d31 d0 $ comp_res rs1
+              comp_val rs1 = loadExtend rs1 (size, sign)
+          tell $
+            mempty
+              { leakOutInst =
+                  pure $
+                    MemLoad rd $
+                      Unary r1 $
+                        bitCoerce . alu ADD (signExtend imm) . comp_val
+              }
+    JType rd imm ->
       tell $
-        mempty {leakOutInst = pure $ MemLoad rd $ bitCoerce . alu ADD (signExtend imm)}
-    JType rd imm -> do
-      let addr pc =
-            bitCoerce $
-              alu ADD (bitCoerce pc) (signExtend imm)
-      tell $
-        mempty {leakOutInst = pure $ Jump $ Left addr}
+        mempty {leakOutInst = pure $ Jump Offset (bitCoerce $ signExtend imm)}
 
 -- JType rd imm -> do
 --  writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
@@ -247,7 +282,7 @@ simFetch = do
     minstr <- asks $ getFirst . leakOutInst
     let instr =
           case fromMaybe Nop minstr of
-            Jump (Left f) -> Jump $ Right $ f $ simPc s
+            Jump Offset offset -> Jump Absolute $ simPc s + offset
     modify $ \s ->
       s
         { simDeInstr = fromMaybe Nop minstr,
@@ -270,21 +305,19 @@ simExecute :: SimM ()
 simExecute = do
   s <- get
   case simExInstr s of
-    Jump (Right addr) ->
+    Jump Absolute addr ->
       modify $ \s ->
         s
           { simPc = addr,
             simBubble = True
           }
-  -- setLines $ \c -> c {simJump = pure addr}
-
   modify $ \s -> s {simMemInstr = simExInstr s}
 
 simMemory :: SimM ()
 simMemory = do
   instr <- gets simMemInstr
-  undefined
-  -- case instr of {}
+  case instr of
+    _ -> pure ()
 
   modify $ \s -> s {simWbInstr = simExInstr s}
 
@@ -293,6 +326,8 @@ simWriteback = do
   instr <- gets simWbInstr
   case instr of
     RegStore rd val -> pure ()
+    MemStore addr -> tell $ pure addr
+    -- MemLoad _ (Right addr) -> tell $ pure addr
     _ -> pure ()
 
 -- case simWbInstr of
