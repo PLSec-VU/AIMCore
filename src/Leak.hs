@@ -57,15 +57,21 @@ data LeakInst
 
 data LeakOut = LeakOut
   { leakOutInst :: First LeakInst,
-    leakOutALUOp :: First (Word -> Word -> Word),
-    leakOutALU :: First Word
+    leakOutRs1 :: First Word,
+    leakOutRs2 :: First Word
   }
 
 instance Semigroup LeakOut where
-  LeakOut i f a <> LeakOut i' f' a' = LeakOut (i <> i') (f <> f') (a <> a')
+  LeakOut i r1 r2 <> LeakOut i' r1' r2' = LeakOut (i <> i') (r1 <> r1') (r2 <> r2')
 
 instance Monoid LeakOut where
   mempty = LeakOut mempty mempty mempty
+
+data SimIn = SimIn
+  { simInInst :: LeakInst,
+    simInRs1 :: Word,
+    simInRs2 :: Word
+  }
 
 type LeakM = RWS () LeakOut LeakState
 
@@ -107,10 +113,6 @@ initLeak =
 --
 -- const :: RegIdx -> Word -> LeakInst
 -- const idx = unary idx . Prelude.const
-
-aluOut :: Word -> LeakM ()
-aluOut v =
-  tell $ mempty {leakOutALU = pure v}
 
 instOut :: LeakInst -> LeakM ()
 instOut inst =
@@ -232,7 +234,7 @@ leak (Input mem rs1 rs2) = do
 --       in pc : simOn' (n - 1) s'
 --    initState = (initLeak prog, initSim)
 --
-type SimM = RWS LeakOut (First Address) SimState
+type SimM = RWS SimIn (First Address) SimState
 
 data SimState = SimState
   { simPc :: Address,
@@ -245,22 +247,10 @@ data SimState = SimState
     simBubble :: Bool
   }
 
-data SimControl = SimControl
-  { simJump :: Maybe (Address)
-  }
-
-initControl =
-  SimControl
-    { simJump = Nothing
-    }
-
--- checkLines :: (MonadState SimState m) => [SimControl -> Bool] -> m Bool
--- checkLines ls = do
---  ctrl <- gets simControl
---  pure $ or [test ctrl | test <- ls]
---
--- setLines :: (MonadState SimState m) => (SimControl -> SimControl) -> m ()
--- setLines f = modify $ \s -> s {simControl = f $ simControl s}
+withReg :: WithReg a -> SimM a
+withReg (Constant a) = pure a
+withReg (Unary _ f) = f <$> asks simInRs1
+withReg (Binary _ _ f) = f <$> asks simInRs1 <*> asks simInRs2
 
 initSim :: SimState
 initSim =
@@ -279,13 +269,14 @@ simFetch :: SimM ()
 simFetch = do
   s <- get
   unless (simBubble s) $ do
-    minstr <- asks $ getFirst . leakOutInst
-    let instr =
-          case fromMaybe Nop minstr of
+    instr <- asks simInInst
+    let instr' =
+          case instr of
             Jump Offset offset -> Jump Absolute $ simPc s + offset
+            _ -> instr
     modify $ \s ->
       s
-        { simDeInstr = fromMaybe Nop minstr,
+        { simDeInstr = instr',
           simPc = simPc s + 4
         }
   tell $ pure $ simPc s
@@ -305,6 +296,8 @@ simExecute :: SimM ()
 simExecute = do
   s <- get
   case simExInstr s of
+    RegStore rd f ->
+      withReg f >> pure ()
     Jump Absolute addr ->
       modify $ \s ->
         s
