@@ -347,10 +347,11 @@ decode = do
 
     loadHazard :: Instruction -> Instruction -> Bool
     loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
-      rs1 <- getRs1 de_ir
-      rs2 <- getRs2 de_ir
-      rd <- getRd ex_ir
-      guard $ rd == rs1 || rd == rs2
+      let mr1 = getRs1 de_ir
+          mr2 = getRs2 de_ir
+          mrd = getRd ex_ir
+      (guard =<< (==) <$> mrd <*> mr1)
+        <|> (guard =<< (==) <$> mrd <*> mr2)
     loadHazard _ _ = False
 
 -- | Execute stage.
