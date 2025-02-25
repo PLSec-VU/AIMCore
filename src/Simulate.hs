@@ -182,13 +182,3 @@ type MEM_SIZE n = (+) RAM_SIZE ((+) ((GHC.TypeNats.*) n 4) RAM_SIZE)
 mkRAM :: (KnownNat n) => Vec n Word -> Vec (MEM_SIZE n) Byte
 mkRAM prog =
   (repeat 0 :: Vec RAM_SIZE Byte) ++ vecWordToByte prog ++ repeat 0
-
-prog1 =
-  map encode $
-    -- r2 := r0 + 5
-    IType (Arith ADD) 2 0 5
-      :>
-      -- mem[0 + r0] := r2
-      SType Word 0 0 2
-      :> Instruction.halt
-      :> Nil

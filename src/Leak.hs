@@ -288,6 +288,9 @@ simDecode = do
   case instr' of
     MemLoad {} -> stall [Fe]
     _ -> pure ()
+  ex_ir <- gets simExInstr
+  when (loadHazard instr' ex_ir) $
+    stall [De]
   stalling <- stallingM De
   modify $ \s ->
     s
@@ -296,6 +299,14 @@ simDecode = do
             then Nop
             else instr'
       }
+  where
+    loadHazard :: LeakInst -> LeakInst -> Bool
+    loadHazard de_ir ex_ir@(MemLoad {}) = isJust $ do
+      let (mr1, mr2) = deps de_ir
+          mrd = regTarg ex_ir
+      (guard =<< (==) <$> mrd <*> mr1)
+        <|> (guard =<< (==) <$> mrd <*> mr2)
+    loadHazard _ _ = False
 
 simExecute :: SimM ()
 simExecute = do
@@ -303,6 +314,12 @@ simExecute = do
   case simExInstr s of
     RegStore rd f ->
       withReg f >> pure ()
+    MemLoad rd f -> do
+      instr' <- MemLoad rd . Constant <$> withRegFwd f
+      modify $ \s ->
+        s
+          { simExInstr = instr'
+          }
     MemStore f -> do
       instr' <- MemStore . Constant <$> withRegFwd f
       modify $ \s ->
@@ -352,13 +369,16 @@ simMemory :: SimM ()
 simMemory = do
   instr <- gets simMemInstr
   case instr of
-    MemLoad {} -> stall [Fe]
+    MemLoad _ (Constant addr) -> do
+      tell $ pure $ bitCoerce addr
+      stall [Fe]
+    MemLoad {} -> error $ show instr
     MemStore (Constant addr) -> do
       tell $ pure $ bitCoerce addr
       stall [Fe]
     _ -> pure ()
 
-  modify $ \s -> s {simWbInstr = simExInstr s}
+  modify $ \s -> s {simWbInstr = simMemInstr s}
 
 simWriteback :: SimM ()
 simWriteback = do
@@ -378,8 +398,9 @@ simWriteback = do
           }
       tell $ pure 0
     RegStore rd val -> pure ()
+    MemLoad {} -> stall [De]
     MemStore (Constant addr) ->
-      tell $ pure $ bitCoerce addr
+      stall [De]
     _ -> pure ()
 
 simTick :: SimM ()
