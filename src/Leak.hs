@@ -45,6 +45,7 @@ data LeakInst
   | MemStore WithReg
   | Jump JumpType Address
   | Nop
+  | Halt
   deriving (Show)
 
 regTarg :: LeakInst -> Maybe RegIdx
@@ -149,6 +150,8 @@ leak = do
     JType rd imm ->
       tell $
         mempty {leakOutInst = pure $ Jump Offset (bitCoerce $ signExtend imm)}
+    EBREAK ->
+      tell $ mempty {leakOutInst = pure Halt}
     _ -> tell $ mempty {leakOutInst = pure Nop}
 
 -- JType rd imm -> do
@@ -240,7 +243,8 @@ data SimState = SimState
     simMemInstr :: LeakInst,
     simMemRes :: Word,
     simWbInstr :: LeakInst,
-    simStall :: Set Stage
+    simStall :: Set Stage,
+    simHalt :: Bool
   }
   deriving (Show)
 
@@ -258,7 +262,8 @@ initSim =
       simMemInstr = Nop,
       simMemRes = 0,
       simWbInstr = Nop,
-      simStall = mempty
+      simStall = mempty,
+      simHalt = False
     }
 
 simFetch :: SimM ()
@@ -358,7 +363,20 @@ simMemory = do
 simWriteback :: SimM ()
 simWriteback = do
   instr <- gets simWbInstr
+  halted <- gets simHalt
+
+  when halted $ do
+    tell $ pure 0
+
   case instr of
+    Halt -> do
+      modify $ \s ->
+        s
+          { simMemInstr = Nop,
+            simExInstr = Nop,
+            simHalt = True
+          }
+      tell $ pure 0
     RegStore rd val -> pure ()
     MemStore (Constant addr) ->
       tell $ pure $ bitCoerce addr
@@ -366,6 +384,7 @@ simWriteback = do
 
 simTick :: SimM ()
 simTick = do
+  modify $ \s -> s {simStall = mempty}
   simWriteback
   simMemory
   simExecute
