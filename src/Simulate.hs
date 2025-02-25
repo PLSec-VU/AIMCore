@@ -119,7 +119,7 @@ simPipe = flip $ runRWS simPipeM
       resetCtrl
       pure ctrl
 
-simStep :: (MonadWriter Log m, MonadMemory m) => Input -> Pipe -> m (Input, Pipe)
+simStep :: (MonadWriter Log m, MonadMemory m) => Input -> Pipe -> m (Input, Pipe, Output)
 simStep i s = do
   let (ctrl', s', o) = simPipe s i
   log $
@@ -141,11 +141,7 @@ simStep i s = do
         show ctrl'
       ]
   i' <- simMemStep o
-  pure (i', s')
-
-iterateM :: (Monad m) => Int -> (a -> m a) -> a -> m a
-iterateM 0 _ a = pure a
-iterateM n m a = iterateM (n - 1) m =<< m a
+  pure (i', s', o)
 
 simToHalt' :: (KnownNat n) => Vec n Byte -> Word
 simToHalt' = (readWord 0) . memRAM . simToHalt
@@ -161,23 +157,23 @@ simToHalt =
     simulate :: Input -> Pipe -> RWS () Log (Mem n) ()
     simulate _ s
       | pipeHalt s = pure ()
-    simulate i s = simStep i s >>= uncurry simulate
+    simulate i s = simStep i s >>= uncurry simulate . (\(i', s', _o) -> (i', s'))
 
 simIO :: forall n. (KnownNat n) => Vec n Byte -> IO ()
 simIO =
   void
     . runRWST
-      (simulate initInput initPipe 0)
+      (simulate initInput initPipe)
       ()
     . flip Mem initRF
   where
-    simulate :: Input -> Pipe -> Int -> RWST () Log (Mem n) IO ()
-    simulate i s n =
+    simulate :: Input -> Pipe -> RWST () Log (Mem n) IO ()
+    simulate i s =
       void $ forever $ do
-        lift $ putStrLn "Press Enter to continue or enter a number to do that many steps."
-        n <- (fromMaybe 1 . readMaybe) <$> lift getLine
-        (i', s') <- iterateM n (report . uncurry simStep) (i, s)
-        simulate i' s' n
+        lift $ putStrLn "Press Enter to continue."
+        _ <- lift getLine
+        (i', s', _o) <- (report . uncurry simStep) (i, s)
+        simulate i' s'
 
 type RAM_SIZE = (GHC.TypeNats.*) 4 50
 
@@ -186,3 +182,13 @@ type MEM_SIZE n = (+) RAM_SIZE ((+) ((GHC.TypeNats.*) n 4) RAM_SIZE)
 mkRAM :: (KnownNat n) => Vec n Word -> Vec (MEM_SIZE n) Byte
 mkRAM prog =
   (repeat 0 :: Vec RAM_SIZE Byte) ++ vecWordToByte prog ++ repeat 0
+
+prog1 =
+  map encode $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :> Instruction.halt
+      :> Nil

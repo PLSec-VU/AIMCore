@@ -59,6 +59,7 @@ library
       base >=4.7 && <5
     , clash-prelude >=1.8.1
     , composition
+    , containers
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -94,6 +95,7 @@ executable uc-risc-v-exe
       base >=4.7 && <5
     , clash-prelude >=1.8.1
     , composition
+    , containers
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -131,6 +133,7 @@ test-suite uc-risc-v-test
       base >=4.7 && <5
     , clash-prelude >=1.8.1
     , composition
+    , containers
     , mtl >=2.2.2
     , pretty
     , tasty

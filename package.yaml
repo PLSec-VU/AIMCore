@@ -44,6 +44,7 @@ dependencies:
 - pretty
 - tasty
 - tasty-hunit
+- containers
 
 ghc-options:
 - -Wall
