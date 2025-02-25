@@ -1,3 +1,6 @@
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Leak where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
@@ -26,54 +29,66 @@ import qualified Prelude
 obs :: Output -> Address
 obs = memAddress . fromJust . getFirst . outMem
 
+-- | A computation that may read inputs from (a) register(s).
 data WithReg
-  = Constant Word
-  | Unary RegIdx (Word -> Word)
+  = Unary RegIdx (Word -> Word)
   | Binary RegIdx RegIdx (Word -> Word -> Word)
 
 instance Show WithReg where
-  show _ = "withreg"
+  show (Unary r _) =
+    unwords ["Unary", show r, "<fun>"]
+  show (Binary r1 r2 _) =
+    unwords ["Binary", show r1, show r2, "<fun>"]
 
 data JumpType
   = Offset
   | Absolute
   deriving (Show)
 
-data LeakInst
-  = RegStore RegIdx WithReg
-  | MemLoad RegIdx WithReg
-  | MemStore WithReg
+newtype Comp a = Comp a
+  deriving (Show, Eq)
+
+newtype Done a = Done Word
+  deriving (Show, Eq)
+
+data LeakInst f
+  = RegStore RegIdx (f WithReg)
+  | MemLoad RegIdx (f WithReg)
+  | MemStore (f WithReg)
   | Jump JumpType Address
   | Nop
   | Halt
-  deriving (Show)
 
-regTarg :: LeakInst -> Maybe RegIdx
-regTarg (RegStore rd _) = pure rd
-regTarg (MemLoad rd _) = pure rd
-regTarg _ = Nothing
+deriving instance (Show (f WithReg)) => Show (LeakInst f)
 
-instrRd :: LeakInst -> Maybe Word
-instrRd (RegStore _ (Constant w)) = pure w
-instrRd (MemLoad _ (Constant w)) = pure w
-instrRd _ = Nothing
+getLeakRd :: LeakInst f -> Maybe RegIdx
+getLeakRd (RegStore rd _) = pure rd
+getLeakRd (MemLoad rd _) = pure rd
+getLeakRd _ = Nothing
+
+instrRes :: LeakInst Done -> Maybe Word
+instrRes (RegStore _ (Done w)) = pure w
+instrRes (MemLoad _ (Done w)) = pure w
+instrRes _ = Nothing
 
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
 
 instance DepReg WithReg where
-  deps (Constant _) = (Nothing, Nothing)
   deps (Unary r _) = (pure r, Nothing)
   deps (Binary r1 r2 _) = (pure r1, pure r2)
 
-instance DepReg LeakInst where
+instance (DepReg a) => DepReg (Comp a) where
+  deps (Comp a) = deps a
+
+instance DepReg (LeakInst Comp) where
   deps (RegStore _ f) = deps f
   deps (MemLoad _ f) = deps f
   deps (MemStore f) = deps f
   deps _ = (Nothing, Nothing)
 
 data LeakOut = LeakOut
-  { leakOutInst :: First LeakInst,
+  { leakOutInst :: First (LeakInst Comp),
     leakOutRs1 :: First Word,
     leakOutRs2 :: First Word
   }
@@ -85,27 +100,12 @@ instance Monoid LeakOut where
   mempty = LeakOut mempty mempty mempty
 
 data SimIn = SimIn
-  { simInInst :: LeakInst,
+  { simInInst :: (LeakInst Comp),
     simInRs1 :: Word,
     simInRs2 :: Word
   }
 
-type LeakM = RWS Input LeakOut LeakState
-
-data LeakState = LeakState
-  {
-  }
-  deriving (Show, Eq)
-
-initLeak :: LeakState
-initLeak =
-  LeakState
-    {
-    }
-
-instOut :: LeakInst -> LeakM ()
-instOut inst =
-  tell $ mempty {leakOutInst = pure inst}
+type LeakM = RWS Input LeakOut ()
 
 leak :: LeakM ()
 leak = do
@@ -113,7 +113,7 @@ leak = do
   case Instruction.decode mem of
     RType op rd r1 r2 ->
       tell $
-        mempty {leakOutInst = pure $ RegStore rd $ Binary r1 r2 $ alu op}
+        mempty {leakOutInst = pure $ RegStore rd $ Comp $ Binary r1 r2 $ alu op}
     IType iop rd r1 imm -> do
       let op =
             case iop of
@@ -124,7 +124,7 @@ leak = do
         Arith {} ->
           tell $
             mempty
-              { leakOutInst = pure $ RegStore rd $ Unary r1 comp_res
+              { leakOutInst = pure $ RegStore rd $ Comp $ Unary r1 comp_res
               }
         Load size sign -> do
           let loadExtend rs1 = \case
@@ -139,13 +139,14 @@ leak = do
               { leakOutInst =
                   pure $
                     MemLoad rd $
-                      Unary r1 $
-                        bitCoerce . alu ADD (signExtend imm) . comp_val
+                      Comp $
+                        Unary r1 $
+                          bitCoerce . alu ADD (signExtend imm) . comp_val
               }
     SType size imm r1 _ ->
       tell $
         mempty
-          { leakOutInst = pure $ MemStore $ Unary r1 $ bitCoerce . alu ADD (signExtend imm)
+          { leakOutInst = pure $ MemStore $ Comp $ Unary r1 $ bitCoerce . alu ADD (signExtend imm)
           }
     JType rd imm ->
       tell $
@@ -220,8 +221,8 @@ leakOutToSimIn (LeakOut minst mrs1 mrs2) =
     (fromMaybe 0 $ getFirst mrs1)
     (fromMaybe 0 $ getFirst mrs2)
 
-leakRun :: LeakState -> Input -> (LeakState, SimIn)
-leakRun s i = fmap leakOutToSimIn $ execRWS leak i s
+leakRun :: () -> Input -> ((), SimIn)
+leakRun _s i = fmap leakOutToSimIn $ execRWS leak i _s
 
 type SimM = RWS SimIn (First Address) SimState
 
@@ -238,20 +239,21 @@ data Stage = Fe | De | Ex | Mem | Wb
 
 data SimState = SimState
   { simPc :: Address,
-    simExInstr :: LeakInst,
+    simExInstr :: LeakInst Comp,
     simExRes :: Word,
-    simMemInstr :: LeakInst,
+    simMemInstr :: LeakInst Done,
     simMemRes :: Word,
-    simWbInstr :: LeakInst,
+    simWbInstr :: LeakInst Done,
     simStall :: Set Stage,
     simHalt :: Bool
   }
   deriving (Show)
 
 withReg :: WithReg -> SimM Word
-withReg (Constant a) = pure a
-withReg (Unary _ f) = f <$> asks simInRs1
-withReg (Binary _ _ f) = f <$> asks simInRs1 <*> asks simInRs2
+withReg (Unary _ f) =
+  f <$> asks simInRs1
+withReg (Binary _ _ f) =
+  f <$> asks simInRs1 <*> asks simInRs2
 
 initSim :: SimState
 initSim =
@@ -300,46 +302,36 @@ simDecode = do
             else instr'
       }
   where
-    loadHazard :: LeakInst -> LeakInst -> Bool
+    loadHazard :: LeakInst Comp -> LeakInst Comp -> Bool
     loadHazard de_ir ex_ir@(MemLoad {}) = isJust $ do
       let (mr1, mr2) = deps de_ir
-          mrd = regTarg ex_ir
+          mrd = getLeakRd ex_ir
       (guard =<< (==) <$> mrd <*> mr1)
         <|> (guard =<< (==) <$> mrd <*> mr2)
     loadHazard _ _ = False
 
 simExecute :: SimM ()
 simExecute = do
-  s <- get
-  case simExInstr s of
+  instr <- gets simExInstr
+  instr' <- case instr of
     RegStore rd f ->
-      withReg f >> pure ()
+      RegStore rd . Done <$> withRegFwd f
     MemLoad rd f -> do
-      instr' <- MemLoad rd . Constant <$> withRegFwd f
-      modify $ \s ->
-        s
-          { simExInstr = instr'
-          }
+      MemLoad rd . Done <$> withRegFwd f
     MemStore f -> do
-      instr' <- MemStore . Constant <$> withRegFwd f
-      modify $ \s ->
-        s
-          { simExInstr = instr'
-          }
+      MemStore . Done <$> withRegFwd f
     Jump Absolute addr -> do
       stall [De]
-      modify $ \s ->
-        s
-          { simPc = addr
-          }
-    _ -> pure ()
-  modify $ \s -> s {simMemInstr = simExInstr s}
+      modify $ \s -> s {simPc = addr}
+      pure $ Jump Absolute addr
+    Nop -> pure Nop
+    Halt -> pure Halt
+  modify $ \s -> s {simMemInstr = instr'}
   where
-    withRegFwd :: WithReg -> SimM Word
-    withRegFwd (Constant w) = pure w
-    withRegFwd (Unary r1 f) =
+    withRegFwd :: (Comp WithReg) -> SimM Word
+    withRegFwd (Comp (Unary r1 f)) =
       f <$> regFwd r1 (asks simInRs1)
-    withRegFwd (Binary r1 r2 f) =
+    withRegFwd (Comp (Binary r1 r2 f)) =
       f <$> regFwd r1 (asks simInRs1) <*> regFwd r2 (asks simInRs2)
 
     regFwd :: RegIdx -> SimM Word -> SimM Word
@@ -353,13 +345,13 @@ simExecute = do
     getFwdReg r =
       do
         s <- get
-        me_rd <- MaybeT $ regTarg <$> gets simMemInstr
-        wb_rd <- MaybeT $ regTarg <$> gets simWbInstr
+        me_rd <- MaybeT $ getLeakRd <$> gets simMemInstr
+        wb_rd <- MaybeT $ getLeakRd <$> gets simWbInstr
         fwd (hazardRW r me_rd) (simMemInstr s)
           <|> fwd (hazardRW r wb_rd) (simWbInstr s)
       where
         fwd cond instr =
-          MaybeT $ pure $ instrRd instr
+          MaybeT $ pure $ instrRes instr
 
     hazardRW :: RegIdx -> RegIdx -> Bool
     hazardRW r rd =
@@ -369,11 +361,10 @@ simMemory :: SimM ()
 simMemory = do
   instr <- gets simMemInstr
   case instr of
-    MemLoad _ (Constant addr) -> do
+    MemLoad _ (Done addr) -> do
       tell $ pure $ bitCoerce addr
       stall [Fe]
-    MemLoad {} -> error $ show instr
-    MemStore (Constant addr) -> do
+    MemStore (Done addr) -> do
       tell $ pure $ bitCoerce addr
       stall [Fe]
     _ -> pure ()
@@ -399,7 +390,7 @@ simWriteback = do
       tell $ pure 0
     RegStore rd val -> pure ()
     MemLoad {} -> stall [De]
-    MemStore (Constant addr) ->
+    MemStore (Done addr) ->
       stall [De]
     _ -> pure ()
 
@@ -415,17 +406,17 @@ simTick = do
 simRun :: SimState -> SimIn -> (SimState, Address)
 simRun s i = (fromMaybe 0 . getFirst) <$> execRWS simTick i s
 
-simLeakRun :: (LeakState, SimState) -> Input -> ((LeakState, SimState), Address)
-simLeakRun (ls, ss) input = ((ls', ss'), addr)
+simLeakRun :: ((), SimState) -> Input -> (((), SimState), Address)
+simLeakRun (_ls, ss) input = ((_ls', ss'), addr)
   where
-    (ls', simin) = leakRun ls input
+    (_ls', simin) = leakRun _ls input
     (ss', addr) = simRun ss simin
 
 simIO :: forall n. (KnownNat n) => Vec n Byte -> IO ()
 simIO =
   void
     . runRWST
-      (simulate initInput initPipe initLeak initSim)
+      (simulate initInput initPipe () initSim)
       ()
     . flip Simulate.Mem initRF
   where
