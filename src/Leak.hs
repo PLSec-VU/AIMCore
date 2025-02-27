@@ -30,20 +30,15 @@ obs :: Output -> Address
 obs = memAddress . fromJust . getFirst . outMem
 
 -- | A computation that may read inputs from (a) register(s).
-data WithReg
-  = Unary RegIdx (Word -> Word)
-  | Binary RegIdx RegIdx (Word -> Word -> Word)
+data WithReg a
+  = Unary RegIdx (Word -> a)
+  | Binary RegIdx RegIdx (Word -> Word -> a)
 
-instance Show WithReg where
+instance Show (WithReg a) where
   show (Unary r _) =
     unwords ["Unary", show r, "<fun>"]
   show (Binary r1 r2 _) =
     unwords ["Binary", show r1, show r2, "<fun>"]
-
-data JumpType
-  = Offset
-  | Absolute
-  deriving (Show)
 
 newtype Comp a = Comp a
   deriving (Show, Eq)
@@ -51,15 +46,21 @@ newtype Comp a = Comp a
 newtype Done a = Done Word
   deriving (Show, Eq)
 
+data JumpType
+  = Offset
+  | Absolute
+  deriving (Show)
+
 data LeakInst f
-  = RegStore RegIdx (f WithReg)
-  | MemLoad RegIdx (f WithReg)
-  | MemStore (f WithReg)
+  = RegStore RegIdx (f (WithReg Word))
+  | MemLoad RegIdx (f (WithReg Word))
+  | MemStore (f (WithReg Word))
+  | Branch (f (WithReg Bool)) Address
   | Jump JumpType Address
   | Nop
   | Halt
 
-deriving instance (Show (f WithReg)) => Show (LeakInst f)
+deriving instance (Show (f (WithReg Word)), Show (f (WithReg Bool))) => Show (LeakInst f)
 
 getLeakRd :: LeakInst f -> Maybe RegIdx
 getLeakRd (RegStore rd _) = pure rd
@@ -74,7 +75,7 @@ instrRes _ = Nothing
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
 
-instance DepReg WithReg where
+instance DepReg (WithReg a) where
   deps (Unary r _) = (pure r, Nothing)
   deps (Binary r1 r2 _) = (pure r1, pure r2)
 
@@ -148,6 +149,9 @@ leak = do
         mempty
           { leakOutInst = pure $ MemStore $ Comp $ Unary r1 $ bitCoerce . alu ADD (signExtend imm)
           }
+    BType cmp imm r1 r2 ->
+      tell $
+        mempty {leakOutInst = pure $ Branch (Comp $ Binary r1 r2 $ branch cmp) (bitCoerce $ signExtend imm)}
     JType rd imm ->
       tell $
         mempty {leakOutInst = pure $ Jump Offset (bitCoerce $ signExtend imm)}
@@ -155,52 +159,6 @@ leak = do
       tell $ mempty {leakOutInst = pure Halt}
     _ -> tell $ mempty {leakOutInst = pure Nop}
 
--- JType rd imm -> do
---  writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
---  LJ . bitCoerce
---    <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
-
--- s <- get
--- case leakLastInst s of
---  RType op rd _ _ ->
---    instOut $ RegWrite rd $ alu op rs1 rs2
-
--- modify $ \s -> s {leakLastInst = Instruction.decode mem}
-
--- IType iop rd r1 imm -> do
---  let op =
---        case iop of
---          Arith op' -> op'
---          _ -> ADD
---  res <- alu op rs1 $ pure (signExtend imm)
---  case iop of
---    Arith {} -> pure Nop
---    Load size sign -> do
---      let loadExtend = \case
---            (Byte, Signed) -> signExtend $ slice d7 d0 res
---            (Byte, Unsigned) -> zeroExtend $ slice d7 d0 res
---            (Half, Signed) -> signExtend $ slice d15 d0 res
---            (Half, Unsigned) -> signExtend $ slice d15 d0 res
---            (Word, _) -> signExtend $ slice d31 d0 res
---          val = loadExtend (size, sign)
---      writeRF rd =<< readRAM (unpack val)
---      pure Nop
---    Jump -> do
---      writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
---      pure $ LJ $ bitCoerce res
---    Env {} -> error ""
--- SType size imm r1 r2 -> do
---  addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
---  val <- readRF r2
---  writeRAM size addr val
---  pure Nop
--- BType cmp imm r1 r2 -> do
---  branched <- branch cmp <$> readRF r1 <*> readRF r2
---  if branched
---    then
---      LJ . bitCoerce
---        <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
---    else pure Nop
 -- UType Zero rd imm -> do
 --  let imm' = imm ++# 0 `shiftL` 12
 --  writeRF rd $ imm'
@@ -209,10 +167,6 @@ leak = do
 --  let imm' = imm ++# 0 `shiftL` 12
 --  writeRF rd imm'
 --  pure Nop
--- JType rd imm -> do
---  writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
---  LJ . bitCoerce
---    <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
 
 leakOutToSimIn :: LeakOut -> SimIn
 leakOutToSimIn (LeakOut minst mrs1 mrs2) =
@@ -238,7 +192,10 @@ data Stage = Fe | De | Ex | Mem | Wb
   deriving (Show, Eq, Ord)
 
 data SimState = SimState
-  { simPc :: Address,
+  { simFePc :: Address,
+    simDePc :: Address,
+    simExPc :: Address,
+    simJumpAddr :: Maybe Address,
     simExInstr :: LeakInst Comp,
     simExRes :: Word,
     simMemInstr :: LeakInst Done,
@@ -249,7 +206,7 @@ data SimState = SimState
   }
   deriving (Show)
 
-withReg :: WithReg -> SimM Word
+withReg :: WithReg a -> SimM a
 withReg (Unary _ f) =
   f <$> asks simInRs1
 withReg (Binary _ _ f) =
@@ -258,7 +215,10 @@ withReg (Binary _ _ f) =
 initSim :: SimState
 initSim =
   SimState
-    { simPc = 4 * 50,
+    { simFePc = 4 * 50,
+      simDePc = 0,
+      simExPc = 0,
+      simJumpAddr = Nothing,
       simExInstr = Nop,
       simExRes = 0,
       simMemInstr = Nop,
@@ -275,9 +235,10 @@ simFetch = do
   unless stalling $ do
     modify $ \s ->
       s
-        { simPc = simPc s + 4
+        { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
+          simDePc = simFePc s
         }
-  tell $ pure $ simPc s
+  tell $ pure $ simFePc s
 
 simDecode :: SimM ()
 simDecode = do
@@ -285,7 +246,7 @@ simDecode = do
   instr <- asks simInInst
   instr' <-
     case instr of
-      Jump Offset offset -> pure $ Jump Absolute $ simPc s + offset
+      Jump Offset offset -> pure $ Jump Absolute $ simDePc s + offset
       _ -> pure instr
   case instr' of
     MemLoad {} -> stall [Fe]
@@ -299,7 +260,8 @@ simDecode = do
       { simExInstr =
           if stalling
             then Nop
-            else instr'
+            else instr',
+        simExPc = simDePc s
       }
   where
     loadHazard :: LeakInst Comp -> LeakInst Comp -> Bool
@@ -320,15 +282,25 @@ simExecute = do
       MemLoad rd . Done <$> withRegFwd f
     MemStore f -> do
       MemStore . Done <$> withRegFwd f
+    Branch f offset -> do
+      doBranch <- withRegFwd f
+      if doBranch
+        then do
+          pc <- gets simExPc
+          let pc' = pc + offset
+          modify $ \s -> s {simJumpAddr = pure pc'}
+          stall [De]
+          pure $ Jump Absolute pc'
+        else pure Nop
     Jump Absolute addr -> do
       stall [De]
-      modify $ \s -> s {simPc = addr}
+      modify $ \s -> s {simJumpAddr = pure addr}
       pure $ Jump Absolute addr
     Nop -> pure Nop
     Halt -> pure Halt
   modify $ \s -> s {simMemInstr = instr'}
   where
-    withRegFwd :: (Comp WithReg) -> SimM Word
+    withRegFwd :: (Comp (WithReg a)) -> SimM a
     withRegFwd (Comp (Unary r1 f)) =
       f <$> regFwd r1 (asks simInRs1)
     withRegFwd (Comp (Binary r1 r2 f)) =
@@ -367,6 +339,8 @@ simMemory = do
     MemStore (Done addr) -> do
       tell $ pure $ bitCoerce addr
       stall [Fe]
+    Jump {} ->
+      stall [De]
     _ -> pure ()
 
   modify $ \s -> s {simWbInstr = simMemInstr s}
@@ -396,7 +370,7 @@ simWriteback = do
 
 simTick :: SimM ()
 simTick = do
-  modify $ \s -> s {simStall = mempty}
+  modify $ \s -> s {simStall = mempty, simJumpAddr = empty}
   simWriteback
   simMemory
   simExecute
