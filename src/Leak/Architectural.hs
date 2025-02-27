@@ -1,7 +1,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak where
+module Architectural where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
