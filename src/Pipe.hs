@@ -289,16 +289,20 @@ fetch = do
         ctrlMemOutputActive
       ]
 
-  unless stall $ do
-    mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
-
-    modify $ \s ->
-      s
-        { -- Increment program counter for next fetch.
-          fePc = fromMaybe (pc + 4) mBranchAddr,
-          -- Propagate program counter to next stage.
-          dePc = pc
-        }
+  mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
+  modify $ \s ->
+    if stall
+      then
+        s
+          { fePc = fromMaybe pc mBranchAddr
+          }
+      else
+        s
+          { -- Increment program counter for next fetch.
+            fePc = fromMaybe (pc + 4) mBranchAddr,
+            -- Propagate program counter to next stage.
+            dePc = pc
+          }
 
 -- | Decode stage.
 decode :: CPUM ()
