@@ -1,4 +1,4 @@
-module PC where
+module Leak.PC where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
@@ -26,8 +26,6 @@ data LeakInst
   | LOther
   deriving (Eq, Ord, Show)
 
--- This isn't right; the LeakState shouldn't keep its own version of the RAM and
--- register file since any reads are fed into the core's input.
 data LeakState n = LeakState
   { leakRF :: Regfile,
     leakRAM :: Vec n Byte,
@@ -36,7 +34,7 @@ data LeakState n = LeakState
   }
   deriving (Eq, Show)
 
-initLeak :: Vec n Word -> LeakState ((GHC.TypeNats.*) n 4)
+initLeak :: (KnownNat n) => Vec n Word -> LeakState ((GHC.TypeNats.*) n 4)
 initLeak prog =
   LeakState
     { leakRF = initRF,
@@ -103,57 +101,6 @@ leak mem =
 leakRun :: (KnownNat n) => LeakState n -> Word -> (LeakState n, LeakInst)
 leakRun s i = swap $ runState (leak i) s
 
-leakStep :: (KnownNat n) => (LeakState n, SimState) -> Word -> ((LeakState n, SimState), Address)
-leakStep (ls, ss) i = ((ls', ss'), pc)
-  where
-    (ls', inst) = leakRun ls i
-    (ss', pc) = simRun ss inst
-
-simOn :: Int -> Vec n Word -> [Address]
-simOn n prog = simOn' n initState
-  where
-    simOn' 0 _ = mempty
-    simOn' _ _ = mempty
-    simOn' n s =
-      let (s', pc) = leakStep s
-       in pc : simOn' (n - 1) s'
-    initState = (initLeak prog, initSim)
-
-type SimM = State SimState
-
-data SimState = SimState
-  { simPc :: Address,
-    simInstr :: LeakInst
-  }
-  deriving (Show, Eq)
-
-initSim :: SimState
-initSim =
-  SimState
-    { simPc = 4 * 50,
-      simInstr = LOther
-    }
-
-simFetch :: LeakInst -> SimM Address
-simFetch _ = gets simPc
-
-simExecute :: SimM ()
-simExecute = do
-  instr <- gets simInstr
-  case instr of
-    LJ pc' ->
-      modify $ \s -> s {simPc = pc'}
-    LOther ->
-      modify $ \s -> s {simPc = simPc s + 4}
-
-simTick :: LeakInst -> SimM Address
-simTick inst = do
-  simExecute
-  simFetch inst
-
-simRun :: SimState -> LeakInst -> (SimState, Address)
-simRun s i = swap $ runState (simTick i) s
-
 readRF :: RegIdx -> LeakM n Word
 readRF idx = gets $ lookupRF idx . leakRF
 
@@ -192,3 +139,54 @@ readRAM addr = gets $ readWord addr . leakRAM
         ++# (mem !! (addr + 2))
         ++# (mem !! (addr + 1))
         ++# (mem !! addr)
+
+-- simOn :: Int -> Vec n Word -> [Address]
+-- simOn n prog = simOn' n initState
+--  where
+--    simOn' 0 _ = mempty
+--    simOn' _ _ = mempty
+--    simOn' n s =
+--      let (s', pc) = leakStep s
+--       in pc : simOn' (n - 1) s'
+--    initState = (initLeak prog, initSim)
+--
+-- type SimM = State SimState
+--
+-- data SimState = SimState
+--  { simPc :: Address,
+--    simInstr :: LeakInst
+--  }
+--  deriving (Show, Eq)
+--
+-- initSim :: SimState
+-- initSim =
+--  SimState
+--    { simPc = 4 * 50,
+--      simInstr = LOther
+--    }
+--
+-- simFetch :: LeakInst -> SimM Address
+-- simFetch _ = gets simPc
+--
+-- simExecute :: SimM ()
+-- simExecute = do
+--  instr <- gets simInstr
+--  case instr of
+--    LJ pc' ->
+--      modify $ \s -> s {simPc = pc'}
+--    LOther ->
+--      modify $ \s -> s {simPc = simPc s + 4}
+--
+-- simTick :: LeakInst -> SimM Address
+-- simTick inst = do
+--  simExecute
+--  simFetch inst
+--
+-- simRun :: SimState -> LeakInst -> (SimState, Address)
+-- simRun s i = swap $ runState (simTick i) s
+
+-- leakStep :: (KnownNat n) => (LeakState n, SimState) -> Word -> ((LeakState n, SimState), Address)
+-- leakStep (ls, ss) i = ((ls', ss'), pc)
+--  where
+--    (ls', inst) = leakRun ls i
+--    (ss', pc) = simRun ss inst

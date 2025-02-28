@@ -97,7 +97,7 @@ simMemStep (Output mem rs1 rs2 rd hlt) = do
 
     doMemory :: m Word
     doMemory
-      | Just (MemAccess addr size mval) <- getFirst mem =
+      | Just (MemAccess _ addr size mval) <- getFirst mem =
           case mval of
             Nothing -> ramRead addr
             Just val -> do

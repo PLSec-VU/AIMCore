@@ -49,7 +49,9 @@ data Input = Input
 
 -- | A memory access
 data MemAccess = MemAccess
-  { memAddress :: Address,
+  { -- | Is this an instruction read?
+    memIsPc :: Bool,
+    memAddress :: Address,
     memSize :: Size,
     -- | The word to be written, if there is one. If set to `Nothing`, then the
     -- `MemAccess` is a read. Otherwise, it's a write.
@@ -275,7 +277,7 @@ fetch = do
   pc <- gets fePc
   -- Fetch the next instruction from memory.  Will only actually happen if no
   -- other reads/writes occur in subsequent stages.
-  readRAM pc
+  readPC pc
 
   stall <-
     checkLines
@@ -587,6 +589,20 @@ writeback = do
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
 
+readPC :: (MonadWriter Output m) => Address -> m ()
+readPC addr =
+  tell $
+    mempty
+      { outMem =
+          pure $
+            MemAccess
+              { memIsPc = True,
+                memAddress = addr,
+                memSize = Word,
+                memVal = Nothing
+              }
+      }
+
 readRAM :: (MonadWriter Output m) => Address -> m ()
 readRAM addr =
   tell $
@@ -594,7 +610,8 @@ readRAM addr =
       { outMem =
           pure $
             MemAccess
-              { memAddress = addr,
+              { memIsPc = False,
+                memAddress = addr,
                 memSize = Word,
                 memVal = Nothing
               }
@@ -607,7 +624,8 @@ writeRAM addr size val =
       { outMem =
           pure $
             MemAccess
-              { memAddress = addr,
+              { memIsPc = False,
+                memAddress = addr,
                 memSize = size,
                 memVal = Just val
               }
