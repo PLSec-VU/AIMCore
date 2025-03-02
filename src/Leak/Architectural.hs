@@ -110,7 +110,7 @@ type LeakM = RWS Input LeakOut ()
 
 leak :: LeakM ()
 leak = do
-  Input mem rs1 rs2 <- ask
+  Input _ mem rs1 rs2 <- ask
   case Instruction.decode mem of
     RType op rd r1 r2 ->
       tell $
