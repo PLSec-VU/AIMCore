@@ -269,6 +269,8 @@ simExecute = do
       modify $ \s -> s {simJumpAddr = pure addr}
     _ -> pure ()
 
+  modify $ \s -> s {simMemInstr = instr}
+
 simMemory :: SimM ()
 simMemory = do
   instr <- gets simMemInstr
