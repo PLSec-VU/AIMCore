@@ -34,6 +34,7 @@ library
       Regfile
       Simulate
       Types
+      Util
   other-modules:
       Paths_uc_risc_v
   autogen-modules:

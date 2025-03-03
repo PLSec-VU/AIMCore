@@ -1,4 +1,4 @@
-{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -14,12 +14,12 @@ import Control.Monad.Writer
 import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified Debug.Trace as DB
-import GHC.TypeNats
 import Instruction hiding (decode)
 import Pipe
 import Regfile
 import Text.Read (readMaybe)
 import Types
+import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 import qualified Prelude
 
@@ -28,35 +28,6 @@ data Mem n = Mem
     memRf :: Regfile
   }
   deriving (Eq, Show, Generic, NFDataX)
-
-readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
-readWord addr m =
-  (m !! (addr + 3)) ++# (m !! (addr + 2)) ++# (m !! (addr + 1)) ++# (m !! addr)
-
-write :: (KnownNat n) => Size -> Address -> Word -> Vec n Byte -> Vec n Byte
-write size addr w mem =
-  let b0 = slice d7 d0 w
-      b1 = slice d15 d8 w
-      b2 = slice d23 d16 w
-      b3 = slice d31 d24 w
-      writeByte =
-        replace addr b0
-      writeHalf =
-        replace (addr + 1) b1 . writeByte
-      writeWord =
-        replace (addr + 3) b3
-          . replace (addr + 2) b2
-          . writeHalf
-   in case size of
-        Byte -> writeByte mem
-        Half -> writeHalf mem
-        Word -> writeWord mem
-
-class (Monad m) => MonadMemory m where
-  ramRead :: Address -> m Word
-  ramWrite :: Address -> Size -> Word -> m ()
-  regRead :: RegIdx -> m Word
-  regWrite :: RegIdx -> Word -> m ()
 
 instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
   ramRead addr = gets $ readWord addr . memRAM
@@ -67,130 +38,94 @@ instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
   regWrite idx val = do
     modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
 
-type Log = [String]
+type MonadSim m = (MonadLog m, MonadMemory m)
 
-log :: (MonadWriter Log m) => String -> m ()
-log = tell . pure
+type SimM n = RWS () Log (Mem n)
 
-report :: (MonadWriter Log m, MonadIO m) => m a -> m a
-report m = do
-  (a, w) <- listen m
-  liftIO $ putStrLn $ unlines w
-  pure a
-
-simMemStep :: forall m. (MonadMemory m) => Output -> m Input
-simMemStep (Output mem rs1 rs2 rd hlt) = do
-  (rs1', rs2') <- doRegFile
-  (mem_in, mem_inst) <- doMemory
-  pure $
-    Input
-      { inputIsInst = mem_inst,
-        inputMem = mem_in,
-        inputRs1 = rs1',
-        inputRs2 = rs2'
-      }
-  where
-    doRegFile :: m (Word, Word)
-    doRegFile = do
-      maybe (pure ()) (uncurry regWrite) $ getFirst rd
-      rs1' <- maybe (pure 0) regRead $ getFirst rs1
-      rs2' <- maybe (pure 0) regRead $ getFirst rs2
-      pure (rs1', rs2')
-
-    doMemory :: m (Word, Bool)
-    doMemory
-      | Just (MemAccess isInst addr size mval) <- getFirst mem =
-          case mval of
-            Nothing -> (,isInst) <$> ramRead addr
-            Just val -> do
-              ramWrite addr size val
-              pure (0, isInst)
-      | otherwise = pure (0, False)
-
-simPipe :: Pipe -> Input -> (Control, Pipe, Output)
-simPipe = flip $ runRWS simPipeM
-  where
-    simPipeM :: CPUM Control
-    simPipeM = do
-      writeback
-      memory
-      execute
-      decode
-      fetch
-      ctrl <- gets pipeCtrl
-      resetCtrl
-      pure ctrl
-
-simStep :: (MonadWriter Log m, MonadMemory m) => Input -> Pipe -> m (Input, Pipe, Output)
-simStep i s = do
-  let (ctrl', s', o) = simPipe s i
-  log $
-    unlines
-      [ "Input:",
-        "--------------------",
-        show i,
-        "",
-        "State:",
-        "--------------------",
-        show s,
-        "",
-        "Output:",
-        "--------------------",
-        show o,
-        "",
-        "Control:",
-        "--------------------",
-        show ctrl'
-      ]
-  i' <- simMemStep o
-  pure (i', s', o)
-
-simToHalt' :: (KnownNat n) => Vec n Byte -> Word
-simToHalt' = (readWord 0) . memRAM . simToHalt
-
-simToHalt :: forall n. (KnownNat n) => Vec n Byte -> Mem n
-simToHalt =
-  fst
-    . execRWS
-      (simulate initInput initPipe)
-      ()
-    . flip Mem initRF
-  where
-    simulate :: Input -> Pipe -> RWS () Log (Mem n) ()
-    simulate _ s
-      | pipeHalt s = pure ()
-    simulate i s = simStep i s >>= uncurry simulate . (\(i', s', _o) -> (i', s'))
-
-simIO :: forall n. (KnownNat n) => Vec n Byte -> IO ()
-simIO =
-  void
-    . runRWST
-      (simulate initInput initPipe)
-      ()
-    . flip Mem initRF
-  where
-    simulate :: Input -> Pipe -> RWST () Log (Mem n) IO ()
-    simulate i s =
-      void $ forever $ do
-        lift $ putStrLn "Press Enter to continue."
-        _ <- lift getLine
-        (i', s', _o) <- (report . uncurry simStep) (i, s)
-        simulate i' s'
-
-type RAM_SIZE = (GHC.TypeNats.*) 4 50
-
-type MEM_SIZE n = (+) RAM_SIZE ((+) ((GHC.TypeNats.*) n 4) RAM_SIZE)
-
-mkRAM :: (KnownNat n) => Vec n Word -> Vec (MEM_SIZE n) Byte
+mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
 mkRAM prog =
-  (repeat 0 :: Vec RAM_SIZE Byte) ++ vecWordToByte prog ++ repeat 0
+  (repeat 0 :: Vec RAM_SIZE_BYTES Byte) ++ vecWordToByte prog
 
-prog1 =
-  map encode $
-    -- r2 := r0 + 5
-    IType (Arith ADD) 2 0 5
-      :>
-      -- mem[0 + r0] := r2
-      SType Word 0 0 2
-      :> halt
-      :> Nil
+simulator :: forall m. (MonadSim m) => CircuitSim m Input Pipe Output
+simulator =
+  CircuitSim
+    { circuitInput = initInput,
+      circuitState = initPipe,
+      circuitStep = step,
+      circuitNext = next
+    }
+  where
+    step :: (MonadSim m) => Input -> Pipe -> m (Pipe, Output)
+    step i s = do
+      let (ctrl', s', o) = simPipe s i
+      log $
+        unlines
+          [ "Input:",
+            "--------------------",
+            show i,
+            "",
+            "State:",
+            "--------------------",
+            show s,
+            "",
+            "Output:",
+            "--------------------",
+            show o,
+            "",
+            "Control:",
+            "--------------------",
+            show ctrl'
+          ]
+      pure (s', o)
+      where
+        simPipe :: Pipe -> Input -> (Control, Pipe, Output)
+        simPipe = flip $ runRWS simPipeM
+          where
+            simPipeM :: CPUM Control
+            simPipeM = do
+              writeback
+              memory
+              execute
+              decode
+              fetch
+              ctrl <- gets pipeCtrl
+              resetCtrl
+              pure ctrl
+
+    next :: (MonadSim m) => Output -> m (Maybe Input)
+    next (Output mem rs1 rs2 rd hlt)
+      | getFirst hlt == Just True = pure Nothing
+      | otherwise = do
+          (rs1', rs2') <- doRegFile
+          (mem_in, mem_inst) <- doMemory
+          pure $
+            pure $
+              Input
+                { inputIsInst = mem_inst,
+                  inputMem = mem_in,
+                  inputRs1 = rs1',
+                  inputRs2 = rs2'
+                }
+      where
+        doRegFile :: m (Word, Word)
+        doRegFile = do
+          maybe (pure ()) (uncurry regWrite) $ getFirst rd
+          rs1' <- maybe (pure 0) regRead $ getFirst rs1
+          rs2' <- maybe (pure 0) regRead $ getFirst rs2
+          pure (rs1', rs2')
+
+        doMemory :: m (Word, Bool)
+        doMemory
+          | Just (MemAccess isInst addr size mval) <- getFirst mem =
+              case mval of
+                Nothing -> (,isInst) <$> ramRead addr
+                Just val -> do
+                  ramWrite addr size val
+                  pure (0, isInst)
+          | otherwise = pure (0, False)
+
+runSim :: Vec PROG_SIZE Word -> Mem MEM_SIZE_BYTES
+runSim = fst . execRWS (run simulator) () . flip Mem initRF . mkRAM
+
+runSimIO :: Vec PROG_SIZE Word -> IO ()
+runSimIO = void . execRWST (runIO simulator) () . flip Mem initRF . mkRAM
