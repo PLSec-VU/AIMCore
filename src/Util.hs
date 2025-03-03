@@ -52,10 +52,26 @@ runIO cs = do
     void getLine
 
 class (Monad m) => MonadMemory m where
-  ramRead :: Address -> m Word
-  ramWrite :: Address -> Size -> Word -> m ()
-  regRead :: RegIdx -> m Word
-  regWrite :: RegIdx -> Word -> m ()
+  getRAM :: m (Vec MEM_SIZE_BYTES Byte)
+  putRAM :: Vec MEM_SIZE_BYTES Byte -> m ()
+  getRegfile :: m Regfile
+  putRegfile :: Regfile -> m ()
+
+ramRead :: (MonadMemory m) => Address -> m Word
+ramRead addr = readWord addr <$> getRAM
+
+ramWrite :: (MonadMemory m) => Address -> Size -> Word -> m ()
+ramWrite addr size w = do
+  ram <- getRAM
+  putRAM $ write size addr w ram
+
+regRead :: (MonadMemory m) => RegIdx -> m Word
+regRead idx = lookupRF idx <$> getRegfile
+
+regWrite :: (MonadMemory m) => RegIdx -> Word -> m ()
+regWrite idx val = do
+  regfile <- getRegfile
+  putRegfile $ modifyRF idx val regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =

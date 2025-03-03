@@ -1,6 +1,6 @@
 module Leak.PC where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
+import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.State
@@ -18,7 +18,7 @@ import Simulate (MonadSim)
 import qualified Simulate
 import Types
 import Util
-import Prelude hiding (Ordering (..), Word, init, not, undefined, (!!), (&&), (||))
+import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 -- `fromJust` is safe here because the `fetch` stage unconditionally always reads
 -- from memory (and its read may just be superseded by the `memory` stage).
@@ -50,11 +50,11 @@ data LeakState = LeakState
 leakNop :: LeakInst
 leakNop = LeakInst LOther mempty
 
-initLeak :: Vec PROG_SIZE Instruction -> LeakState
+initLeak :: Vec PROG_SIZE Word -> LeakState
 initLeak prog =
   LeakState
     { leakRF = initRF,
-      leakRAM = mkRAM $ mkProg prog,
+      leakRAM = mkRAM prog,
       leakPc = initPc
     }
 
@@ -297,67 +297,47 @@ simRun :: SimState -> LeakInst -> (SimState, Maybe Address)
 simRun s i = (fromMaybe Nothing . getFirst) <$> execRWS simTick i s
 
 simLeakRun ::
-  (LeakState, SimState) ->
   Input ->
+  (LeakState, SimState) ->
   ((LeakState, SimState), Maybe Address)
-simLeakRun (ls, ss) input = ((ls', ss'), addr)
+simLeakRun input (ls, ss) = ((ls', ss'), addr)
   where
     (ls', simin) = leakRun ls input
     (ss', addr) = simRun ss simin
 
--- simulator :: forall m. (MonadSim m) => CircuitSim Input (LeakState, SimState)
--- simulator =
---  CircuitSim
---    { circuitInput = initInput,
---      circuitState = (initLeak, initSim),
---      circuitStep = step,
---      circuitNext = next
---    }
---  where
---    step :: (MonadSim m) => Input -> Pipe -> m (Pipe, Output)
---    step i s = undefined
---      where
---        simPipe :: Pipe -> Input -> (Control, Pipe, Output)
---        simPipe = undefined
---          where
---            simPipeM :: CPUM Control
---            simPipeM = undefined
---
---    next :: (MonadSim m) => Output -> m (Maybe Input)
---    next (Output mem rs1 rs2 rd hlt) = undefined
+simulator ::
+  forall m.
+  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m,
+    MonadLog m
+  ) =>
+  Vec PROG_SIZE Word ->
+  CircuitSim m Input (LeakState, SimState) (Maybe Address)
+simulator prog =
+  CircuitSim
+    { circuitInput = initInput,
+      circuitState = (initLeak prog, initSim),
+      circuitStep = step,
+      circuitNext = next
+    }
+  where
+    step :: Input -> (LeakState, SimState) -> m ((LeakState, SimState), Maybe Address)
+    step i s = do
+      ((sim_s, _), mem) <- get
+      let (sim_res, mem', sim_w) = runRWS (circuitStep Simulate.simulator i sim_s) () mem
+      put (sim_res, mem')
+      pure $ simLeakRun i s
 
--- simIO ::
---  forall n.
---  ( KnownNat n,
---    KnownNat (200 + (((GHC.TypeNats.*) n 4) + 200)), -- fix
---    KnownNat ((GHC.TypeNats.*) n 4)
---  ) =>
---  Vec n Word ->
---  IO ()
--- simIO prog =
---  void
---    $ runRWST
---      (simulate initInput initPipe (initLeak prog) initSim)
---      ()
---    $ Simulate.Mem (Simulate.mkRAM prog) initRF
---  where
---    simulate i s leak_s sim_s =
---      void $ forever $ do
---        lift $ putStrLn "Press Enter to continue."
---        _ <- lift getLine
---        (i', s', _o) <- reportIO $ Simulate.simStep i s
---        let ((leak_s', sim_s'), leak_addr) = simLeakRun (leak_s, sim_s) i
---        lift $
---          putStrLn $
---            unlines
---              [ "Leak out:",
---                "--------------------",
---                show leak_addr,
---                "Leak state:",
---                "--------------------",
---                show leak_s,
---                "Sim state:",
---                "--------------------",
---                show sim_s
---              ]
---        simulate i' s' leak_s' sim_s'
+    next :: Maybe Address -> m (Maybe Input)
+    next _ = do
+      ((_, o), mem) <- get
+      pure $ fst $ evalRWS (circuitNext Simulate.simulator o) () mem
+
+runSim :: Vec PROG_SIZE Word -> Simulate.Mem MEM_SIZE_BYTES
+runSim prog = snd $ fst $ execRWS (run $ simulator prog) () s
+  where
+    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+
+runSimIO :: Vec PROG_SIZE Word -> IO ()
+runSimIO prog = void $ execRWST (runIO $ simulator prog) () s
+  where
+    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)

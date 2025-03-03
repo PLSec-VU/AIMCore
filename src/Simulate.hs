@@ -29,14 +29,17 @@ data Mem n = Mem
   }
   deriving (Eq, Show, Generic, NFDataX)
 
-instance (KnownNat n, MonadState (Mem n) m) => MonadMemory m where
-  ramRead addr = gets $ readWord addr . memRAM
-  ramWrite addr size w =
-    modify $ \s -> s {memRAM = write size addr w $ memRAM s}
-  regRead idx = do
-    gets $ lookupRF idx . memRf
-  regWrite idx val = do
-    modify $ \s -> s {memRf = modifyRF idx val $ memRf s}
+instance (MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
+  getRAM = gets memRAM
+  putRAM ram = modify $ \s -> s {memRAM = ram}
+  getRegfile = gets memRf
+  putRegfile rf = modify $ \s -> s {memRf = rf}
+
+-- instance (MonadState (a, Mem MEM_SIZE_BYTES) m) => MonadMemory m where
+--  getRAM = gets $ memRAM . snd
+--  putRAM ram = modify $ \(a, m) -> (a, m {memRAM = ram})
+--  getRegfile = gets $ memRf . snd
+--  putRegfile rf = modify $ \(a, m) -> (a, m {memRf = rf})
 
 type MonadSim m = (MonadLog m, MonadMemory m)
 
