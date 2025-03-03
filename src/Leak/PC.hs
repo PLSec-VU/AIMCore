@@ -122,6 +122,10 @@ leak input
               writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
               mkInst' . LJ . bitCoerce
                 <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+            EBREAK ->
+              pure $ mkInst' LHalt
+            _ ->
+              pure leakNop
 
 leakRun :: (KnownNat n) => LeakState n -> Input -> (LeakState n, LeakInst)
 leakRun s i = swap $ runState (leak i) s
