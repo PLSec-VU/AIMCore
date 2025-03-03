@@ -1,4 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Simulate where
@@ -80,10 +81,11 @@ report m = do
 simMemStep :: forall m. (MonadMemory m) => Output -> m Input
 simMemStep (Output mem rs1 rs2 rd hlt) = do
   (rs1', rs2') <- doRegFile
-  mem_in <- doMemory
+  (mem_in, mem_inst) <- doMemory
   pure $
     Input
-      { inputMem = mem_in,
+      { inputIsInst = mem_inst,
+        inputMem = mem_in,
         inputRs1 = rs1',
         inputRs2 = rs2'
       }
@@ -95,15 +97,15 @@ simMemStep (Output mem rs1 rs2 rd hlt) = do
       rs2' <- maybe (pure 0) regRead $ getFirst rs2
       pure (rs1', rs2')
 
-    doMemory :: m Word
+    doMemory :: m (Word, Bool)
     doMemory
-      | Just (MemAccess _ addr size mval) <- getFirst mem =
+      | Just (MemAccess isInst addr size mval) <- getFirst mem =
           case mval of
-            Nothing -> ramRead addr
+            Nothing -> (,isInst) <$> ramRead addr
             Just val -> do
               ramWrite addr size val
-              pure 0
-      | otherwise = pure 0
+              pure (0, isInst)
+      | otherwise = pure (0, False)
 
 simPipe :: Pipe -> Input -> (Control, Pipe, Output)
 simPipe = flip $ runRWS simPipeM
@@ -182,3 +184,13 @@ type MEM_SIZE n = (+) RAM_SIZE ((+) ((GHC.TypeNats.*) n 4) RAM_SIZE)
 mkRAM :: (KnownNat n) => Vec n Word -> Vec (MEM_SIZE n) Byte
 mkRAM prog =
   (repeat 0 :: Vec RAM_SIZE Byte) ++ vecWordToByte prog ++ repeat 0
+
+prog1 =
+  map encode $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :> halt
+      :> Nil
