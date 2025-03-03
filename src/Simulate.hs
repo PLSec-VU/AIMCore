@@ -42,10 +42,6 @@ type MonadSim m = (MonadLog m, MonadMemory m)
 
 type SimM n = RWS () Log (Mem n)
 
-mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
-mkRAM prog =
-  (repeat 0 :: Vec RAM_SIZE_BYTES Byte) ++ vecWordToByte prog
-
 simulator :: forall m. (MonadSim m) => CircuitSim m Input Pipe Output
 simulator =
   CircuitSim

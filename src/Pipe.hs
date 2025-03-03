@@ -29,7 +29,6 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
-import Data.Proxy (Proxy (..))
 import Instruction hiding (decode, halt)
 import qualified Instruction
 import Types
@@ -236,7 +235,7 @@ initInput =
 initPipe :: Pipe
 initPipe =
   Pipe
-    { fePc = fromIntegral $ natVal (Proxy @RAM_SIZE_BYTES),
+    { fePc = initPc,
       dePc = 0,
       exPc = 0,
       exIr = nop,

@@ -14,9 +14,10 @@ import Instruction hiding (decode, halt)
 import qualified Instruction
 import Pipe
 import Regfile
-import Simulate (readWord)
+import Simulate (MonadSim)
 import qualified Simulate
 import Types
+import Util
 import Prelude hiding (Ordering (..), Word, init, not, undefined, (!!), (&&), (||))
 
 -- `fromJust` is safe here because the `fetch` stage unconditionally always reads
@@ -39,9 +40,9 @@ data LeakInst = LeakInst
   }
   deriving (Eq, Ord, Show)
 
-data LeakState n = LeakState
+data LeakState = LeakState
   { leakRF :: Regfile,
-    leakRAM :: Vec n Byte,
+    leakRAM :: Vec MEM_SIZE_BYTES Byte,
     leakPc :: Address
   }
   deriving (Eq, Show)
@@ -49,15 +50,13 @@ data LeakState n = LeakState
 leakNop :: LeakInst
 leakNop = LeakInst LOther mempty
 
-initLeak :: (KnownNat n) => Vec n Word -> LeakState ((GHC.TypeNats.*) n 4)
+initLeak :: Vec PROG_SIZE Instruction -> LeakState
 initLeak prog =
   LeakState
     { leakRF = initRF,
-      leakRAM = vecWordToByte prog,
-      leakPc = 4 * 50
+      leakRAM = mkRAM $ mkProg prog,
+      leakPc = initPc
     }
-
-type LeakM n = State (LeakState n)
 
 mkInst :: Instruction -> BaseLeakInst -> LeakInst
 mkInst inst leakInst =
@@ -66,7 +65,9 @@ mkInst inst leakInst =
       leakDeps = S.fromList $ catMaybes [getRs1 inst, getRs2 inst]
     }
 
-leak :: (KnownNat n) => Input -> LeakM n LeakInst
+type LeakM = State LeakState
+
+leak :: Input -> LeakM LeakInst
 leak input
   | not $ inputIsInst input = pure leakNop
   | otherwise =
@@ -127,47 +128,22 @@ leak input
             _ ->
               pure leakNop
 
-leakRun :: (KnownNat n) => LeakState n -> Input -> (LeakState n, LeakInst)
+leakRun :: LeakState -> Input -> (LeakState, LeakInst)
 leakRun s i = swap $ runState (leak i) s
 
-readRF :: RegIdx -> LeakM n Word
+readRF :: RegIdx -> LeakM Word
 readRF idx = gets $ lookupRF idx . leakRF
 
-writeRF :: RegIdx -> Word -> LeakM n ()
+writeRF :: RegIdx -> Word -> LeakM ()
 writeRF idx val =
   modify $ \s -> s {leakRF = modifyRF idx val $ leakRF s}
 
--- TODO: Fix the code duplication with Simulator.hs
-writeRAM :: (KnownNat n) => Size -> Address -> Word -> LeakM n ()
+writeRAM :: Size -> Address -> Word -> LeakM ()
 writeRAM size addr w =
   modify $ \s -> s {leakRAM = write size addr w $ leakRAM s}
-  where
-    write size addr w mem =
-      let b0 = slice d7 d0 w
-          b1 = slice d15 d8 w
-          b2 = slice d23 d16 w
-          b3 = slice d31 d24 w
-          writeByte =
-            replace addr b0
-          writeHalf =
-            replace (addr + 1) b1 . writeByte
-          writeWord =
-            replace (addr + 3) b3
-              . replace (addr + 2) b2
-              . writeHalf
-       in case size of
-            Byte -> writeByte mem
-            Half -> writeHalf mem
-            Word -> writeWord mem
 
-readRAM :: (KnownNat n) => Address -> LeakM n Word
+readRAM :: Address -> LeakM Word
 readRAM addr = gets $ readWord addr . leakRAM
-  where
-    readWord addr mem =
-      (mem !! (addr + 3))
-        ++# (mem !! (addr + 2))
-        ++# (mem !! (addr + 1))
-        ++# (mem !! addr)
 
 type SimM = RWS LeakInst (First (Maybe Address)) SimState
 
@@ -321,47 +297,67 @@ simRun :: SimState -> LeakInst -> (SimState, Maybe Address)
 simRun s i = (fromMaybe Nothing . getFirst) <$> execRWS simTick i s
 
 simLeakRun ::
-  (KnownNat n) =>
-  (LeakState n, SimState) ->
+  (LeakState, SimState) ->
   Input ->
-  ((LeakState n, SimState), Maybe Address)
+  ((LeakState, SimState), Maybe Address)
 simLeakRun (ls, ss) input = ((ls', ss'), addr)
   where
     (ls', simin) = leakRun ls input
     (ss', addr) = simRun ss simin
 
-simIO ::
-  forall n.
-  ( KnownNat n,
-    KnownNat (200 + (((GHC.TypeNats.*) n 4) + 200)), -- fix
-    KnownNat ((GHC.TypeNats.*) n 4)
-  ) =>
-  Vec n Word ->
-  IO ()
-simIO prog =
-  void
-    $ runRWST
-      (simulate initInput initPipe (initLeak prog) initSim)
-      ()
-    $ Simulate.Mem (Simulate.mkRAM prog) initRF
-  where
-    simulate i s leak_s sim_s =
-      void $ forever $ do
-        lift $ putStrLn "Press Enter to continue."
-        _ <- lift getLine
-        (i', s', _o) <- Simulate.report $ Simulate.simStep i s
-        let ((leak_s', sim_s'), leak_addr) = simLeakRun (leak_s, sim_s) i
-        lift $
-          putStrLn $
-            unlines
-              [ "Leak out:",
-                "--------------------",
-                show leak_addr,
-                "Leak state:",
-                "--------------------",
-                show leak_s,
-                "Sim state:",
-                "--------------------",
-                show sim_s
-              ]
-        simulate i' s' leak_s' sim_s'
+-- simulator :: forall m. (MonadSim m) => CircuitSim Input (LeakState, SimState)
+-- simulator =
+--  CircuitSim
+--    { circuitInput = initInput,
+--      circuitState = (initLeak, initSim),
+--      circuitStep = step,
+--      circuitNext = next
+--    }
+--  where
+--    step :: (MonadSim m) => Input -> Pipe -> m (Pipe, Output)
+--    step i s = undefined
+--      where
+--        simPipe :: Pipe -> Input -> (Control, Pipe, Output)
+--        simPipe = undefined
+--          where
+--            simPipeM :: CPUM Control
+--            simPipeM = undefined
+--
+--    next :: (MonadSim m) => Output -> m (Maybe Input)
+--    next (Output mem rs1 rs2 rd hlt) = undefined
+
+-- simIO ::
+--  forall n.
+--  ( KnownNat n,
+--    KnownNat (200 + (((GHC.TypeNats.*) n 4) + 200)), -- fix
+--    KnownNat ((GHC.TypeNats.*) n 4)
+--  ) =>
+--  Vec n Word ->
+--  IO ()
+-- simIO prog =
+--  void
+--    $ runRWST
+--      (simulate initInput initPipe (initLeak prog) initSim)
+--      ()
+--    $ Simulate.Mem (Simulate.mkRAM prog) initRF
+--  where
+--    simulate i s leak_s sim_s =
+--      void $ forever $ do
+--        lift $ putStrLn "Press Enter to continue."
+--        _ <- lift getLine
+--        (i', s', _o) <- reportIO $ Simulate.simStep i s
+--        let ((leak_s', sim_s'), leak_addr) = simLeakRun (leak_s, sim_s) i
+--        lift $
+--          putStrLn $
+--            unlines
+--              [ "Leak out:",
+--                "--------------------",
+--                show leak_addr,
+--                "Leak state:",
+--                "--------------------",
+--                show leak_s,
+--                "Sim state:",
+--                "--------------------",
+--                show sim_s
+--              ]
+--        simulate i' s' leak_s' sim_s'

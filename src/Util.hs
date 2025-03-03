@@ -8,6 +8,7 @@ import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
 import Instruction
 import Regfile
@@ -89,6 +90,9 @@ type MEM_SIZE = RAM_SIZE + PROG_SIZE
 
 type MEM_SIZE_BYTES = ((GHC.TypeNats.*) MEM_SIZE 4)
 
+initPc :: Address
+initPc = fromIntegral $ natVal (Proxy @RAM_SIZE_BYTES)
+
 mkProg ::
   forall size.
   ( KnownNat (size + (PROG_SIZE - size)),
@@ -103,3 +107,7 @@ mkProg prog =
   prog' ++ (repeat 0 :: Vec (PROG_SIZE - size) Word)
   where
     prog' = map encode prog
+
+mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
+mkRAM prog =
+  (repeat 0 :: Vec RAM_SIZE_BYTES Byte) ++ vecWordToByte prog
