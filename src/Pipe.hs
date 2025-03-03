@@ -29,9 +29,11 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
+import Data.Proxy (Proxy (..))
 import Instruction hiding (decode, halt)
 import qualified Instruction
 import Types
+import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 -- | The input to the CPU.
@@ -234,7 +236,7 @@ initInput =
 initPipe :: Pipe
 initPipe =
   Pipe
-    { fePc = 4 * 50,
+    { fePc = fromIntegral $ natVal (Proxy @RAM_SIZE_BYTES),
       dePc = 0,
       exPc = 0,
       exIr = nop,
