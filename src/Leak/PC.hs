@@ -324,13 +324,16 @@ simulator prog =
     step i s = do
       ((sim_s, _), mem) <- get
       let (sim_res, mem', sim_w) = runRWS (circuitStep Simulate.simulator i sim_s) () mem
+      log $ unlines sim_w
       put (sim_res, mem')
       pure $ simLeakRun i s
 
     next :: Maybe Address -> m (Maybe Input)
     next _ = do
       ((_, o), mem) <- get
-      pure $ fst $ evalRWS (circuitNext Simulate.simulator o) () mem
+      let (mi, mem', _) = runRWS (circuitNext Simulate.simulator o) () mem
+      modify $ \(s, _mem) -> (s, mem')
+      pure mi
 
 runSim :: Vec PROG_SIZE Word -> Simulate.Mem MEM_SIZE_BYTES
 runSim prog = snd $ fst $ execRWS (run $ simulator prog) () s

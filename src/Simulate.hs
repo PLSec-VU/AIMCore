@@ -35,12 +35,6 @@ instance (MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
   getRegfile = gets memRf
   putRegfile rf = modify $ \s -> s {memRf = rf}
 
--- instance (MonadState (a, Mem MEM_SIZE_BYTES) m) => MonadMemory m where
---  getRAM = gets $ memRAM . snd
---  putRAM ram = modify $ \(a, m) -> (a, m {memRAM = ram})
---  getRegfile = gets $ memRf . snd
---  putRegfile rf = modify $ \(a, m) -> (a, m {memRf = rf})
-
 type MonadSim m = (MonadLog m, MonadMemory m)
 
 type SimM n = RWS () Log (Mem n)
