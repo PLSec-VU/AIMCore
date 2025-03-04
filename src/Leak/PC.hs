@@ -349,3 +349,8 @@ watchSim ::
   Vec PROG_SIZE Word ->
   [((LeakState, SimState), (Maybe Address, Maybe Address), Maybe Input)]
 watchSim prog = evalState (watch $ simulator prog) $ mkS prog
+
+pcsEqual :: Vec PROG_SIZE Word -> Bool
+pcsEqual = all check . watchSim
+  where
+    check (_, (o, o'), _) = o == o'
