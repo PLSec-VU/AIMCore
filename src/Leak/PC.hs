@@ -337,13 +337,24 @@ simulator prog =
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 
-mkS :: Vec PROG_SIZE Word -> ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES)
-mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+runSimulator ::
+  ( CircuitSim
+      (State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES))
+      Input
+      (LeakState, SimState)
+      (Maybe Address, Maybe Address) ->
+    State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) a
+  ) ->
+  Vec PROG_SIZE Word ->
+  a
+runSimulator f prog = evalState (f $ simulator prog) $ mkS prog
+  where
+    mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
 
 watchSim ::
   Vec PROG_SIZE Word ->
   [((LeakState, SimState), (Maybe Address, Maybe Address), Maybe Input)]
-watchSim prog = evalState (watch $ simulator prog) $ mkS prog
+watchSim = runSimulator watch
 
 pcsEqual :: Vec PROG_SIZE Word -> Bool
 pcsEqual = all check . watchSim

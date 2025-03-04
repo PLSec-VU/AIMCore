@@ -5,11 +5,12 @@ import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import qualified HardwareSim
 import Instruction
+import qualified Leak.PC
 import Pipe
 import Regfile
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -30,6 +31,12 @@ mkPureTest s (CPUTest prog expected) =
     let ram = simResult prog
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
+
+mkPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
+mkPCLeakTest s prog =
+  testCase s $
+    assertBool "" $
+      Leak.PC.pcsEqual prog
 
 -- mkCmpTest :: String -> Vec n Word -> TestTree
 -- mkCmpTest s prog =
@@ -68,6 +75,13 @@ tests =
               { testProg = mkProg $ sumTo 10,
                 testExpected = [(0, sum [0 .. 10])]
               }
+        ],
+      testGroup
+        "PC leak"
+        [ mkPCLeakTest "test 1" $ mkProg prog1,
+          mkPCLeakTest "test 2" $ mkProg prog1,
+          mkPCLeakTest "test 3" $ mkProg prog1,
+          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
         ]
         -- testGroup
         --  "Pure and clash simulations should agree."
