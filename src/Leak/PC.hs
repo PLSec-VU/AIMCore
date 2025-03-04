@@ -325,14 +325,38 @@ simulator prog =
       ((sim_s, _), mem) <- get
       let (sim_res, mem', sim_w) = runRWS (circuitStep Simulate.simulator i sim_s) () mem
       log $ unlines sim_w
+      log $
+        unlines
+          [ "LeakState:",
+            "--------------------",
+            show $ fst s,
+            "SimState:",
+            "--------------------",
+            show $ snd s
+          ]
       put (sim_res, mem')
       pure $ simLeakRun i s
 
     next :: Maybe Address -> m (Maybe Input)
-    next _ = do
-      ((_, o), mem) <- get
-      let (mi, mem', _) = runRWS (circuitNext Simulate.simulator o) () mem
+    next o = do
+      ((_, sim_o), mem) <- get
+      let (mi, mem', _) = runRWS (circuitNext Simulate.simulator sim_o) () mem
       modify $ \(s, _mem) -> (s, mem')
+      log $
+        unlines
+          [ "ActualPC:",
+            "--------------------",
+            case mi of
+              Nothing -> mempty
+              Just input
+                | inputIsInst input -> show $ memAddress $ fromJust $ getFirst $ outMem sim_o -- fix
+                | otherwise -> mempty,
+            "LeakPC",
+            "--------------------",
+            case o of
+              Nothing -> mempty
+              Just addr -> show addr
+          ]
       pure mi
 
 runSim :: Vec PROG_SIZE Word -> Simulate.Mem MEM_SIZE_BYTES
