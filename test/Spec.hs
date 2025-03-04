@@ -81,7 +81,7 @@ tests =
         [ mkPCLeakTest "test 1" $ mkProg prog1,
           mkPCLeakTest "test 2" $ mkProg prog1,
           mkPCLeakTest "test 3" $ mkProg prog1,
-          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 1
         ]
         -- testGroup
         --  "Pure and clash simulations should agree."

@@ -3,6 +3,7 @@
 module Util where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.RWS
@@ -39,6 +40,19 @@ watch c = do
 
 result :: (MonadMemory m) => CircuitSim m i s o -> m (Vec MEM_SIZE_BYTES Byte)
 result c = watch c *> getRAM
+
+cmpIO :: (Show a, Show b) => [(a, b)] -> IO ()
+cmpIO = mapM_ $ \(a, b) -> do
+  putStrLn $ show a
+  putStrLn ""
+  putStrLn "*************************"
+  putStrLn ""
+  putStrLn $ show b
+  putStrLn ""
+  putStrLn "------------------------"
+  putStrLn "Press Enter to continue."
+  putStrLn "------------------------"
+  void getLine
 
 pageIO :: (Show a) => [a] -> IO ()
 pageIO = mapM_ $ \a -> do

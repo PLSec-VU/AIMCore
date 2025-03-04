@@ -64,63 +64,68 @@ type LeakM = State LeakState
 leak :: Input -> LeakM LeakInst
 leak input
   | not $ inputIsInst input = pure leakNop
-  | otherwise =
+  | otherwise = do
       let inst = Instruction.decode $ inputMem input
           mkInst' = mkInst inst
-       in case inst of
-            RType op rd r1 r2 -> do
-              writeRF rd =<< alu op <$> readRF r1 <*> readRF r2
-              pure $ mkInst' LOther
-            IType iop rd r1 imm -> do
-              let op =
-                    case iop of
-                      Arith op' -> op'
-                      _ -> ADD
-              res <- alu op <$> readRF r1 <*> pure (signExtend imm)
-              case iop of
-                Arith {} -> pure $ mkInst' LOther
-                Load size sign -> do
-                  let loadExtend = \case
-                        (Byte, Signed) -> signExtend $ slice d7 d0 res
-                        (Byte, Unsigned) -> zeroExtend $ slice d7 d0 res
-                        (Half, Signed) -> signExtend $ slice d15 d0 res
-                        (Half, Unsigned) -> signExtend $ slice d15 d0 res
-                        (Word, _) -> signExtend $ slice d31 d0 res
-                      val = loadExtend (size, sign)
-                  writeRF rd =<< readRAM (unpack val)
-                  pure $ mkInst' $ LLoad rd
-                Jump -> do
-                  writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
-                  pure $ mkInst' $ LJ $ bitCoerce res
-                Env {} -> error ""
-            SType size imm r1 r2 -> do
-              addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
-              val <- readRF r2
-              writeRAM size addr val
-              pure $ mkInst' LStore
-            BType cmp imm r1 r2 -> do
-              branched <- branch cmp <$> readRF r1 <*> readRF r2
-              if branched
-                then
-                  mkInst' . LJ . bitCoerce
-                    <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
-                else pure $ mkInst' LOther
-            UType Zero rd imm -> do
-              let imm' = imm ++# 0 `shiftL` 12
-              writeRF rd $ imm'
-              pure $ mkInst' LOther
-            UType PC rd imm -> do
-              let imm' = imm ++# 0 `shiftL` 12
-              writeRF rd imm'
-              pure $ mkInst' LOther
-            JType rd imm -> do
+      inst' <- case inst of
+        RType op rd r1 r2 -> do
+          writeRF rd =<< alu op <$> readRF r1 <*> readRF r2
+          pure $ mkInst' LOther
+        IType iop rd r1 imm -> do
+          let op =
+                case iop of
+                  Arith op' -> op'
+                  _ -> ADD
+          res <- alu op <$> readRF r1 <*> pure (signExtend imm)
+          case iop of
+            Arith {} -> pure $ mkInst' LOther
+            Load size sign -> do
+              let loadExtend = \case
+                    (Byte, Signed) -> signExtend $ slice d7 d0 res
+                    (Byte, Unsigned) -> zeroExtend $ slice d7 d0 res
+                    (Half, Signed) -> signExtend $ slice d15 d0 res
+                    (Half, Unsigned) -> signExtend $ slice d15 d0 res
+                    (Word, _) -> signExtend $ slice d31 d0 res
+                  val = loadExtend (size, sign)
+              writeRF rd =<< readRAM (unpack val)
+              pure $ mkInst' $ LLoad rd
+            Jump -> do
               writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+              pure $ mkInst' $ LJ $ bitCoerce res
+            Env {} -> error ""
+        SType size imm r1 r2 -> do
+          addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
+          val <- readRF r2
+          writeRAM size addr val
+          pure $ mkInst' LStore
+        BType cmp imm r1 r2 -> do
+          branched <- branch cmp <$> readRF r1 <*> readRF r2
+          if branched
+            then
               mkInst' . LJ . bitCoerce
                 <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
-            EBREAK ->
-              pure $ mkInst' LHalt
-            _ ->
-              pure leakNop
+            else pure $ mkInst' LOther
+        UType Zero rd imm -> do
+          let imm' = imm ++# 0 `shiftL` 12
+          writeRF rd $ imm'
+          pure $ mkInst' LOther
+        UType PC rd imm -> do
+          let imm' = imm ++# 0 `shiftL` 12
+          writeRF rd imm'
+          pure $ mkInst' LOther
+        JType rd imm -> do
+          writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+          mkInst' . LJ . bitCoerce
+            <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+        EBREAK ->
+          pure $ mkInst' LHalt
+        _ ->
+          pure leakNop
+      case leakBaseInst inst' of
+        LJ pc' -> modify $ \s -> s {leakPc = pc'}
+        _ -> modify $ \s -> s {leakPc = leakPc s + 4}
+
+      pure inst'
 
 leakRun :: LeakState -> Input -> (LeakState, LeakInst)
 leakRun s i = swap $ runState (leak i) s
