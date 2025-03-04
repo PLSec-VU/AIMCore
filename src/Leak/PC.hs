@@ -14,7 +14,6 @@ import Instruction hiding (decode, halt)
 import qualified Instruction
 import Pipe
 import Regfile
-import Simulate (MonadSim)
 import qualified Simulate
 import Types
 import Util
@@ -307,11 +306,10 @@ simLeakRun input (ls, ss) = ((ls', ss'), addr)
 
 simulator ::
   forall m.
-  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m,
-    MonadLog m
+  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m
   ) =>
   Vec PROG_SIZE Word ->
-  CircuitSim m Input (LeakState, SimState) (Maybe Address)
+  CircuitSim m Input (LeakState, SimState) (Maybe Address, Maybe Address)
 simulator prog =
   CircuitSim
     { circuitInput = initInput,
@@ -320,51 +318,34 @@ simulator prog =
       circuitNext = next
     }
   where
-    step :: Input -> (LeakState, SimState) -> m ((LeakState, SimState), Maybe Address)
+    getAddress :: Output -> Maybe Address
+    getAddress sim_o = do
+      mem <- getFirst $ outMem sim_o
+      guard $ memIsInst mem
+      pure $ memAddress mem
+
+    step ::
+      Input ->
+      (LeakState, SimState) ->
+      m ((LeakState, SimState), (Maybe Address, Maybe Address))
     step i s = do
       ((sim_s, _), mem) <- get
-      let (sim_res, mem', sim_w) = runRWS (circuitStep Simulate.simulator i sim_s) () mem
-      log $ unlines sim_w
-      log $
-        unlines
-          [ "LeakState:",
-            "--------------------",
-            show $ fst s,
-            "SimState:",
-            "--------------------",
-            show $ snd s
-          ]
+      let (sim_res@(_, sim_o), mem') = runState (circuitStep Simulate.simulator i sim_s) mem
       put (sim_res, mem')
-      pure $ simLeakRun i s
+      let (s', o) = simLeakRun i s
+      pure (s', (o, getAddress sim_o))
 
-    next :: Maybe Address -> m (Maybe Input)
-    next o = do
+    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
+    next (o, sim_addr) = do
       ((_, sim_o), mem) <- get
-      let (mi, mem', _) = runRWS (circuitNext Simulate.simulator sim_o) () mem
+      let (mi, mem') = runState (circuitNext Simulate.simulator sim_o) mem
       modify $ \(s, _mem) -> (s, mem')
-      log $
-        unlines
-          [ "ActualPC:",
-            "--------------------",
-            case mi of
-              Nothing -> mempty
-              Just input
-                | inputIsInst input -> show $ memAddress $ fromJust $ getFirst $ outMem sim_o -- fix
-                | otherwise -> mempty,
-            "LeakPC",
-            "--------------------",
-            case o of
-              Nothing -> mempty
-              Just addr -> show addr
-          ]
       pure mi
 
-runSim :: Vec PROG_SIZE Word -> Simulate.Mem MEM_SIZE_BYTES
-runSim prog = snd $ fst $ execRWS (run $ simulator prog) () s
-  where
-    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+mkS :: Vec PROG_SIZE Word -> ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES)
+mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
 
-runSimIO :: Vec PROG_SIZE Word -> IO ()
-runSimIO prog = void $ execRWST (runIO $ simulator prog) () s
-  where
-    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+watchSim ::
+  Vec PROG_SIZE Word ->
+  [((LeakState, SimState), (Maybe Address, Maybe Address), Maybe Input)]
+watchSim prog = evalState (watch $ simulator prog) $ mkS prog

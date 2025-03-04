@@ -35,11 +35,9 @@ instance (MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
   getRegfile = gets memRf
   putRegfile rf = modify $ \s -> s {memRf = rf}
 
-type MonadSim m = (MonadLog m, MonadMemory m)
+type SimM n = RWS () () (Mem n)
 
-type SimM n = RWS () Log (Mem n)
-
-simulator :: forall m. (MonadSim m) => CircuitSim m Input Pipe Output
+simulator :: forall m. (MonadMemory m) => CircuitSim m Input Pipe Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -48,27 +46,9 @@ simulator =
       circuitNext = next
     }
   where
-    step :: (MonadSim m) => Input -> Pipe -> m (Pipe, Output)
+    step :: (MonadMemory m) => Input -> Pipe -> m (Pipe, Output)
     step i s = do
       let (ctrl', s', o) = simPipe s i
-      log $
-        unlines
-          [ "Input:",
-            "--------------------",
-            show i,
-            "",
-            "State:",
-            "--------------------",
-            show s,
-            "",
-            "Output:",
-            "--------------------",
-            show o,
-            "",
-            "Control:",
-            "--------------------",
-            show ctrl'
-          ]
       pure (s', o)
       where
         simPipe :: Pipe -> Input -> (Control, Pipe, Output)
@@ -85,7 +65,7 @@ simulator =
               resetCtrl
               pure ctrl
 
-    next :: (MonadSim m) => Output -> m (Maybe Input)
+    next :: (MonadMemory m) => Output -> m (Maybe Input)
     next (Output mem rs1 rs2 rd hlt)
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
@@ -117,11 +97,8 @@ simulator =
                   pure (0, isInst)
           | otherwise = pure (0, False)
 
-runSim :: Vec PROG_SIZE Word -> Mem MEM_SIZE_BYTES
-runSim = fst . execRWS (run simulator) () . flip Mem initRF . mkRAM
-
-runSimIO :: Vec PROG_SIZE Word -> IO ()
-runSimIO = void . execRWST (runIO simulator) () . flip Mem initRF . mkRAM
+watchSim :: Vec PROG_SIZE Word -> [(Pipe, Output, Maybe Input)]
+watchSim = evalState (watch simulator) . flip Mem initRF . mkRAM
 
 prog1 =
   -- r2 := r0 + 5

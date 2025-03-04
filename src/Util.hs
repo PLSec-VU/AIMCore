@@ -15,16 +15,6 @@ import Regfile
 import Types
 import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat, replicate, take, undefined, (!!), (&&), (++), (||))
 
-type Log = [String]
-
-class (Monad m) => MonadLog m where
-  log :: String -> m ()
-  withLog :: m a -> m (a, Log)
-
-instance (MonadWriter Log m) => MonadLog m where
-  log = tell . pure
-  withLog = listen
-
 data CircuitSim m i s o = CircuitSim
   { circuitInput :: i,
     circuitState :: s,
@@ -32,24 +22,29 @@ data CircuitSim m i s o = CircuitSim
     circuitNext :: o -> m (Maybe i)
   }
 
-run :: (Monad m) => CircuitSim m i s o -> m (s, o)
-run (CircuitSim i s step next) =
-  go i s
-  where
-    go i s = do
-      (s', o) <- step i s
-      mi' <- next o
-      case mi' of
-        Nothing -> pure (s', o)
-        Just i' -> go i' s'
+run1 :: (Monad m) => CircuitSim m i s o -> m (s, o, Maybe i)
+run1 (CircuitSim i s step next) = do
+  (s', o) <- step i s
+  mi' <- next o
+  pure (s', o, mi')
 
-runIO :: (Monad m, MonadLog m, MonadIO m) => CircuitSim m i s o -> m ()
-runIO cs = do
-  (_, log) <- withLog $ run cs
-  liftIO $ forM_ log $ \msg -> do
-    putStrLn msg
-    putStrLn "Press Enter to continue."
-    void getLine
+watch :: (Monad m) => CircuitSim m i s o -> m [(s, o, Maybe i)]
+watch c = do
+  (s', o, mi') <- run1 c
+  case mi' of
+    Nothing -> pure [(s', o, mi')]
+    Just i' -> do
+      rest <- watch $ c {circuitInput = i', circuitState = s'}
+      pure $ (s', o, mi') : rest
+
+pageIO :: (Show a) => [a] -> IO ()
+pageIO = mapM_ $ \a -> do
+  putStrLn $ show a
+  putStrLn ""
+  putStrLn "------------------------"
+  putStrLn "Press Enter to continue."
+  putStrLn "------------------------"
+  void getLine
 
 class (Monad m) => MonadMemory m where
   getRAM :: m (Vec MEM_SIZE_BYTES Byte)
