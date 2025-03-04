@@ -97,14 +97,16 @@ simulator =
                   pure (0, isInst)
           | otherwise = pure (0, False)
 
-watchSim :: Vec PROG_SIZE Word -> [(Pipe, Output, Maybe Input)]
-watchSim = evalState (watch simulator) . flip Mem initRF . mkRAM
+runSimulator ::
+  ( CircuitSim (State (Mem MEM_SIZE_BYTES)) Input Pipe Output ->
+    State (Mem MEM_SIZE_BYTES) a
+  ) ->
+  Vec PROG_SIZE Word ->
+  a
+runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
 
-prog1 =
-  -- r2 := r0 + 5
-  IType (Arith ADD) 2 0 5
-    :>
-    -- mem[0 + r0] := r2
-    SType Word 0 0 2
-    :> halt
-    :> Nil
+watchSim :: Vec PROG_SIZE Word -> [(Pipe, Output, Maybe Input)]
+watchSim = runSimulator watch
+
+simResult :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
+simResult = runSimulator result

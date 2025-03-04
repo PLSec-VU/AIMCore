@@ -19,11 +19,6 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
--- `fromJust` is safe here because the `fetch` stage unconditionally always reads
--- from memory (and its read may just be superseded by the `memory` stage).
-obs :: Output -> Address
-obs = memAddress . fromJust . getFirst . outMem
-
 data BaseLeakInst
   = LJ Address
   | LLoad RegIdx
@@ -182,7 +177,7 @@ data SimState = SimState
 initSim :: SimState
 initSim =
   SimState
-    { simFePc = 4 * 50,
+    { simFePc = initPc,
       simDePc = 0,
       simExPc = 0,
       simJumpAddr = Nothing,
@@ -318,8 +313,8 @@ simulator prog =
       circuitNext = next
     }
   where
-    getAddress :: Output -> Maybe Address
-    getAddress sim_o = do
+    obs :: Output -> Maybe Address
+    obs sim_o = do
       mem <- getFirst $ outMem sim_o
       guard $ memIsInst mem
       pure $ memAddress mem
@@ -333,7 +328,7 @@ simulator prog =
       let (sim_res@(_, sim_o), mem') = runState (circuitStep Simulate.simulator i sim_s) mem
       put (sim_res, mem')
       let (s', o) = simLeakRun i s
-      pure (s', (o, getAddress sim_o))
+      pure (s', (o, obs sim_o))
 
     next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
     next (o, sim_addr) = do

@@ -37,6 +37,9 @@ watch c = do
       rest <- watch $ c {circuitInput = i', circuitState = s'}
       pure $ (s', o, mi') : rest
 
+result :: (MonadMemory m) => CircuitSim m i s o -> m (Vec MEM_SIZE_BYTES Byte)
+result c = watch c *> getRAM
+
 pageIO :: (Show a) => [a] -> IO ()
 pageIO = mapM_ $ \a -> do
   putStrLn $ show a
