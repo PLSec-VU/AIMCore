@@ -278,11 +278,6 @@ halt =
 -- | The fetch stage.
 fetch :: CPUM ()
 fetch = do
-  pc <- gets fePc
-  -- Fetch the next instruction from memory.  Will only actually happen if no
-  -- other reads/writes occur in subsequent stages.
-  readPC pc
-
   stall <-
     checkLines
       [ -- Have to always stall incrementing the program counter on any load
@@ -294,6 +289,11 @@ fetch = do
         -- increment the program counter.
         ctrlMemOutputActive
       ]
+
+  pc <- gets fePc
+  -- Fetch the next instruction from memory.  Will only actually happen if no
+  -- other reads/writes occur in subsequent stages.
+  readPC pc stall
 
   mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
   modify $ \s ->
@@ -593,14 +593,14 @@ writeback = do
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
 
-readPC :: (MonadWriter Output m) => Address -> m ()
-readPC addr =
+readPC :: (MonadWriter Output m) => Address -> Bool -> m ()
+readPC addr stall =
   tell $
     mempty
       { outMem =
           pure $
             MemAccess
-              { memIsInst = True,
+              { memIsInst = not stall,
                 memAddress = addr,
                 memSize = Word,
                 memVal = Nothing
