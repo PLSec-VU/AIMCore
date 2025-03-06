@@ -66,6 +66,7 @@ library
     , pretty
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , transformers
   default-language: Haskell2010
 
@@ -102,6 +103,7 @@ executable uc-risc-v-exe
     , pretty
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , transformers
     , uc-risc-v
   default-language: Haskell2010
@@ -140,6 +142,7 @@ test-suite uc-risc-v-test
     , pretty
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , transformers
     , uc-risc-v
   default-language: Haskell2010

@@ -11,6 +11,7 @@ import Regfile
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.QuickCheck
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -156,3 +157,46 @@ sumTo n =
       SType Word 0 0 2,
       halt
     ]
+
+genEnumBound :: (Enum a, Bounded a) => Gen a
+genEnumBound = chooseEnum (minBound, maxBound)
+
+instance Arbitrary Arith where
+  arbitrary = genEnumBound
+
+instance Arbitrary Comparison where
+  arbitrary = genEnumBound
+
+instance Arbitrary Size where
+  arbitrary = genEnumBound
+
+instance Arbitrary Sign where
+  arbitrary = genEnumBound
+
+instance Arbitrary UBase where
+  arbitrary = genEnumBound
+
+instance Arbitrary Env where
+  arbitrary = genEnumBound
+
+instance Arbitrary IOperation where
+  arbitrary =
+    oneof
+      [ Arith <$> arbitrary,
+        Load <$> arbitrary <*> arbitrary,
+        Env <$> arbitrary,
+        pure Jump
+      ]
+
+instance Arbitrary Instruction where
+  arbitrary =
+    oneof
+      [ RType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
+        IType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
+        SType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
+        BType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
+        UType <$> arbitrary <*> arbitrary <*> arbitrary,
+        JType <$> arbitrary <*> arbitrary,
+        pure Invalid,
+        pure EBREAK -- (fix, and probably make less common and/or just enforce it comes at the end)
+      ]

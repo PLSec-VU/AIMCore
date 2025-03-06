@@ -44,7 +44,7 @@ data Arith
     SLT
   | -- | Set Less Than Unsigned
     SLTU
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Comparison operations.
 data Comparison
@@ -60,32 +60,32 @@ data Comparison
     LTU
   | -- | Greater or Equals than Unsigned
     GEU
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Word sizes that can be loaded or stored.
 data Size
   = Byte
   | Half
   | Word
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Sign extension of a load operation.
 data Sign
   = Signed
   | Unsigned
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | The base for an upper type operation: lui or auipc.
 data UBase
   = PC
   | Zero
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Environment operation: ecall or ebreak.
 data Env
   = Call
   | Break
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Types of operations using the immediate encoding.
 data IOperation
