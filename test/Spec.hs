@@ -1,6 +1,6 @@
 module Main where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import qualified HardwareSim
@@ -191,13 +191,18 @@ instance Arbitrary IOperation where
 
 instance Arbitrary Instruction where
   arbitrary =
-    oneof
-      [ RType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
-        IType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
-        SType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
-        BType <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary,
-        UType <$> arbitrary <*> arbitrary <*> arbitrary,
-        JType <$> arbitrary <*> arbitrary,
-        pure Invalid,
-        pure EBREAK -- (fix, and probably make less common and/or just enforce it comes at the end)
-      ]
+    resize 10 $
+      oneof
+        [ RType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> regIdxGen,
+          IType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> immGen,
+          SType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
+          BType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
+          UType <$> arbitrary <*> regIdxGen <*> uImmGen,
+          JType <$> regIdxGen <*> uImmGen,
+          pure Invalid,
+          pure EBREAK -- (fix, and probably make less common and/or just enforce it comes at the end)
+        ]
+    where
+      regIdxGen = chooseBoundedIntegral (0, 31)
+      immGen = chooseBoundedIntegral (0, 5)
+      uImmGen = chooseBoundedIntegral (0, 5)
