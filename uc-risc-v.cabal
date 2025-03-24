@@ -28,7 +28,9 @@ library
       HardwareSim
       Instruction
       Leak.Architectural
+      Leak.Leak
       Leak.PC
+      Leak.PCWithState
       Pipe
       Pretty
       Regfile
