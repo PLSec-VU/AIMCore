@@ -110,3 +110,13 @@ watchSim = runSimulator watch
 
 simResult :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
 simResult = runSimulator result
+
+prog1 =
+  mkProg $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :> halt
+      :> Nil

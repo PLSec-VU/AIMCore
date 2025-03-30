@@ -1,8 +1,10 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Leak.Leak where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Reader
@@ -25,21 +27,28 @@ import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 data WithReg a
-  = Unary RegIdx (Word -> a)
+  = Const a
+  | Unary RegIdx (Word -> a)
   | Binary RegIdx RegIdx (Word -> Word -> a)
 
 instance Functor WithReg where
+  fmap f (Const a) = Const $ f a
   fmap f (Unary r g) = Unary r $ f . g
   fmap f (Binary ri1 ri2 g) = Binary ri1 ri2 $ \r1 r2 -> f $ g r1 r2
 
 type PC = Address
 
-type WithPC = Reader PC
+newtype PCM a = PCM (Reader PC a)
+  deriving (MonadReader PC, Monad, Functor, Applicative)
 
-applyPC :: WithPC a -> PC -> a
-applyPC = runReader
+instance Show (PCM a) where
+  show (PCM _) = "<pcm>"
+
+applyPC :: PCM a -> PC -> a
+applyPC (PCM m) = runReader m
 
 instance Show (WithReg a) where
+  show (Const a) = "Const"
   show (Unary r _) =
     unwords ["Unary", show r, "<fun>"]
   show (Binary r1 r2 _) =
@@ -48,9 +57,11 @@ instance Show (WithReg a) where
 newtype RegComp a = RegComp (WithReg a)
   deriving (Show, Functor)
 
-newtype Done a = Done (WithPC a)
+newtype Done a = Done (PCM a)
+  deriving (Show)
 
-applyRegComp :: RegComp a -> WithPC Word -> WithPC Word -> Done a
+applyRegComp :: RegComp a -> PCM Word -> PCM Word -> Done a
+applyRegComp (RegComp (Const a)) _ _ = Done $ pure a
 applyRegComp (RegComp (Unary _ f)) r _ = Done $ f <$> r
 applyRegComp (RegComp (Binary _ _ f)) r1 r2 = Done $ f <$> r1 <*> r2
 
@@ -62,6 +73,15 @@ data LeakInst reg pc
   | LStore Size (reg Address) RegIdx
   | LBranch (reg Bool) (pc Address)
   | LNop
+  | LHalt
+
+deriving instance
+  ( Show (reg Word),
+    Show (reg Address),
+    Show (reg Bool),
+    Show (pc Address)
+  ) =>
+  Show (LeakInst reg pc)
 
 getLeakRd :: LeakInst reg pc -> Maybe RegIdx
 getLeakRd (LReg rd _) = pure rd
@@ -103,6 +123,8 @@ instance DepReg (LeakInst RegComp b) where
   deps (LJumpReg _ _ f) = deps f
   deps (LStore _ f r2) = (fst $ deps f, Just r2)
   deps (LBranch f _) = deps f
+  deps LHalt = (Nothing, Nothing)
+  deps LNop = (Nothing, Nothing)
 
 depSet :: (DepReg a) => a -> Set RegIdx
 depSet a =
@@ -115,7 +137,10 @@ binComp r1 r2 f = RegComp $ Binary r1 r2 f
 unaryComp :: RegIdx -> (Word -> a) -> RegComp a
 unaryComp r f = RegComp $ Unary r f
 
-leak :: Input -> LeakInst RegComp WithPC
+constComp :: a -> RegComp a
+constComp = RegComp . Const
+
+leak :: Input -> LeakInst RegComp PCM
 leak input
   | not (inputIsInst input) = LNop
   | otherwise =
@@ -141,7 +166,7 @@ leak input
                           (Word, _) -> signExtend . slice d31 d0
                   LLoad size rd $ bitCoerce . loadExtend <$> alu_res
                 Jump ->
-                  LJump rd (asks (bitCoerce . (+ 4))) $ asks (+ bitCoerce (signExtend imm))
+                  LJumpReg rd (asks (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
                 Env {} -> error ""
         SType size imm r1 r2 -> do
           let addr_comp = unpack <$> unaryComp r1 (\r -> alu ADD r (signExtend imm))
@@ -150,6 +175,18 @@ leak input
           let branched_comp = binComp r1 r2 $ branch cmp
               addr_comp = asks (+ bitCoerce (signExtend imm))
            in LBranch branched_comp addr_comp
+        UType Zero rd imm ->
+          let imm' = imm ++# 0 `shiftL` 12
+           in LReg rd $ constComp imm'
+        -- FIX
+        -- UType PC rd imm -> do
+        --  let imm' = imm ++# 0 `shiftL` 12
+        --  writeRF rd imm'
+        --  pure $ mkInst' LOther
+        JType rd imm ->
+          LJump rd (asks (bitCoerce . (+ 4))) $ asks (+ bitCoerce (signExtend imm))
+        EBREAK -> LHalt
+        _ -> LNop
   where
     inst = Instruction.decode $ inputMem input
 

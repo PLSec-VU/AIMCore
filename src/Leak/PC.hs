@@ -1,3 +1,6 @@
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Leak.PC where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
@@ -31,7 +34,13 @@ data BaseTimeInst pc
   | TOther
   | THalt
 
-timeNop :: TimeInst WithPC
+deriving instance
+  ( Show (pc Bool),
+    Show (pc Address)
+  ) =>
+  Show (BaseTimeInst pc)
+
+timeNop :: TimeInst PCM
 timeNop = TimeInst TOther mempty
 
 data TimeInst pc = TimeInst
@@ -42,20 +51,27 @@ data TimeInst pc = TimeInst
     -- timeDePc :: Address
   }
 
+deriving instance
+  ( Show (pc Bool),
+    Show (pc Address)
+  ) =>
+  Show (TimeInst pc)
+
 data Stage = Fe | De | Ex | Mem | Wb
   deriving (Show, Eq, Ord)
 
 data TimeState = TimeState
-  { timeExInstr :: LeakInst RegComp WithPC,
+  { timeExInstr :: LeakInst RegComp PCM,
     timeExRes :: Word,
-    timeMemInstr :: LeakInst Done WithPC,
+    timeMemInstr :: LeakInst Done PCM,
     timeMemRes :: Word,
-    timeWbInstr :: LeakInst Done WithPC,
+    timeWbInstr :: LeakInst Done PCM,
     timeStall :: Set Stage,
     timeHalt :: Bool,
-    timeMeRegFwd :: Maybe (RegIdx, WithPC Word),
-    timeWbRegFwd :: Maybe (RegIdx, WithPC Word)
+    timeMeRegFwd :: Maybe (RegIdx, PCM Word),
+    timeWbRegFwd :: Maybe (RegIdx, PCM Word)
   }
+  deriving (Show)
 
 initTime :: TimeState
 initTime =
@@ -72,9 +88,9 @@ initTime =
     }
 
 data TimeOut = TimeOut
-  { timeInst :: First (TimeInst WithPC),
-    timeBranched :: First (WithPC Bool),
-    timeJumpAddress :: First (WithPC Address)
+  { timeInst :: First (TimeInst PCM),
+    timeBranched :: First (PCM Bool),
+    timeJumpAddress :: First (PCM Address)
   }
 
 instance Semigroup TimeOut where
@@ -83,7 +99,7 @@ instance Semigroup TimeOut where
 instance Monoid TimeOut where
   mempty = TimeOut mempty mempty mempty
 
-type TimeM = RWS (LeakInst RegComp WithPC, Input) TimeOut TimeState
+type TimeM = RWS (LeakInst RegComp PCM, Input) TimeOut TimeState
 
 stallingM :: Stage -> TimeM Bool
 stallingM stage =
@@ -128,7 +144,7 @@ timeDecode = do
     isLoad (LLoad {}) = True
     isLoad _ = False
 
-    loadHazard :: LeakInst RegComp WithPC -> LeakInst reg pc -> Bool
+    loadHazard :: LeakInst RegComp PCM -> LeakInst reg pc -> Bool
     loadHazard de_ir ex_ir@(LLoad _ rd _) =
       any (== rd) $ S.toList $ depSet de_ir
     loadHazard _ _ = False
@@ -139,6 +155,7 @@ timeDecode = do
     mkTimeInst (LJumpReg _ _ _) = TJump Nothing
     mkTimeInst (LStore _ _ _) = TStore
     mkTimeInst (LBranch _ maddr) = TBranch Nothing maddr
+    mkTimeInst LHalt = THalt
     mkTimeInst LNop = TOther
 
 timeExecute :: TimeM ()
@@ -165,16 +182,18 @@ timeExecute = do
         let Done m_branch_res = applyRegComp f_branched r1 r2
         tell $ mempty {timeBranched = pure m_branch_res}
         pure $ LBranch (Done m_branch_res) m_addr
+      LHalt -> pure LHalt
+      LNop -> pure LNop
 
   modify $ \s -> s {timeMemInstr = instr'}
   where
-    rs1 :: TimeM (WithPC Word)
+    rs1 :: TimeM (PCM Word)
     rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
 
-    rs2 :: TimeM (WithPC Word)
+    rs2 :: TimeM (PCM Word)
     rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
 
-    regWithFwd :: (LeakInst RegComp WithPC -> Maybe RegIdx) -> Word -> TimeM (WithPC Word)
+    regWithFwd :: (LeakInst RegComp PCM -> Maybe RegIdx) -> Word -> TimeM (PCM Word)
     regWithFwd getR def = do
       ir <- gets timeExInstr
       let checkForFwd line = do
@@ -240,22 +259,23 @@ timeTick = do
   timeExecute
   timeDecode
 
-timeRun :: TimeState -> (LeakInst RegComp WithPC, Input) -> (TimeState, TimeOut)
+timeRun :: TimeState -> (LeakInst RegComp PCM, Input) -> (TimeState, TimeOut)
 timeRun s i = execRWS timeTick i s
 
 data SimState = SimState
   { simFePc :: Address,
     simDePc :: Address,
     simExPc :: Address,
-    simExInstr :: TimeInst WithPC,
-    simMemInstr :: TimeInst WithPC,
-    simWbInstr :: TimeInst WithPC,
-    simJumpStack :: [WithPC Address],
-    simBranchStack :: [WithPC Bool],
+    simExInstr :: TimeInst PCM,
+    simMemInstr :: TimeInst PCM,
+    simWbInstr :: TimeInst PCM,
+    simJumpStack :: [PCM Address],
+    simBranchStack :: [PCM Bool],
     simJumpAddr :: Maybe Address,
     simStall :: Set Stage,
     simHalt :: Bool
   }
+  deriving (Show)
 
 initSim :: SimState
 initSim =
@@ -323,11 +343,11 @@ simDecode = do
         simExPc = simDePc s
       }
   where
-    isLoad :: TimeInst WithPC -> Bool
+    isLoad :: TimeInst PCM -> Bool
     isLoad (TimeInst (TLoad {}) _) = True
     isLoad _ = False
 
-    loadHazard :: TimeInst WithPC -> TimeInst WithPC -> Bool
+    loadHazard :: TimeInst PCM -> TimeInst PCM -> Bool
     loadHazard de_ir ex_ir@(TimeInst (TLoad rd) _) =
       any (== rd) $ S.toList $ timeDeps de_ir
     loadHazard _ _ = False
@@ -346,7 +366,7 @@ simExecute = do
 
   modify $ \s -> s {simMemInstr = instr}
   where
-    doBranch :: WithPC Address -> SimM ()
+    doBranch :: PCM Address -> SimM ()
     doBranch mpc = do
       branchStack <- gets simBranchStack
       pc <- gets simExPc
