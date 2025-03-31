@@ -179,10 +179,16 @@ timeExecute = do
   modify $ \s -> s {timeMemInstr = instr'}
   where
     rs1 :: TimeM (PCM Word)
-    rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
+    rs1 = asks (pure . inputRs1 . snd)
 
     rs2 :: TimeM (PCM Word)
-    rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
+    rs2 = asks (pure . inputRs2 . snd)
+
+    -- rs1 :: TimeM (PCM Word)
+    -- rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
+
+    -- rs2 :: TimeM (PCM Word)
+    -- rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
 
     regWithFwd :: (LeakInst RegComp PCM -> Maybe RegIdx) -> Word -> TimeM (PCM Word)
     regWithFwd getR def = do
@@ -337,8 +343,6 @@ simOutputNothing = tell $ pure Nothing
 simFetch :: SimM ()
 simFetch = do
   s <- get
-  mjmpAddr <- getFirst <$> asks timeJumpAddress
-  modify $ \s -> s {simJumpStack = simJumpStack s Prelude.++ catMaybes [mjmpAddr]}
   stalling <- simStallingM Fe
   unless stalling $ do
     modify $ \s ->
@@ -380,6 +384,10 @@ simDecode = do
 simExecute :: SimM ()
 simExecute = do
   instr <- gets simExInstr
+  mjmpAddr <- getFirst <$> asks timeJumpAddress
+  modify $ \s -> s {simJumpStack = simJumpStack s Prelude.++ catMaybes [mjmpAddr]}
+  mbranched <- getFirst <$> asks timeBranched
+  modify $ \s -> s {simBranchStack = simBranchStack s Prelude.++ catMaybes [mbranched]}
   case timeBaseInst instr of
     TJump {} -> do
       simDoStall [De]
@@ -446,6 +454,7 @@ simWriteback = do
 
   case timeBaseInst instr of
     THalt -> do
+      simOutputNothing
       modify $ \s ->
         s
           { simMemInstr = timeNop,

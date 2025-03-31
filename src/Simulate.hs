@@ -139,3 +139,22 @@ prog2 =
       SType Word 4 0 4
       :> halt
       :> Nil
+
+prog3 =
+  mkProg $
+    -- r2 := r0 + 3
+    IType (Arith ADD) 2 0 3
+      :>
+      -- r3 := r0 + r2
+      RType ADD 3 0 2
+      :>
+      -- r2 == r3 ? jump pc + 8
+      BType EQ 8 2 3
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :>
+      -- mem[1 + r0] := r2
+      SType Word 4 0 2
+      :> halt
+      :> Nil
