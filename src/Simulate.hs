@@ -120,3 +120,22 @@ prog1 =
       SType Word 0 0 2
       :> halt
       :> Nil
+
+prog2 =
+  mkProg $
+    -- r2 := r0 + 5
+    IType (Arith ADD) 2 0 5
+      :>
+      -- mem[0 + r0] := r2
+      SType Word 0 0 2
+      :>
+      -- r3 := mem[r0 + 0],
+      IType (Load Word Signed) 3 0 0
+      :>
+      -- r4 := r0 + r3
+      RType ADD 4 0 3
+      :>
+      -- mem[1 + r0] := r4
+      SType Word 4 0 4
+      :> halt
+      :> Nil

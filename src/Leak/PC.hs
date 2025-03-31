@@ -32,7 +32,8 @@ data BaseTimeInst pc
   | TLoad RegIdx
   | TStore
   | TOther
-  | THalt
+  | -- | TStall [Stage]
+    THalt
 
 deriving instance
   ( Show (pc Bool),
@@ -351,7 +352,8 @@ simDecode :: SimM ()
 simDecode = do
   s <- get
   instr <- fromMaybe timeNop . getFirst <$> asks timeInst
-  when (isLoad instr) $
+  when (isLoad instr) $ do
+    simOutputNothing
     simDoStall [Fe]
   ex_ir <- gets simExInstr
   when (loadHazard instr ex_ir) $
