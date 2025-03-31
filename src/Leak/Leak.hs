@@ -58,7 +58,7 @@ newtype RegComp a = RegComp (WithReg a)
   deriving (Show, Functor)
 
 newtype Done a = Done (PCM a)
-  deriving (Show)
+  deriving (Show, Functor, Applicative, Monad)
 
 applyRegComp :: RegComp a -> PCM Word -> PCM Word -> Done a
 applyRegComp (RegComp (Const a)) _ _ = Done $ pure a
@@ -83,34 +83,34 @@ deriving instance
   ) =>
   Show (LeakInst reg pc)
 
-getLeakRd :: LeakInst reg pc -> Maybe RegIdx
+getLeakRd :: (Alternative f) => LeakInst reg pc -> f RegIdx
 getLeakRd (LReg rd _) = pure rd
 getLeakRd (LLoad _ rd _) = pure rd
 getLeakRd (LJump rd _ _) = pure rd
 getLeakRd (LJumpReg rd _ _) = pure rd
-getLeakRd _ = Nothing
+getLeakRd _ = empty
 
-getLeakR1 :: LeakInst RegComp pc -> Maybe RegIdx
+getLeakR1 :: (Alternative f) => LeakInst RegComp pc -> f RegIdx
 getLeakR1 (LReg _ f) = fst $ deps f
 getLeakR1 (LLoad _ _ f) = fst $ deps f
-getLeakR1 (LJump {}) = Nothing
+getLeakR1 (LJump {}) = empty
 getLeakR1 (LJumpReg _ _ f) = fst $ deps f
 getLeakR1 (LStore _ f _) = fst $ deps f
 getLeakR1 (LBranch f _) = fst $ deps f
 
-getLeakR2 :: LeakInst RegComp pc -> Maybe RegIdx
+getLeakR2 :: (Alternative f) => LeakInst RegComp pc -> f RegIdx
 getLeakR2 (LReg _ f) = snd $ deps f
 getLeakR2 (LLoad _ _ f) = snd $ deps f
-getLeakR2 (LJump {}) = Nothing
+getLeakR2 (LJump {}) = empty
 getLeakR2 (LJumpReg _ _ f) = snd $ deps f
 getLeakR2 (LStore _ _ r2) = pure r2
 getLeakR2 (LBranch f _) = snd $ deps f
 
 class DepReg a where
-  deps :: a -> (Maybe RegIdx, Maybe RegIdx)
+  deps :: (Alternative f) => a -> (f RegIdx, f RegIdx)
 
 instance DepReg (WithReg a) where
-  deps (Unary r _) = (pure r, Nothing)
+  deps (Unary r _) = (pure r, empty)
   deps (Binary r1 r2 _) = (pure r1, pure r2)
 
 instance DepReg (RegComp a) where
@@ -119,12 +119,12 @@ instance DepReg (RegComp a) where
 instance DepReg (LeakInst RegComp b) where
   deps (LReg _ f) = deps f
   deps (LLoad _ _ f) = deps f
-  deps (LJump _ _ _) = (Nothing, Nothing)
+  deps (LJump _ _ _) = (empty, empty)
   deps (LJumpReg _ _ f) = deps f
-  deps (LStore _ f r2) = (fst $ deps f, Just r2)
+  deps (LStore _ f r2) = (fst $ deps f, pure r2)
   deps (LBranch f _) = deps f
-  deps LHalt = (Nothing, Nothing)
-  deps LNop = (Nothing, Nothing)
+  deps LHalt = (empty, empty)
+  deps LNop = (empty, empty)
 
 depSet :: (DepReg a) => a -> Set RegIdx
 depSet a =

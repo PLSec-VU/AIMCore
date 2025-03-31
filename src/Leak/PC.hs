@@ -62,9 +62,8 @@ data Stage = Fe | De | Ex | Mem | Wb
 
 data TimeState = TimeState
   { timeExInstr :: LeakInst RegComp PCM,
-    timeExRes :: Word,
+    timeExRes :: Done Word,
     timeMemInstr :: LeakInst Done PCM,
-    timeMemRes :: Word,
     timeWbInstr :: LeakInst Done PCM,
     timeStall :: Set Stage,
     timeHalt :: Bool,
@@ -77,9 +76,8 @@ initTime :: TimeState
 initTime =
   TimeState
     { timeExInstr = LNop,
-      timeExRes = 0,
+      timeExRes = pure 0,
       timeMemInstr = LNop,
-      timeMemRes = 0,
       timeWbInstr = LNop,
       timeStall = mempty,
       timeHalt = False,
@@ -109,8 +107,8 @@ stall :: [Stage] -> TimeM ()
 stall stages =
   modify $ \s -> s {timeStall = timeStall s <> S.fromList stages}
 
--- outputNothing :: TimeM ()
--- outputNothing = tell mempty
+outputNothing :: TimeM ()
+outputNothing = tell mempty
 
 timeDecode :: TimeM ()
 timeDecode = do
@@ -213,43 +211,78 @@ timeExecute = do
 timeMemory :: TimeM ()
 timeMemory = do
   instr <- gets timeMemInstr
-  case instr of
-    LLoad {} -> do
-      -- outputNothing
-      stall [Fe]
-    LStore {} -> do
-      -- outputNothing
-      stall [Fe]
-    LJump {} ->
-      stall [De]
-    LJumpReg {} ->
-      stall [De]
-    LBranch {} ->
-      stall [De]
-    _ -> pure ()
+
+  mres <-
+    case instr of
+      LReg _ (Done mres) ->
+        pure $ Just mres
+      LLoad {} -> do
+        stall [Fe]
+        pure Nothing
+      LJump _ mres _ -> do
+        stall [De]
+        pure $ Just $ bitCoerce <$> mres
+      LJumpReg _ mres _ -> do
+        stall [De]
+        pure $ Just $ bitCoerce <$> mres
+      LStore {} -> do
+        stall [Fe]
+        pure Nothing
+      LBranch {} -> do
+        stall [De]
+        pure Nothing
+      _ -> pure Nothing
+
+  try $ do
+    rd <- getLeakRd instr
+    res <- MaybeT $ pure mres
+    lift $ modify $ \s -> s {timeMeRegFwd = pure (rd, res)}
 
   modify $ \s -> s {timeWbInstr = timeMemInstr s}
 
 timeWriteback :: TimeM ()
 timeWriteback = do
+  input <- asks $ inputMem . snd
   instr <- gets timeWbInstr
   halted <- gets timeHalt
 
-  -- when halted $
-  -- outputNothing
+  when halted $
+    outputNothing
 
   case instr of
-    -- THalt -> do
-    --  modify $ \s ->
-    --    s
-    --      { timeMemInstr = timeNop,
-    --        timeExInstr = timeNop,
-    --        timeHalt = True
-    --      }
-    --  outputNothing
     LLoad {} -> stall [De]
     LStore {} -> stall [De]
     _ -> pure ()
+
+  mres <-
+    case instr of
+      LReg _ (Done mres) ->
+        pure $ Just mres
+      LLoad {} -> do
+        stall [De]
+        pure $ Just $ pure $ input
+      LJump _ mres _ ->
+        pure $ Just $ bitCoerce <$> mres
+      LJumpReg _ mres _ ->
+        pure $ Just $ bitCoerce <$> mres
+      LStore {} -> do
+        stall [De]
+        pure Nothing
+      LHalt -> do
+        modify $ \s ->
+          s
+            { timeMemInstr = LNop,
+              timeExInstr = LNop,
+              timeHalt = True
+            }
+        outputNothing
+        pure Nothing
+      _ -> pure Nothing
+
+  try $ do
+    rd <- getLeakRd instr
+    res <- MaybeT $ pure mres
+    lift $ modify $ \s -> s {timeWbRegFwd = pure (rd, res)}
 
 timeTick :: TimeM ()
 timeTick = do

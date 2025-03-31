@@ -590,9 +590,6 @@ writeback = do
     writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
 
-try :: (Monad m) => MaybeT m () -> m ()
-try m = runMaybeT m >>= maybe (pure ()) pure
-
 readPC :: (MonadWriter Output m) => Address -> Bool -> m ()
 readPC addr stall =
   tell $

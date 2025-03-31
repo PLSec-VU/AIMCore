@@ -8,6 +8,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Control.Monad.State
+import Control.Monad.Trans.Maybe
 import Control.Monad.Writer
 import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
@@ -139,3 +140,6 @@ mkProg prog =
 mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
 mkRAM prog =
   (repeat 0 :: Vec RAM_SIZE_BYTES Byte) ++ vecWordToByte prog
+
+try :: (Monad m) => MaybeT m () -> m ()
+try m = runMaybeT m >>= maybe (pure ()) pure
