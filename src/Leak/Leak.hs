@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -38,8 +40,22 @@ instance Functor WithReg where
 
 type PC = Address
 
-newtype PCM a = PCM (Reader PC a)
-  deriving (MonadReader PC, Monad, Functor, Applicative)
+newtype PCM a = PCM {runPCM :: Reader PC a}
+
+instance MonadReader PC PCM where
+  ask = PCM ask
+  local f (PCM m) = PCM $ local f m
+
+instance Functor PCM where
+  fmap f (PCM r) = PCM (fmap f r)
+
+instance Applicative PCM where
+  pure x = PCM (pure x)
+  PCM rf <*> PCM ra = PCM (rf <*> ra)
+
+instance Monad PCM where
+  return = pure
+  PCM r >>= f = PCM (r >>= \x -> runPCM (f x))
 
 instance Show (PCM a) where
   show (PCM _) = "<pcm>"
@@ -57,7 +73,7 @@ instance Show (WithReg a) where
 newtype RegComp a = RegComp (WithReg a)
   deriving (Show, Functor)
 
-newtype Done a = Done (PCM a)
+newtype Done a = Done {unDone :: (PCM a)}
   deriving (Show, Functor, Applicative, Monad)
 
 applyRegComp :: RegComp a -> PCM Word -> PCM Word -> Done a
