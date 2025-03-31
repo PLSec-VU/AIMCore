@@ -114,8 +114,6 @@ timeDecode :: TimeM ()
 timeDecode = do
   s <- get
   instr <- fst <$> ask
-  when (isLoad instr) $
-    stall [Fe]
   ex_ir <- gets timeExInstr
   when (loadHazard instr ex_ir) $
     stall [De]
@@ -138,10 +136,6 @@ timeDecode = do
             else instr
       }
   where
-    isLoad :: LeakInst reg pc -> Bool
-    isLoad (LLoad {}) = True
-    isLoad _ = False
-
     loadHazard :: LeakInst RegComp PCM -> LeakInst reg pc -> Bool
     loadHazard de_ir ex_ir@(LLoad _ rd _) =
       any (== rd) $ S.toList $ depSet de_ir
@@ -216,8 +210,7 @@ timeMemory = do
     case instr of
       LReg _ (Done mres) ->
         pure $ Just mres
-      LLoad {} -> do
-        stall [Fe]
+      LLoad {} ->
         pure Nothing
       LJump _ mres _ -> do
         stall [De]
@@ -225,8 +218,7 @@ timeMemory = do
       LJumpReg _ mres _ -> do
         stall [De]
         pure $ Just $ bitCoerce <$> mres
-      LStore {} -> do
-        stall [Fe]
+      LStore {} ->
         pure Nothing
       LBranch {} -> do
         stall [De]
