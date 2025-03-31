@@ -62,7 +62,6 @@ data Stage = Fe | De | Ex | Mem | Wb
 
 data TimeState = TimeState
   { timeExInstr :: LeakInst RegComp PCM,
-    timeExRes :: Done Word,
     timeMemInstr :: LeakInst Done PCM,
     timeWbInstr :: LeakInst Done PCM,
     timeStall :: Set Stage,
@@ -76,7 +75,6 @@ initTime :: TimeState
 initTime =
   TimeState
     { timeExInstr = LNop,
-      timeExRes = pure 0,
       timeMemInstr = LNop,
       timeWbInstr = LNop,
       timeStall = mempty,

@@ -97,6 +97,8 @@ getLeakR1 (LJump {}) = empty
 getLeakR1 (LJumpReg _ _ f) = fst $ deps f
 getLeakR1 (LStore _ f _) = fst $ deps f
 getLeakR1 (LBranch f _) = fst $ deps f
+getLeakR1 LNop = empty
+getLeakR1 LHalt = empty
 
 getLeakR2 :: (Alternative f) => LeakInst RegComp pc -> f RegIdx
 getLeakR2 (LReg _ f) = snd $ deps f
@@ -105,6 +107,8 @@ getLeakR2 (LJump {}) = empty
 getLeakR2 (LJumpReg _ _ f) = snd $ deps f
 getLeakR2 (LStore _ _ r2) = pure r2
 getLeakR2 (LBranch f _) = snd $ deps f
+getLeakR2 LNop = empty
+getLeakR2 LHalt = empty
 
 class DepReg a where
   deps :: (Alternative f) => a -> (f RegIdx, f RegIdx)
