@@ -40,28 +40,11 @@ instance Functor WithReg where
 
 type PC = Address
 
-newtype PCM a = PCM {runPCM :: Reader PC a}
-
-instance MonadReader PC PCM where
-  ask = PCM ask
-  local f (PCM m) = PCM $ local f m
-
-instance Functor PCM where
-  fmap f (PCM r) = PCM (fmap f r)
-
-instance Applicative PCM where
-  pure x = PCM (pure x)
-  PCM rf <*> PCM ra = PCM (rf <*> ra)
-
-instance Monad PCM where
-  return = pure
-  PCM r >>= f = PCM (r >>= \x -> runPCM (f x))
+newtype PCM a = PCM {applyPC :: PC -> a}
+  deriving (Functor)
 
 instance Show (PCM a) where
-  show (PCM _) = "<pcm>"
-
-applyPC :: PCM a -> PC -> a
-applyPC (PCM m) = runReader m
+  show _ = "<pcm>"
 
 instance Show (WithReg a) where
   show (Const a) = "Const"
@@ -70,16 +53,16 @@ instance Show (WithReg a) where
   show (Binary r1 r2 _) =
     unwords ["Binary", show r1, show r2, "<fun>"]
 
-newtype RegComp a = RegComp (WithReg a)
+newtype RegComp a = RegComp (WithReg (PCM a))
   deriving (Show, Functor)
 
-newtype Done a = Done {unDone :: (PCM a)}
+newtype Done a = Done {unDone :: a}
   deriving (Show, Functor, Applicative, Monad)
 
-applyRegComp :: RegComp a -> PCM Word -> PCM Word -> Done a
-applyRegComp (RegComp (Const a)) _ _ = Done $ pure a
-applyRegComp (RegComp (Unary _ f)) r _ = Done $ f <$> r
-applyRegComp (RegComp (Binary _ _ f)) r1 r2 = Done $ f <$> r1 <*> r2
+applyRegComp :: RegComp a -> Word -> Word -> PC -> Done a
+applyRegComp (RegComp (Const a)) _ _ = Done . applyPC a
+applyRegComp (RegComp (Unary _ f)) r _ = Done . applyPC (f r)
+applyRegComp (RegComp (Binary _ _ f)) r1 r2 = Done . applyPC (f r1 r2)
 
 data LeakInst reg pc
   = LReg RegIdx (reg Word)
@@ -151,14 +134,14 @@ depSet a =
   let (mr1, mr2) = deps a
    in S.fromList $ catMaybes [mr1, mr2]
 
-binComp :: RegIdx -> RegIdx -> (Word -> Word -> a) -> RegComp a
-binComp r1 r2 f = RegComp $ Binary r1 r2 f
+binComp :: RegIdx -> RegIdx -> (PC -> Word -> Word -> a) -> RegComp a
+binComp r1 r2 f = RegComp $ Binary r1 r2 (\r1' r2' -> PCM $ \pc -> f pc r1' r2')
 
-unaryComp :: RegIdx -> (Word -> a) -> RegComp a
-unaryComp r f = RegComp $ Unary r f
+unaryComp :: RegIdx -> (PC -> Word -> a) -> RegComp a
+unaryComp r f = RegComp $ Unary r (\r' -> PCM $ \pc -> f pc r')
 
-constComp :: a -> RegComp a
-constComp = RegComp . Const
+constComp :: (PC -> a) -> RegComp a
+constComp = RegComp . Const . PCM
 
 leak :: Input -> LeakInst RegComp PCM
 leak input
@@ -166,13 +149,13 @@ leak input
   | otherwise =
       case inst of
         RType op rd r1 r2 ->
-          LReg rd $ binComp r1 r2 $ alu op
+          LReg rd $ binComp r1 r2 $ \_pc -> alu op
         IType iop rd r1 imm ->
           let op =
                 case iop of
                   Arith op' -> op'
                   _ -> ADD
-              alu_res = unaryComp r1 $ \r -> alu op r (signExtend imm)
+              alu_res = unaryComp r1 $ \_pc r -> alu op r (signExtend imm)
            in case iop of
                 Arith {} ->
                   LReg rd alu_res
@@ -186,25 +169,25 @@ leak input
                           (Word, _) -> signExtend . slice d31 d0
                   LLoad size rd $ bitCoerce . loadExtend <$> alu_res
                 Jump ->
-                  LJumpReg rd (asks (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
+                  LJumpReg rd (PCM (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
                 Env {} -> error ""
         SType size imm r1 r2 -> do
-          let addr_comp = unpack <$> unaryComp r1 (\r -> alu ADD r (signExtend imm))
+          let addr_comp = unpack <$> unaryComp r1 (\_pc r -> alu ADD r (signExtend imm))
            in LStore size addr_comp r2
         BType cmp imm r1 r2 ->
-          let branched_comp = binComp r1 r2 $ branch cmp
-              addr_comp = asks (+ bitCoerce (signExtend imm))
+          let branched_comp = binComp r1 r2 $ \_pc -> branch cmp
+              addr_comp = PCM (+ bitCoerce (signExtend imm))
            in LBranch branched_comp addr_comp
         UType Zero rd imm ->
           let imm' = imm ++# 0 `shiftL` 12
-           in LReg rd $ constComp imm'
+           in LReg rd $ constComp $ \_pc -> imm'
         -- FIX
         -- UType PC rd imm -> do
         --  let imm' = imm ++# 0 `shiftL` 12
         --  writeRF rd imm'
         --  pure $ mkInst' LOther
         JType rd imm ->
-          LJump rd (asks (bitCoerce . (+ 4))) $ asks (+ bitCoerce (signExtend imm))
+          LJump rd (PCM (bitCoerce . (+ 4))) $ PCM (+ bitCoerce (signExtend imm))
         EBREAK -> LHalt
         _ -> LNop
   where

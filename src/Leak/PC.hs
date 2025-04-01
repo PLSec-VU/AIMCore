@@ -26,68 +26,65 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-data BaseTimeInst pc
-  = TJump (Maybe (pc Address))
-  | TBranch (Maybe (pc Bool)) (pc Address)
+data BaseTimeInst
+  = TJump (Maybe Address)
+  | TBranch (Maybe (Address))
   | TLoad RegIdx
   | TStore
   | TOther
-  | -- | TStall [Stage]
-    THalt
+  | THalt
+  deriving (Show, Eq)
 
-deriving instance
-  ( Show (pc Bool),
-    Show (pc Address)
-  ) =>
-  Show (BaseTimeInst pc)
-
-timeNop :: TimeInst PCM
+timeNop :: TimeInst
 timeNop = TimeInst TOther mempty
 
-data TimeInst pc = TimeInst
-  { timeBaseInst :: BaseTimeInst pc,
+data TimeInst = TimeInst
+  { timeBaseInst :: BaseTimeInst,
     timeDeps :: Set RegIdx
     -- Debugging fields
     -- timeOgInst :: Instruction,
     -- timeDePc :: Address
   }
-
-deriving instance
-  ( Show (pc Bool),
-    Show (pc Address)
-  ) =>
-  Show (TimeInst pc)
+  deriving (Show, Eq)
 
 data Stage = Fe | De | Ex | Mem | Wb
   deriving (Show, Eq, Ord)
 
 data TimeState = TimeState
-  { timeExInstr :: LeakInst RegComp PCM,
-    timeMemInstr :: LeakInst Done PCM,
-    timeWbInstr :: LeakInst Done PCM,
+  { timeFePc :: Address,
+    timeDePc :: Address,
+    timeExPc :: Address,
+    timeExInstr :: LeakInst RegComp PCM,
+    timeMemInstr :: LeakInst Done Done,
+    timeWbInstr :: LeakInst Done Done,
     timeStall :: Set Stage,
     timeHalt :: Bool,
-    timeMeRegFwd :: Maybe (RegIdx, PCM Word),
-    timeWbRegFwd :: Maybe (RegIdx, PCM Word)
+    timeMeRegFwd :: Maybe (RegIdx, Word),
+    timeWbRegFwd :: Maybe (RegIdx, Word),
+    timeJumpAddr :: Maybe Address
   }
   deriving (Show)
 
 initTime :: TimeState
 initTime =
   TimeState
-    { timeExInstr = LNop,
+    { timeFePc = initPc,
+      timeDePc = 0,
+      timeExPc = 0,
+      timeExInstr = LNop,
       timeMemInstr = LNop,
       timeWbInstr = LNop,
       timeStall = mempty,
       timeHalt = False,
       timeMeRegFwd = Nothing,
-      timeWbRegFwd = Nothing
+      timeWbRegFwd = Nothing,
+      timeJumpAddr = Nothing
     }
 
 data TimeOut = TimeOut
-  { timeInst :: First (TimeInst PCM),
-    timeBranched :: First (PCM Bool),
-    timeJumpAddress :: First (PCM Address)
+  { timeInst :: First TimeInst,
+    timeBranched :: First (Maybe Address),
+    timeJumpAddress :: First Address
   }
 
 instance Semigroup TimeOut where
@@ -109,11 +106,24 @@ stall stages =
 outputNothing :: TimeM ()
 outputNothing = tell mempty
 
+timeFetch :: TimeM ()
+timeFetch = do
+  s <- get
+  stalling <- stallingM Fe
+  unless stalling $ do
+    modify $ \s ->
+      s
+        { timeFePc = fromMaybe (timeFePc s + 4) (timeJumpAddr s),
+          timeDePc = timeFePc s
+        }
+
 timeDecode :: TimeM ()
 timeDecode = do
   s <- get
   instr <- fst <$> ask
   ex_ir <- gets timeExInstr
+  when (isLoad instr) $ do
+    stall [Fe]
   when (loadHazard instr ex_ir) $
     stall [De]
   stalling <- stallingM De
@@ -127,6 +137,7 @@ timeDecode = do
                   timeDeps = depSet instr
                 }
         }
+
   modify $ \s ->
     s
       { timeExInstr =
@@ -135,6 +146,10 @@ timeDecode = do
             else instr
       }
   where
+    isLoad :: LeakInst reg pc -> Bool
+    isLoad (LLoad {}) = True
+    isLoad _ = False
+
     loadHazard :: LeakInst RegComp PCM -> LeakInst reg pc -> Bool
     loadHazard de_ir ex_ir@(LLoad _ rd _) =
       any (== rd) $ S.toList $ depSet de_ir
@@ -142,55 +157,56 @@ timeDecode = do
 
     mkTimeInst (LReg _ _) = TOther
     mkTimeInst (LLoad _ rd _) = TLoad rd
-    mkTimeInst (LJump _ _ maddr) = TJump $ Just maddr
+    mkTimeInst (LJump _ _ _) = TJump Nothing
     mkTimeInst (LJumpReg _ _ _) = TJump Nothing
     mkTimeInst (LStore _ _ _) = TStore
-    mkTimeInst (LBranch _ maddr) = TBranch Nothing maddr
+    mkTimeInst (LBranch _ _) = TBranch Nothing
     mkTimeInst LHalt = THalt
     mkTimeInst LNop = TOther
 
 timeExecute :: TimeM ()
 timeExecute = do
   instr <- gets timeExInstr
+  pc <- gets timeExPc
   r1 <- rs1
   r2 <- rs2
 
   instr' <-
     case instr of
       LReg rd f ->
-        pure $ LReg rd $ applyRegComp f r1 r2
+        pure $ LReg rd $ applyRegComp f r1 r2 pc
       LLoad size rd f ->
-        pure $ LLoad size rd $ applyRegComp f r1 r2
+        pure $ LLoad size rd $ applyRegComp f r1 r2 pc
       LJump rd m_push_pc m_jump_addr -> do
-        pure $ LJump rd m_push_pc m_jump_addr
+        let push_pc = applyPC m_push_pc pc
+            jump_addr = applyPC m_jump_addr pc
+        pure $ LJump rd (Done push_pc) (Done jump_addr)
       LJumpReg rd m_push_pc f_jump_addr -> do
-        let Done maddr = applyRegComp f_jump_addr r1 r2
-        tell $ mempty {timeJumpAddress = pure maddr}
-        pure $ LJumpReg rd m_push_pc $ Done maddr
+        pc <- gets timeExPc
+        let Done addr = applyRegComp f_jump_addr r1 r2 pc
+            push_pc = applyPC m_push_pc pc
+        tell $ mempty {timeJumpAddress = pure addr}
+        pure $ LJumpReg rd (Done push_pc) (Done addr)
       LStore size f_addr ri2 ->
-        pure $ LStore size (applyRegComp f_addr r1 r2) ri2
+        pure $ LStore size (applyRegComp f_addr r1 r2 pc) ri2
       LBranch f_branched m_addr -> do
-        let Done m_branch_res = applyRegComp f_branched r1 r2
-        tell $ mempty {timeBranched = pure m_branch_res}
-        pure $ LBranch (Done m_branch_res) m_addr
+        pc <- gets timeExPc
+        let Done branched = applyRegComp f_branched r1 r2 pc
+            address = applyPC m_addr pc
+        tell $ mempty {timeBranched = if branched then pure (pure address) else pure empty}
+        pure $ LBranch (Done branched) (Done address)
       LHalt -> pure LHalt
       LNop -> pure LNop
 
   modify $ \s -> s {timeMemInstr = instr'}
   where
-    rs1 :: TimeM (PCM Word)
-    rs1 = asks (pure . inputRs1 . snd)
+    rs1 :: TimeM Word
+    rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
 
-    rs2 :: TimeM (PCM Word)
-    rs2 = asks (pure . inputRs2 . snd)
+    rs2 :: TimeM Word
+    rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
 
-    -- rs1 :: TimeM (PCM Word)
-    -- rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
-
-    -- rs2 :: TimeM (PCM Word)
-    -- rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
-
-    regWithFwd :: (LeakInst RegComp PCM -> Maybe RegIdx) -> Word -> TimeM (PCM Word)
+    regWithFwd :: (LeakInst RegComp PCM -> Maybe RegIdx) -> Word -> TimeM Word
     regWithFwd getR def = do
       ir <- gets timeExInstr
       let checkForFwd line = do
@@ -198,7 +214,7 @@ timeExecute = do
             guard (hazardRW getR ir fwdIdx)
             pure fwdVal
       fmap
-        (fromMaybe $ pure def)
+        (fromMaybe $ def)
         $ runMaybeT
         $ checkForFwd timeMeRegFwd <|> checkForFwd timeWbRegFwd
 
@@ -213,20 +229,23 @@ timeMemory = do
 
   mres <-
     case instr of
-      LReg _ (Done mres) ->
-        pure $ Just mres
-      LLoad {} ->
+      LReg _ (Done res) ->
+        pure $ Just res
+      LLoad {} -> do
+        stall [Fe]
         pure Nothing
-      LJump _ mres _ -> do
+      LJump _ (Done addr) _ -> do
         stall [De]
-        pure $ Just $ bitCoerce <$> mres
-      LJumpReg _ mres _ -> do
+        pure $ Just $ bitCoerce addr
+      LJumpReg _ (Done addr) _ -> do
         stall [De]
-        pure $ Just $ bitCoerce <$> mres
-      LStore {} ->
+        pure $ Just $ bitCoerce addr
+      LStore {} -> do
+        stall [Fe]
         pure Nothing
-      LBranch {} -> do
-        stall [De]
+      LBranch (Done branched) _ -> do
+        when branched $
+          stall [De]
         pure Nothing
       _ -> pure Nothing
 
@@ -253,15 +272,15 @@ timeWriteback = do
 
   mres <-
     case instr of
-      LReg _ (Done mres) ->
-        pure $ Just mres
+      LReg _ (Done res) ->
+        pure $ Just res
       LLoad {} -> do
         stall [De]
-        pure $ Just $ pure $ input
-      LJump _ mres _ ->
-        pure $ Just $ bitCoerce <$> mres
-      LJumpReg _ mres _ ->
-        pure $ Just $ bitCoerce <$> mres
+        pure $ Just input
+      LJump _ (Done addr) _ ->
+        pure $ Just $ bitCoerce addr
+      LJumpReg _ (Done addr) _ ->
+        pure $ Just $ bitCoerce addr
       LStore {} -> do
         stall [De]
         pure Nothing
@@ -288,6 +307,7 @@ timeTick = do
   timeMemory
   timeExecute
   timeDecode
+  timeFetch
 
 timeRun :: TimeState -> (LeakInst RegComp PCM, Input) -> (TimeState, TimeOut)
 timeRun s i = execRWS timeTick i s
@@ -296,11 +316,11 @@ data SimState = SimState
   { simFePc :: Address,
     simDePc :: Address,
     simExPc :: Address,
-    simExInstr :: TimeInst PCM,
-    simMemInstr :: TimeInst PCM,
-    simWbInstr :: TimeInst PCM,
-    simJumpStack :: [PCM Address],
-    simBranchStack :: [PCM Bool],
+    simExInstr :: TimeInst,
+    simMemInstr :: TimeInst,
+    simWbInstr :: TimeInst,
+    simJumpStack :: [Address],
+    simBranchStack :: [Maybe Address],
     simJumpAddr :: Maybe Address,
     simStall :: Set Stage,
     simHalt :: Bool
@@ -372,11 +392,11 @@ simDecode = do
         simExPc = simDePc s
       }
   where
-    isLoad :: TimeInst PCM -> Bool
+    isLoad :: TimeInst -> Bool
     isLoad (TimeInst (TLoad {}) _) = True
     isLoad _ = False
 
-    loadHazard :: TimeInst PCM -> TimeInst PCM -> Bool
+    loadHazard :: TimeInst -> TimeInst -> Bool
     loadHazard de_ir ex_ir@(TimeInst (TLoad rd) _) =
       any (== rd) $ S.toList $ timeDeps de_ir
     loadHazard _ _ = False
@@ -388,43 +408,43 @@ simExecute = do
   modify $ \s -> s {simJumpStack = simJumpStack s Prelude.++ catMaybes [mjmpAddr]}
   mbranched <- getFirst <$> asks timeBranched
   modify $ \s -> s {simBranchStack = simBranchStack s Prelude.++ catMaybes [mbranched]}
+  modify $ \s -> s {simMemInstr = instr}
   case timeBaseInst instr of
     TJump {} -> do
       simDoStall [De]
       doJump
-    TBranch _ mpc -> do
+    TBranch {} -> do
       simDoStall [De]
-      doBranch mpc
+      doBranch
     _ -> pure ()
-
-  modify $ \s -> s {simMemInstr = instr}
   where
-    doBranch :: PCM Address -> SimM ()
-    doBranch mpc = do
+    doBranch :: SimM ()
+    doBranch = do
+      instr <- gets simExInstr
       branchStack <- gets simBranchStack
       pc <- gets simExPc
       case branchStack of
         [] -> error "" -- should never happen --pure ()
-        (b : bs) -> do
-          let pc' = applyPC mpc pc
+        (b : bs) ->
           modify $ \s ->
             s
               { simBranchStack = bs,
-                simJumpAddr = if (applyPC b pc) then pure pc' else Nothing
+                simJumpAddr = b,
+                simMemInstr = instr {timeBaseInst = TBranch b}
               }
 
     doJump :: SimM ()
     doJump = do
+      instr <- gets simExInstr
       jmpStack <- gets simJumpStack
       case jmpStack of
         [] -> error "" -- should never happen --pure ()
-        (j : js) -> do
-          pc <- gets simExPc
-          let pc' = applyPC j pc
+        (j : js) ->
           modify $ \s ->
             s
               { simJumpStack = js,
-                simJumpAddr = pure pc'
+                simJumpAddr = pure j,
+                simMemInstr = instr {timeBaseInst = TBranch $ pure j}
               }
 
 simMemory :: SimM ()
@@ -439,7 +459,8 @@ simMemory = do
       simDoStall [Fe]
     TJump {} ->
       simDoStall [De]
-    -- Add Branch support
+    TBranch (Just _) ->
+      simDoStall [De]
     _ -> pure ()
 
   modify $ \s -> s {simWbInstr = simMemInstr s}
