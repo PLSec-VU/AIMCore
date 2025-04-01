@@ -54,9 +54,9 @@ data TimeState = TimeState
   { timeFePc :: Address,
     timeDePc :: Address,
     timeExPc :: Address,
-    timeExInstr :: LeakInst RegComp PCM,
-    timeMemInstr :: LeakInst Done Done,
-    timeWbInstr :: LeakInst Done Done,
+    timeExInstr :: LeakInst ISAF,
+    timeMemInstr :: LeakInst Done,
+    timeWbInstr :: LeakInst Done,
     timeStall :: Set Stage,
     timeHalt :: Bool,
     timeMeRegFwd :: Maybe (RegIdx, Word),
@@ -103,7 +103,7 @@ instance Semigroup TimeOut where
 instance Monoid TimeOut where
   mempty = TimeOut mempty mempty mempty
 
-type TimeM = RWS (LeakInst RegComp PCM, Input) TimeOut TimeState
+type TimeM = RWS (LeakInst ISAF, Input) TimeOut TimeState
 
 stallingM :: Stage -> TimeM Bool
 stallingM stage =
@@ -162,11 +162,11 @@ timeDecode = do
             timeExPc = timeDePc s
           }
   where
-    isLoad :: LeakInst reg pc -> Bool
+    isLoad :: LeakInst f -> Bool
     isLoad (LLoad {}) = True
     isLoad _ = False
 
-    loadHazard :: LeakInst RegComp PCM -> LeakInst reg pc -> Bool
+    loadHazard :: LeakInst ISAF -> LeakInst f -> Bool
     loadHazard de_ir ex_ir@(LLoad _ rd _) =
       any (== rd) $ S.toList $ depSet de_ir
     loadHazard _ _ = False
@@ -186,33 +186,34 @@ timeExecute = do
   pc <- gets timeExPc
   r1 <- rs1
   r2 <- rs2
+  let apply f = unDone $ applyISAF f r1 r2 pc
 
   instr' <-
     case instr of
       LReg rd f ->
-        pure $ LReg rd $ applyRegComp f r1 r2 pc
+        pure $ LReg rd $ Done $ apply f
       LLoad size rd f ->
-        pure $ LLoad size rd $ applyRegComp f r1 r2 pc
-      LJump rd m_push_pc m_jump_addr -> do
-        let push_pc = applyPC m_push_pc pc
-            jump_addr = applyPC m_jump_addr pc
+        pure $ LLoad size rd $ Done $ apply f
+      LJump rd f_push_pc f_jump_addr -> do
+        let push_pc = apply f_push_pc
+            jump_addr = apply f_jump_addr
         stall [De]
         tell $ mempty {timeJumpAddress = pure jump_addr}
         modify $ \s -> s {timeJumpAddr = pure jump_addr}
         pure $ LJump rd (Done push_pc) (Done jump_addr)
-      LJumpReg rd m_push_pc f_jump_addr -> do
-        let Done addr = applyRegComp f_jump_addr r1 r2 pc
-            push_pc = applyPC m_push_pc pc
+      LJumpReg rd f_push_pc f_jump_addr -> do
+        let addr = apply f_jump_addr
+            push_pc = apply f_push_pc
         stall [De]
         tell $ mempty {timeJumpAddress = pure addr}
         modify $ \s -> s {timeJumpAddr = pure addr}
         pure $ LJumpReg rd (Done push_pc) (Done addr)
       LStore size f_addr ri2 ->
-        pure $ LStore size (applyRegComp f_addr r1 r2 pc) ri2
-      LBranch f_branched m_addr -> do
+        pure $ LStore size (Done $ apply f_addr) ri2
+      LBranch f_branched f_addr -> do
         pc <- gets timeExPc
-        let Done branched = applyRegComp f_branched r1 r2 pc
-            address = applyPC m_addr pc
+        let branched = apply f_branched
+            address = apply f_addr
         when branched $ do
           stall [De]
           modify $ \s -> s {timeJumpAddr = pure address}
@@ -229,7 +230,7 @@ timeExecute = do
     rs2 :: TimeM Word
     rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
 
-    regWithFwd :: (LeakInst RegComp PCM -> Maybe RegIdx) -> Word -> TimeM Word
+    regWithFwd :: (LeakInst ISAF -> Maybe RegIdx) -> Word -> TimeM Word
     regWithFwd getR def = do
       ir <- gets timeExInstr
       let checkForFwd line = do
@@ -241,7 +242,7 @@ timeExecute = do
         $ runMaybeT
         $ checkForFwd timeMeRegFwd <|> checkForFwd timeWbRegFwd
 
-    hazardRW :: (LeakInst reg pc -> Maybe RegIdx) -> LeakInst reg pc -> RegIdx -> Bool
+    hazardRW :: (LeakInst f -> Maybe RegIdx) -> LeakInst f -> RegIdx -> Bool
     hazardRW getR src rd = isJust $ do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
@@ -273,7 +274,7 @@ timeMemory = do
       _ -> pure Nothing
 
   try $ do
-    rd <- getLeakRd instr
+    rd <- MaybeT $ pure $ getLeakRd instr
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {timeMeRegFwd = pure (rd, res)}
 
@@ -319,7 +320,7 @@ timeWriteback = do
       _ -> pure Nothing
 
   try $ do
-    rd <- getLeakRd instr
+    rd <- MaybeT $ pure $ getLeakRd instr
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {timeWbRegFwd = pure (rd, res)}
 
@@ -332,7 +333,7 @@ timeTick = do
   timeDecode
   timeFetch
 
-timeRun :: TimeState -> (LeakInst RegComp PCM, Input) -> (TimeState, TimeOut)
+timeRun :: TimeState -> (LeakInst ISAF, Input) -> (TimeState, TimeOut)
 timeRun s i = execRWS timeTick i s
 
 data SimState = SimState
