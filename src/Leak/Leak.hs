@@ -92,33 +92,6 @@ deriving instance
   ) =>
   Show (LeakInst f)
 
-getLeakRd :: LeakInst f -> Maybe RegIdx
-getLeakRd (LReg rd _) = pure rd
-getLeakRd (LLoad _ rd _) = pure rd
-getLeakRd (LJump rd _ _) = pure rd
-getLeakRd (LJumpReg rd _ _) = pure rd
-getLeakRd _ = empty
-
-getLeakR1 :: LeakInst ISAF -> Maybe RegIdx
-getLeakR1 (LReg _ f) = fst $ deps f
-getLeakR1 (LLoad _ _ f) = fst $ deps f
-getLeakR1 (LJump {}) = empty
-getLeakR1 (LJumpReg _ _ f) = fst $ deps f
-getLeakR1 (LStore _ f _) = fst $ deps f
-getLeakR1 (LBranch f _) = fst $ deps f
-getLeakR1 LNop = empty
-getLeakR1 LHalt = empty
-
-getLeakR2 :: LeakInst ISAF -> Maybe RegIdx
-getLeakR2 (LReg _ f) = snd $ deps f
-getLeakR2 (LLoad _ _ f) = snd $ deps f
-getLeakR2 (LJump {}) = empty
-getLeakR2 (LJumpReg _ _ f) = snd $ deps f
-getLeakR2 (LStore _ _ r2) = pure r2
-getLeakR2 (LBranch f _) = snd $ deps f
-getLeakR2 LNop = empty
-getLeakR2 LHalt = empty
-
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
 
@@ -139,6 +112,19 @@ depSet :: (DepReg a) => a -> Set RegIdx
 depSet a =
   let (mr1, mr2) = deps a
    in S.fromList $ catMaybes [mr1, mr2]
+
+getLeakRd :: LeakInst f -> Maybe RegIdx
+getLeakRd (LReg rd _) = pure rd
+getLeakRd (LLoad _ rd _) = pure rd
+getLeakRd (LJump rd _ _) = pure rd
+getLeakRd (LJumpReg rd _ _) = pure rd
+getLeakRd _ = empty
+
+getLeakR1 :: LeakInst ISAF -> Maybe RegIdx
+getLeakR1 = fst . deps
+
+getLeakR2 :: LeakInst ISAF -> Maybe RegIdx
+getLeakR2 = snd . deps
 
 leak :: Input -> LeakInst ISAF
 leak input
