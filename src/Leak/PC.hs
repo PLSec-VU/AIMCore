@@ -74,12 +74,22 @@ initTime =
       timeExInstr = LNop,
       timeMemInstr = LNop,
       timeWbInstr = LNop,
-      timeStall = mempty,
       timeHalt = False,
+      timeStall = mempty,
       timeMeRegFwd = Nothing,
       timeWbRegFwd = Nothing,
       timeJumpAddr = Nothing
     }
+
+resetTimeCtrl :: TimeM ()
+resetTimeCtrl =
+  modify $ \s ->
+    s
+      { timeStall = mempty,
+        timeMeRegFwd = Nothing,
+        timeWbRegFwd = Nothing,
+        timeJumpAddr = Nothing
+      }
 
 data TimeOut = TimeOut
   { timeInst :: First TimeInst,
@@ -110,12 +120,17 @@ timeFetch :: TimeM ()
 timeFetch = do
   s <- get
   stalling <- stallingM Fe
-  unless stalling $ do
-    modify $ \s ->
-      s
-        { timeFePc = fromMaybe (timeFePc s + 4) (timeJumpAddr s),
-          timeDePc = timeFePc s
-        }
+  modify $ \s ->
+    if stalling
+      then
+        s
+          { timeFePc = fromMaybe (timeFePc s) (timeJumpAddr s)
+          }
+      else
+        s
+          { timeFePc = fromMaybe (timeFePc s + 4) (timeJumpAddr s),
+            timeDePc = timeFePc s
+          }
 
 timeDecode :: TimeM ()
 timeDecode = do
@@ -139,12 +154,13 @@ timeDecode = do
         }
 
   modify $ \s ->
-    s
-      { timeExInstr =
-          if stalling
-            then LNop
-            else instr
-      }
+    if stalling
+      then s {timeExInstr = LNop}
+      else
+        s
+          { timeExInstr = instr,
+            timeExPc = timeDePc s
+          }
   where
     isLoad :: LeakInst reg pc -> Bool
     isLoad (LLoad {}) = True
@@ -180,12 +196,16 @@ timeExecute = do
       LJump rd m_push_pc m_jump_addr -> do
         let push_pc = applyPC m_push_pc pc
             jump_addr = applyPC m_jump_addr pc
+        stall [De]
+        tell $ mempty {timeJumpAddress = pure jump_addr}
+        modify $ \s -> s {timeJumpAddr = pure jump_addr}
         pure $ LJump rd (Done push_pc) (Done jump_addr)
       LJumpReg rd m_push_pc f_jump_addr -> do
-        pc <- gets timeExPc
         let Done addr = applyRegComp f_jump_addr r1 r2 pc
             push_pc = applyPC m_push_pc pc
+        stall [De]
         tell $ mempty {timeJumpAddress = pure addr}
+        modify $ \s -> s {timeJumpAddr = pure addr}
         pure $ LJumpReg rd (Done push_pc) (Done addr)
       LStore size f_addr ri2 ->
         pure $ LStore size (applyRegComp f_addr r1 r2 pc) ri2
@@ -193,6 +213,9 @@ timeExecute = do
         pc <- gets timeExPc
         let Done branched = applyRegComp f_branched r1 r2 pc
             address = applyPC m_addr pc
+        when branched $ do
+          stall [De]
+          modify $ \s -> s {timeJumpAddr = pure address}
         tell $ mempty {timeBranched = if branched then pure (pure address) else pure empty}
         pure $ LBranch (Done branched) (Done address)
       LHalt -> pure LHalt
@@ -302,7 +325,7 @@ timeWriteback = do
 
 timeTick :: TimeM ()
 timeTick = do
-  modify $ \s -> s {timeStall = mempty}
+  resetTimeCtrl
   timeWriteback
   timeMemory
   timeExecute
@@ -338,10 +361,18 @@ initSim =
       simWbInstr = timeNop,
       simJumpStack = mempty,
       simBranchStack = mempty,
-      simJumpAddr = Nothing,
+      simHalt = False,
       simStall = mempty,
-      simHalt = False
+      simJumpAddr = Nothing
     }
+
+resetSimCtrl :: SimM ()
+resetSimCtrl =
+  modify $ \s ->
+    s
+      { simStall = mempty,
+        simJumpAddr = Nothing
+      }
 
 type SimM = RWS TimeOut (First (Maybe Address)) SimState
 
@@ -364,12 +395,18 @@ simFetch :: SimM ()
 simFetch = do
   s <- get
   stalling <- simStallingM Fe
-  unless stalling $ do
-    modify $ \s ->
-      s
-        { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
-          simDePc = simFePc s
-        }
+  modify $ \s ->
+    if stalling
+      then
+        s
+          { simFePc = fromMaybe (simFePc s) (simJumpAddr s)
+          }
+      else
+        s
+          { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
+            simDePc = simFePc s
+          }
+
   simOutputPC $ simFePc s
 
 simDecode :: SimM ()
