@@ -28,7 +28,6 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 data BaseTimeInst
   = TJump (Maybe Address)
-  | TBranch (Maybe (Address))
   | TLoad RegIdx
   | TStore
   | TOther
@@ -93,15 +92,15 @@ resetTimeCtrl =
 
 data TimeOut = TimeOut
   { timeInst :: First TimeInst,
-    timeBranched :: First (Maybe Address),
+    -- timeBranched :: First (Maybe Address),
     timeJumpAddress :: First Address
   }
 
 instance Semigroup TimeOut where
-  TimeOut i1 b1 a1 <> TimeOut i2 b2 a2 = TimeOut (i1 <> i2) (b1 <> b2) (a1 <> a2)
+  TimeOut i1 a1 <> TimeOut i2 a2 = TimeOut (i1 <> i2) (a1 <> a2)
 
 instance Monoid TimeOut where
-  mempty = TimeOut mempty mempty mempty
+  mempty = TimeOut mempty mempty
 
 type TimeM = RWS (LeakInst ISAF, Input) TimeOut TimeState
 
@@ -176,7 +175,7 @@ timeDecode = do
     mkTimeInst (LJump _ _ _) = TJump Nothing
     mkTimeInst (LJumpReg _ _ _) = TJump Nothing
     mkTimeInst (LStore _ _ _) = TStore
-    mkTimeInst (LBranch _ _) = TBranch Nothing
+    mkTimeInst (LBranch _ _) = TJump Nothing
     mkTimeInst LHalt = THalt
     mkTimeInst LNop = TOther
 
@@ -217,7 +216,7 @@ timeExecute = do
         when branched $ do
           stall [De]
           modify $ \s -> s {timeJumpAddr = pure address}
-        tell $ mempty {timeBranched = if branched then pure (pure address) else pure empty}
+          tell $ mempty {timeJumpAddress = pure address}
         pure $ LBranch (Done branched) (Done address)
       LHalt -> pure LHalt
       LNop -> pure LNop
@@ -343,8 +342,6 @@ data SimState = SimState
     simExInstr :: TimeInst,
     simMemInstr :: TimeInst,
     simWbInstr :: TimeInst,
-    simJumpStack :: [Address],
-    simBranchStack :: [Maybe Address],
     simJumpAddr :: Maybe Address,
     simStall :: Set Stage,
     simHalt :: Bool
@@ -360,8 +357,6 @@ initSim =
       simExInstr = timeNop,
       simMemInstr = timeNop,
       simWbInstr = timeNop,
-      simJumpStack = mempty,
-      simBranchStack = mempty,
       simHalt = False,
       simStall = mempty,
       simJumpAddr = Nothing
@@ -443,47 +438,20 @@ simExecute :: SimM ()
 simExecute = do
   instr <- gets simExInstr
   mjmpAddr <- getFirst <$> asks timeJumpAddress
-  modify $ \s -> s {simJumpStack = simJumpStack s Prelude.++ catMaybes [mjmpAddr]}
-  mbranched <- getFirst <$> asks timeBranched
-  modify $ \s -> s {simBranchStack = simBranchStack s Prelude.++ catMaybes [mbranched]}
-  modify $ \s -> s {simMemInstr = instr}
+  modify $ \s ->
+    s
+      { simJumpAddr = mjmpAddr,
+        simMemInstr = instr
+      }
   case timeBaseInst instr of
     TJump {} -> do
       simDoStall [De]
-      doJump
-    TBranch {} -> do
-      simDoStall [De]
-      doBranch
+      modify $ \s ->
+        s
+          { simMemInstr = instr {timeBaseInst = TJump mjmpAddr}
+          }
     _ -> pure ()
   where
-    doBranch :: SimM ()
-    doBranch = do
-      instr <- gets simExInstr
-      branchStack <- gets simBranchStack
-      pc <- gets simExPc
-      case branchStack of
-        [] -> error "" -- should never happen --pure ()
-        (b : bs) ->
-          modify $ \s ->
-            s
-              { simBranchStack = bs,
-                simJumpAddr = b,
-                simMemInstr = instr {timeBaseInst = TBranch b}
-              }
-
-    doJump :: SimM ()
-    doJump = do
-      instr <- gets simExInstr
-      jmpStack <- gets simJumpStack
-      case jmpStack of
-        [] -> error "" -- should never happen --pure ()
-        (j : js) ->
-          modify $ \s ->
-            s
-              { simJumpStack = js,
-                simJumpAddr = pure j,
-                simMemInstr = instr {timeBaseInst = TBranch $ pure j}
-              }
 
 simMemory :: SimM ()
 simMemory = do
@@ -496,8 +464,6 @@ simMemory = do
       simOutputNothing
       simDoStall [Fe]
     TJump {} ->
-      simDoStall [De]
-    TBranch (Just _) ->
       simDoStall [De]
     _ -> pure ()
 
