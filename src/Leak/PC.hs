@@ -493,7 +493,7 @@ simWriteback = do
 
 simTick :: SimM ()
 simTick = do
-  modify $ \s -> s {simStall = mempty, simJumpAddr = empty}
+  resetSimCtrl
   simWriteback
   simMemory
   simExecute
