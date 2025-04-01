@@ -92,7 +92,6 @@ resetTimeCtrl =
 
 data TimeOut = TimeOut
   { timeInst :: First TimeInst,
-    -- timeBranched :: First (Maybe Address),
     timeJumpAddress :: First Address
   }
 
