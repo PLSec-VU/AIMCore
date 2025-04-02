@@ -573,3 +573,52 @@ pcsEqual :: Vec PROG_SIZE Word -> Bool
 pcsEqual = all check . watchSim
   where
     check (_, (o, o'), _) = o == o'
+
+proj :: Pipe -> (TimeState, SimState)
+proj s = undefined
+  where
+    ts =
+      TimeState
+        { timeFePc = fePc s,
+          timeDePc = dePc s,
+          timeExPc = exPc s,
+          timeExInstr = convertInst $ exIr s,
+          timeMemInstr = convertInstDone s (meIr s) (meRe s),
+          timeWbInstr = convertInstDone s (wbIr s) (wbRe s),
+          timeStall = convertStall $ pipeCtrl s,
+          timeHalt = pipeHalt s,
+          timeMeRegFwd = ctrlMeRegFwd $ pipeCtrl s,
+          timeWbRegFwd = ctrlWbRegFwd $ pipeCtrl s,
+          timeJumpAddr = ctrlExBranch $ pipeCtrl s
+        }
+    convertInst :: Instruction -> LeakInst ISAF -- fix
+    convertInst i =
+      leak $
+        Input
+          { inputIsInst = True,
+            inputMem = encode i,
+            inputRs1 = 0,
+            inputRs2 = 0
+          }
+    convertInstDone :: Pipe -> Instruction -> Word -> LeakInst Done -- fix
+    convertInstDone s i res =
+      case li of
+        LReg rd _ -> LReg rd $ Done res
+        LLoad size rd _ -> LLoad size rd $ Done $ bitCoerce res
+        LJump rd _ _ -> LJump rd (Done $ bitCoerce res) (error "")
+        LJumpReg rd _ _ -> LJumpReg rd (Done $ bitCoerce res) (error "")
+        LStore size _ r2 -> LStore size (Done $ bitCoerce res) r2
+        LBranch _ _ -> LBranch (error "") (error "")
+        LNop -> LNop
+        LHalt -> LHalt
+      where
+        li = convertInst i
+
+    convertStall :: Control -> Set Stage
+    convertStall ctrl =
+      S.fromList [stage | (stage, conds) <- stallConditions, any ($ ctrl) conds]
+      where
+        stallConditions =
+          [ (Fe, [ctrlDecodeLoad, ctrlMemOutputActive]),
+            (De, [ctrlFirstCycle, isJust . ctrlExBranch, ctrlMemInputActive, ctrlMemBranch])
+          ]

@@ -199,8 +199,7 @@ instance Arbitrary Instruction where
           BType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
           UType <$> arbitrary <*> regIdxGen <*> uImmGen,
           JType <$> regIdxGen <*> uImmGen,
-          pure Invalid,
-          pure EBREAK -- (fix, and probably make less common and/or just enforce it comes at the end)
+          pure Invalid
         ]
     where
       regIdxGen = chooseBoundedIntegral (0, 31)
