@@ -169,14 +169,15 @@ timeDecode = do
       any (== rd) $ S.toList $ depSet de_ir
     loadHazard _ _ = False
 
-    mkTimeInst (LReg _ _) = TOther
-    mkTimeInst (LLoad _ rd _) = TLoad rd
-    mkTimeInst (LJump _ _ _) = TJump Nothing
-    mkTimeInst (LJumpReg _ _ _) = TJump Nothing
-    mkTimeInst (LStore _ _ _) = TStore
-    mkTimeInst (LBranch _ _) = TJump Nothing
-    mkTimeInst LHalt = THalt
-    mkTimeInst LNop = TOther
+mkTimeInst :: LeakInst f -> BaseTimeInst
+mkTimeInst (LReg _ _) = TOther
+mkTimeInst (LLoad _ rd _) = TLoad rd
+mkTimeInst (LJump _ _ _) = TJump Nothing
+mkTimeInst (LJumpReg _ _ _) = TJump Nothing
+mkTimeInst (LStore _ _ _) = TStore
+mkTimeInst (LBranch _ _) = TJump Nothing
+mkTimeInst LHalt = THalt
+mkTimeInst LNop = TOther
 
 timeExecute :: TimeM ()
 timeExecute = do
@@ -575,7 +576,7 @@ pcsEqual = all check . watchSim
     check (_, (o, o'), _) = o == o'
 
 proj :: Pipe -> (TimeState, SimState)
-proj s = undefined
+proj s = (ts, ss)
   where
     ts =
       TimeState
@@ -591,6 +592,22 @@ proj s = undefined
           timeWbRegFwd = ctrlWbRegFwd $ pipeCtrl s,
           timeJumpAddr = ctrlExBranch $ pipeCtrl s
         }
+    ss =
+      SimState
+        { simFePc = fePc s,
+          simDePc = dePc s,
+          simExPc = exPc s,
+          simExInstr = convertTime $ exIr s,
+          simMemInstr = convertTime $ meIr s,
+          simWbInstr = convertTime $ wbIr s,
+          simHalt = pipeHalt s,
+          simStall = convertStall $ pipeCtrl s,
+          simJumpAddr = ctrlExBranch $ pipeCtrl s
+        }
+
+    convertTime :: Instruction -> TimeInst
+    convertTime inst = TimeInst (mkTimeInst $ convertInst inst) (depSet $ convertInst inst)
+
     convertInst :: Instruction -> LeakInst ISAF -- fix
     convertInst i =
       leak $
