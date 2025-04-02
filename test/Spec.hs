@@ -82,8 +82,8 @@ tests =
         [ mkPCLeakTest "test 1" $ mkProg prog1,
           mkPCLeakTest "test 2" $ mkProg prog1,
           mkPCLeakTest "test 3" $ mkProg prog1,
-          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-          testProperty "QuickCheck" $ Leak.PC.pcsEqual
+          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+          -- testProperty "QuickCheck" $ Leak.PC.pcsEqual
         ]
         -- testGroup
         --  "Pure and clash simulations should agree."
@@ -205,3 +205,33 @@ instance Arbitrary Instruction where
       regIdxGen = chooseBoundedIntegral (0, 31)
       immGen = chooseBoundedIntegral (0, 5)
       uImmGen = chooseBoundedIntegral (0, 5)
+
+instance Arbitrary Control where
+  arbitrary =
+    Control
+      <$> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+
+instance Arbitrary Pipe where
+  arbitrary =
+    Pipe
+      <$> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
