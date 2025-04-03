@@ -27,8 +27,8 @@ library
   exposed-modules:
       HardwareSim
       Instruction
+      Interp
       Leak.Architectural
-      Leak.Leak
       Leak.PC
       Leak.PCWithState
       Pipe

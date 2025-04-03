@@ -1,13 +1,14 @@
 module Main (main) where
 
-import Control.Monad.IO.Class
-import Instruction
-import Pipe (pipe)
-import Pretty
-import Regfile
-import Types (Word)
-import Prelude hiding (Word, init)
+-- import Control.Monad.IO.Class
+-- import Instruction
+-- import Pipe (pipe)
+-- import Pretty
+-- import Regfile
+-- import Types (Word)
+-- import Prelude hiding (Word, init)
 
+main :: IO ()
 main = undefined
 
 -- main :: IO ()

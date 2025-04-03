@@ -1,24 +1,28 @@
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.PC where
+module Leak.PC
+  ( leakTimeSimRun,
+    simulator,
+    runSimulator,
+    watchSim,
+    pcsEqual,
+    proj,
+  )
+where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
-import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
-import Data.Tuple (swap)
-import Debug.Trace
-import GHC.TypeNats
-import Instruction hiding (decode, halt)
+import Instruction (Instruction)
 import qualified Instruction
-import Leak.Leak
+import Interp (Done (..), InterpF, applyInterpF)
+import qualified Interp
 import Pipe
 import Regfile
 import qualified Simulate
@@ -40,9 +44,6 @@ timeNop = TimeInst TOther mempty
 data TimeInst = TimeInst
   { timeBaseInst :: BaseTimeInst,
     timeDeps :: Set RegIdx
-    -- Debugging fields
-    -- timeOgInst :: Instruction,
-    -- timeDePc :: Address
   }
   deriving (Show, Eq)
 
@@ -53,9 +54,9 @@ data TimeState = TimeState
   { timeFePc :: Address,
     timeDePc :: Address,
     timeExPc :: Address,
-    timeExInstr :: LeakInst ISAF,
-    timeMemInstr :: LeakInst Done,
-    timeWbInstr :: LeakInst Done,
+    timeExInstr :: Interp.Inst InterpF,
+    timeMemInstr :: Interp.Inst Done,
+    timeWbInstr :: Interp.Inst Done,
     timeStall :: Set Stage,
     timeHalt :: Bool,
     timeMeRegFwd :: Maybe (RegIdx, Word),
@@ -70,9 +71,9 @@ initTime =
     { timeFePc = initPc,
       timeDePc = 0,
       timeExPc = 0,
-      timeExInstr = LNop,
-      timeMemInstr = LNop,
-      timeWbInstr = LNop,
+      timeExInstr = Interp.Nop,
+      timeMemInstr = Interp.Nop,
+      timeWbInstr = Interp.Nop,
       timeHalt = False,
       timeStall = mempty,
       timeMeRegFwd = Nothing,
@@ -101,11 +102,11 @@ instance Semigroup TimeOut where
 instance Monoid TimeOut where
   mempty = TimeOut mempty mempty
 
-type TimeM = RWS (LeakInst ISAF, Input) TimeOut TimeState
+type TimeM = RWS (Interp.Inst InterpF, Input) TimeOut TimeState
 
 stallingM :: Stage -> TimeM Bool
 stallingM stage =
-  S.member stage <$> gets timeStall
+  gets $ S.member stage . timeStall
 
 stall :: [Stage] -> TimeM ()
 stall stages =
@@ -116,7 +117,6 @@ outputNothing = tell mempty
 
 timeFetch :: TimeM ()
 timeFetch = do
-  s <- get
   stalling <- stallingM Fe
   modify $ \s ->
     if stalling
@@ -132,7 +132,6 @@ timeFetch = do
 
 timeDecode :: TimeM ()
 timeDecode = do
-  s <- get
   instr <- fst <$> ask
   ex_ir <- gets timeExInstr
   when (isLoad instr) $ do
@@ -147,37 +146,37 @@ timeDecode = do
             pure $
               TimeInst
                 { timeBaseInst = mkTimeInst instr,
-                  timeDeps = depSet instr
+                  timeDeps = Interp.depSet instr
                 }
         }
 
   modify $ \s ->
     if stalling
-      then s {timeExInstr = LNop}
+      then s {timeExInstr = Interp.Nop}
       else
         s
           { timeExInstr = instr,
             timeExPc = timeDePc s
           }
   where
-    isLoad :: LeakInst f -> Bool
-    isLoad (LLoad {}) = True
+    isLoad :: Interp.Inst f -> Bool
+    isLoad (Interp.Load {}) = True
     isLoad _ = False
 
-    loadHazard :: LeakInst ISAF -> LeakInst f -> Bool
-    loadHazard de_ir ex_ir@(LLoad _ rd _) =
-      any (== rd) $ S.toList $ depSet de_ir
+    loadHazard :: Interp.Inst InterpF -> Interp.Inst f -> Bool
+    loadHazard de_ir (Interp.Load _ rd _) =
+      elem rd $ S.toList $ Interp.depSet de_ir
     loadHazard _ _ = False
 
-mkTimeInst :: LeakInst f -> BaseTimeInst
-mkTimeInst (LReg _ _) = TOther
-mkTimeInst (LLoad _ rd _) = TLoad rd
-mkTimeInst (LJump _ _ _) = TJump
-mkTimeInst (LJumpReg _ _ _) = TJump
-mkTimeInst (LStore _ _ _) = TStore
-mkTimeInst (LBranch _ _) = TJump
-mkTimeInst LBreak = TBreak
-mkTimeInst LNop = TOther
+mkTimeInst :: Interp.Inst f -> BaseTimeInst
+mkTimeInst Interp.Reg {} = TOther
+mkTimeInst (Interp.Load _ rd _) = TLoad rd
+mkTimeInst Interp.Jump {} = TJump
+mkTimeInst Interp.JumpReg {} = TJump
+mkTimeInst Interp.Store {} = TStore
+mkTimeInst Interp.Branch {} = TJump
+mkTimeInst Interp.Break = TBreak
+mkTimeInst Interp.Nop = TOther
 
 timeExecute :: TimeM ()
 timeExecute = do
@@ -185,51 +184,50 @@ timeExecute = do
   pc <- gets timeExPc
   r1 <- rs1
   r2 <- rs2
-  let apply f = unDone $ applyISAF f r1 r2 pc
+  let apply f = unDone $ applyInterpF f r1 r2 pc
 
   instr' <-
     case instr of
-      LReg rd f ->
-        pure $ LReg rd $ Done $ apply f
-      LLoad size rd f ->
-        pure $ LLoad size rd $ Done $ apply f
-      LJump rd f_push_pc f_jump_addr -> do
+      Interp.Reg rd f ->
+        pure $ Interp.Reg rd $ Done $ apply f
+      Interp.Load size rd f ->
+        pure $ Interp.Load size rd $ Done $ apply f
+      Interp.Jump rd f_push_pc f_jump_addr -> do
         let push_pc = apply f_push_pc
             jump_addr = apply f_jump_addr
         stall [De]
         tell $ mempty {timeJumpAddress = pure jump_addr}
         modify $ \s -> s {timeJumpAddr = pure jump_addr}
-        pure $ LJump rd (Done push_pc) (Done jump_addr)
-      LJumpReg rd f_push_pc f_jump_addr -> do
+        pure $ Interp.Jump rd (Done push_pc) (Done jump_addr)
+      Interp.JumpReg rd f_push_pc f_jump_addr -> do
         let addr = apply f_jump_addr
             push_pc = apply f_push_pc
         stall [De]
         tell $ mempty {timeJumpAddress = pure addr}
         modify $ \s -> s {timeJumpAddr = pure addr}
-        pure $ LJumpReg rd (Done push_pc) (Done addr)
-      LStore size f_addr ri2 ->
-        pure $ LStore size (Done $ apply f_addr) ri2
-      LBranch f_branched f_addr -> do
-        pc <- gets timeExPc
+        pure $ Interp.JumpReg rd (Done push_pc) (Done addr)
+      Interp.Store size f_addr ri2 ->
+        pure $ Interp.Store size (Done $ apply f_addr) ri2
+      Interp.Branch f_branched f_addr -> do
         let branched = apply f_branched
             address = apply f_addr
         when branched $ do
           stall [De]
           modify $ \s -> s {timeJumpAddr = pure address}
           tell $ mempty {timeJumpAddress = pure address}
-        pure $ LBranch (Done branched) (Done address)
-      LBreak -> pure LBreak
-      LNop -> pure LNop
+        pure $ Interp.Branch (Done branched) (Done address)
+      Interp.Break -> pure Interp.Break
+      Interp.Nop -> pure Interp.Nop
 
   modify $ \s -> s {timeMemInstr = instr'}
   where
     rs1 :: TimeM Word
-    rs1 = regWithFwd getLeakR1 =<< asks (inputRs1 . snd)
+    rs1 = regWithFwd Interp.getR1 =<< asks (inputRs1 . snd)
 
     rs2 :: TimeM Word
-    rs2 = regWithFwd getLeakR2 =<< asks (inputRs2 . snd)
+    rs2 = regWithFwd Interp.getR2 =<< asks (inputRs2 . snd)
 
-    regWithFwd :: (LeakInst ISAF -> Maybe RegIdx) -> Word -> TimeM Word
+    regWithFwd :: (Interp.Inst InterpF -> Maybe RegIdx) -> Word -> TimeM Word
     regWithFwd getR def = do
       ir <- gets timeExInstr
       let checkForFwd line = do
@@ -237,11 +235,11 @@ timeExecute = do
             guard (hazardRW getR ir fwdIdx)
             pure fwdVal
       fmap
-        (fromMaybe $ def)
+        (fromMaybe def)
         $ runMaybeT
         $ checkForFwd timeMeRegFwd <|> checkForFwd timeWbRegFwd
 
-    hazardRW :: (LeakInst f -> Maybe RegIdx) -> LeakInst f -> RegIdx -> Bool
+    hazardRW :: (Interp.Inst f -> Maybe RegIdx) -> Interp.Inst f -> RegIdx -> Bool
     hazardRW getR src rd = isJust $ do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
@@ -252,28 +250,28 @@ timeMemory = do
 
   mres <-
     case instr of
-      LReg _ (Done res) ->
+      Interp.Reg _ (Done res) ->
         pure $ Just res
-      LLoad {} -> do
+      Interp.Load {} -> do
         stall [Fe]
         pure Nothing
-      LJump _ (Done addr) _ -> do
+      Interp.Jump _ (Done addr) _ -> do
         stall [De]
         pure $ Just $ bitCoerce addr
-      LJumpReg _ (Done addr) _ -> do
+      Interp.JumpReg _ (Done addr) _ -> do
         stall [De]
         pure $ Just $ bitCoerce addr
-      LStore {} -> do
+      Interp.Store {} -> do
         stall [Fe]
         pure Nothing
-      LBranch (Done branched) _ -> do
+      Interp.Branch (Done branched) _ -> do
         when branched $
           stall [De]
         pure Nothing
       _ -> pure Nothing
 
   try $ do
-    rd <- MaybeT $ pure $ getLeakRd instr
+    rd <- MaybeT $ pure $ Interp.getRd instr
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {timeMeRegFwd = pure (rd, res)}
 
@@ -285,33 +283,34 @@ timeWriteback = do
   instr <- gets timeWbInstr
   halted <- gets timeHalt
 
-  when halted $
+  when
+    halted
     outputNothing
 
   case instr of
-    LLoad {} -> stall [De]
-    LStore {} -> stall [De]
+    Interp.Load {} -> stall [De]
+    Interp.Store {} -> stall [De]
     _ -> pure ()
 
   mres <-
     case instr of
-      LReg _ (Done res) ->
+      Interp.Reg _ (Done res) ->
         pure $ Just res
-      LLoad {} -> do
+      Interp.Load {} -> do
         stall [De]
         pure $ Just input
-      LJump _ (Done addr) _ ->
+      Interp.Jump _ (Done addr) _ ->
         pure $ Just $ bitCoerce addr
-      LJumpReg _ (Done addr) _ ->
+      Interp.JumpReg _ (Done addr) _ ->
         pure $ Just $ bitCoerce addr
-      LStore {} -> do
+      Interp.Store {} -> do
         stall [De]
         pure Nothing
-      LBreak -> do
+      Interp.Break -> do
         modify $ \s ->
           s
-            { timeMemInstr = LNop,
-              timeExInstr = LNop,
+            { timeMemInstr = Interp.Nop,
+              timeExInstr = Interp.Nop,
               timeHalt = True
             }
         outputNothing
@@ -319,7 +318,7 @@ timeWriteback = do
       _ -> pure Nothing
 
   try $ do
-    rd <- MaybeT $ pure $ getLeakRd instr
+    rd <- MaybeT $ pure $ Interp.getRd instr
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {timeWbRegFwd = pure (rd, res)}
 
@@ -332,7 +331,7 @@ timeTick = do
   timeDecode
   timeFetch
 
-timeRun :: TimeState -> (LeakInst ISAF, Input) -> (TimeState, TimeOut)
+timeRun :: TimeState -> (Interp.Inst InterpF, Input) -> (TimeState, TimeOut)
 timeRun s i = execRWS timeTick i s
 
 data SimState = SimState
@@ -378,7 +377,7 @@ simDoStall stages =
 
 simStallingM :: Stage -> SimM Bool
 simStallingM stage =
-  S.member stage <$> gets simStall
+  gets (S.member stage . simStall)
 
 simOutputPC :: Address -> SimM ()
 simOutputPC addr =
@@ -389,7 +388,6 @@ simOutputNothing = tell $ pure Nothing
 
 simFetch :: SimM ()
 simFetch = do
-  s <- get
   stalling <- simStallingM Fe
   modify $ \s ->
     if stalling
@@ -403,11 +401,10 @@ simFetch = do
             simDePc = simFePc s
           }
 
-  simOutputPC $ simFePc s
+  simOutputPC =<< gets simFePc
 
 simDecode :: SimM ()
 simDecode = do
-  s <- get
   instr <- fromMaybe timeNop . getFirst <$> asks timeInst
   when (isLoad instr) $ do
     simDoStall [Fe]
@@ -429,8 +426,8 @@ simDecode = do
     isLoad _ = False
 
     loadHazard :: TimeInst -> TimeInst -> Bool
-    loadHazard de_ir ex_ir@(TimeInst (TLoad rd) _) =
-      any (== rd) $ S.toList $ timeDeps de_ir
+    loadHazard de_ir (TimeInst (TLoad rd) _) =
+      elem rd $ S.toList $ timeDeps de_ir
     loadHazard _ _ = False
 
 simExecute :: SimM ()
@@ -446,7 +443,7 @@ simExecute = do
   case timeBaseInst instr of
     TJump -> do
       case mjmpAddr of
-        Just addr -> do
+        Just {} -> do
           simDoStall [De]
           modify $ \s ->
             s
@@ -480,7 +477,8 @@ simWriteback = do
   instr <- gets simWbInstr
   halted <- gets simHalt
 
-  when halted $
+  when
+    halted
     simOutputNothing
 
   case timeBaseInst instr of
@@ -508,7 +506,7 @@ simTick = do
   simFetch
 
 simRun :: SimState -> TimeOut -> (SimState, Maybe Address)
-simRun s i = (fromMaybe Nothing . getFirst) <$> execRWS simTick i s
+simRun s i = fromMaybe Nothing . getFirst <$> execRWS simTick i s
 
 leakTimeSimRun ::
   Input ->
@@ -516,7 +514,7 @@ leakTimeSimRun ::
   ((TimeState, SimState), Maybe Address)
 leakTimeSimRun input (ts, ss) = ((ts', ss'), addr)
   where
-    time_in = leak input
+    time_in = Interp.interp input
     (ts', sim_in) = timeRun ts (time_in, input)
     (ss', addr) = simRun ss sim_in
 
@@ -551,7 +549,7 @@ simulator =
       pure (s', (o, obs sim_o))
 
     next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
-    next (o, sim_addr) = do
+    next (_o, _sim_addr) = do
       ((_, sim_o), mem) <- get
       let (mi, mem') = runState (circuitNext Simulate.simulator sim_o) mem
       modify $ \(s, _mem) -> (s, mem')
@@ -567,9 +565,9 @@ runSimulator ::
   ) ->
   Vec PROG_SIZE Word ->
   a
-runSimulator f prog = evalState (f simulator) $ mkS prog
+runSimulator f prog = evalState (f simulator) s
   where
-    mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
 
 watchSim ::
   Vec PROG_SIZE Word ->
@@ -590,8 +588,8 @@ proj s = (ts, ss)
           timeDePc = dePc s,
           timeExPc = exPc s,
           timeExInstr = convertInst $ exIr s,
-          timeMemInstr = convertInstDone s (meIr s) Mem,
-          timeWbInstr = convertInstDone s (wbIr s) Wb,
+          timeMemInstr = convertInstDone (meIr s) Mem,
+          timeWbInstr = convertInstDone (wbIr s) Wb,
           timeStall = convertStall $ pipeCtrl s,
           timeHalt = pipeHalt s,
           timeMeRegFwd = ctrlMeRegFwd $ pipeCtrl s,
@@ -612,32 +610,34 @@ proj s = (ts, ss)
         }
 
     convertTime :: Instruction -> TimeInst
-    convertTime inst = TimeInst (mkTimeInst $ convertInst inst) (depSet $ convertInst inst)
+    convertTime inst = TimeInst (mkTimeInst $ convertInst inst) (Interp.depSet $ convertInst inst)
 
-    convertInst :: Instruction -> LeakInst ISAF -- fix
+    convertInst :: Instruction -> Interp.Inst InterpF -- fix
     convertInst i =
-      leak $
+      Interp.interp $
         Input
           { inputIsInst = True,
-            inputMem = encode i,
+            inputMem = Instruction.encode i,
             inputRs1 = 0,
             inputRs2 = 0
           }
-    convertInstDone :: Pipe -> Instruction -> Stage -> LeakInst Done -- fix
-    convertInstDone s i stage =
+    convertInstDone :: Instruction -> Stage -> Interp.Inst Done -- fix
+    convertInstDone i stage =
       case li of
-        LReg rd _ -> LReg rd $ Done res
-        LLoad size rd _ -> LLoad size rd $ Done $ bitCoerce res
-        LJump rd _ _ -> LJump rd (Done $ bitCoerce res) lol
-        LJumpReg rd _ _ -> LJumpReg rd (Done $ bitCoerce res) lol
-        LStore size _ r2 -> LStore size (Done $ bitCoerce res) r2
-        LBranch _ _ -> LBranch (Done branched) lol
-        LNop -> LNop
-        LBreak -> LBreak
+        Interp.Reg rd _ -> Interp.Reg rd $ Done res
+        Interp.Load size rd _ -> Interp.Load size rd $ Done $ bitCoerce res
+        Interp.Jump rd _ _ -> Interp.Jump rd (Done $ bitCoerce res) lol
+        Interp.JumpReg rd _ _ -> Interp.JumpReg rd (Done $ bitCoerce res) lol
+        Interp.Store size _ r2 -> Interp.Store size (Done $ bitCoerce res) r2
+        Interp.Branch _ _ -> Interp.Branch (Done branched) lol
+        Interp.Nop -> Interp.Nop
+        Interp.Break -> Interp.Break
       where
         li = convertInst i
-        res = if stage == Mem then meRe s else wbRe s
-        branched = if stage == Mem then meBranch s else False
+        res
+          | stage == Mem = meRe s
+          | otherwise = wbRe s
+        branched = (stage == Mem) && meBranch s
         lol = Done 0
 
     convertStall :: Control -> Set Stage

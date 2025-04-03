@@ -1,27 +1,27 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.Architectural where
+module Leak.Architectural () where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
-import Control.Monad
-import Control.Monad.RWS
-import Control.Monad.State
-import Control.Monad.Trans.Maybe
-import Data.Maybe (fromJust, fromMaybe, isJust)
-import Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set as S
-import Data.Tuple (swap)
-import GHC.TypeNats
-import Instruction hiding (Jump, decode, halt)
-import qualified Instruction
-import Pipe
-import Regfile
-import qualified Simulate
-import Types
-import Prelude hiding (Ordering (..), Word, const, init, map, not, undefined, (!!), (&&), (||))
-import qualified Prelude
+-- import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
+-- import Control.Monad
+-- import Control.Monad.RWS
+-- import Control.Monad.State
+-- import Control.Monad.Trans.Maybe
+-- import Data.Maybe (fromJust, fromMaybe, isJust)
+-- import Data.Monoid
+-- import Data.Set (Set)
+-- import qualified Data.Set as S
+-- import Data.Tuple (swap)
+-- import GHC.TypeNats
+-- import Instruction hiding (Jump, decode, halt)
+-- import qualified Instruction
+-- import Pipe
+-- import Regfile
+-- import qualified Simulate
+-- import Types
+-- import Prelude hiding (Ordering (..), Word, const, init, map, not, undefined, (!!), (&&), (||))
+-- import qualified Prelude
 
 ---- `fromJust` is safe here because the `fetch` stage unconditionally always reads
 ---- from memory (and its read may just be superseded by the `memory` stage).

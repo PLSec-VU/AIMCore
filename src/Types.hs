@@ -5,6 +5,7 @@ module Types
     Word,
     Address,
     Byte,
+    Size (..),
     vecWordToByte,
   )
 where
@@ -31,8 +32,14 @@ type Byte = BitVector 8
 -- | Memory addresses used in this core.
 type Address = Unsigned 32
 
+-- | Word sizes.
+data Size
+  = Byte
+  | Half
+  | Word
+  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+
 vecWordToByte ::
-  (KnownNat n) =>
   Vec n Word ->
   Vec ((GHC.TypeNats.*) n 4) Byte
 vecWordToByte =

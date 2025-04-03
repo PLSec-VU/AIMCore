@@ -29,8 +29,7 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
-import Instruction hiding (decode, halt)
-import qualified Instruction
+import Instruction hiding (decode)
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
@@ -278,8 +277,6 @@ halt =
 -- | The fetch stage.
 fetch :: CPUM ()
 fetch = do
-  dl <- gets (ctrlDecodeLoad . pipeCtrl)
-  mo <- gets (ctrlMemOutputActive . pipeCtrl)
   stall <-
     checkLines
       [ -- Have to always stall incrementing the program counter on any load
@@ -295,9 +292,7 @@ fetch = do
   pc <- gets fePc
   -- Fetch the next instruction from memory.  Will only actually happen if no
   -- other reads/writes occur in subsequent stages.
-  readPC pc False -- TODO: FIX!
-
-  -- traceM $ unlines [show stall, show pc, show dl, show mo]
+  readPC pc
 
   mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
   modify $ \s ->
@@ -428,9 +423,9 @@ execute = do
   modify $ \s ->
     let aluNOP = (ADD, 0, 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
-        result = alu op lhs rhs
+        res = alu op lhs rhs
      in s
-          { meRe = result,
+          { meRe = res,
             meIr = ir
           }
   where
@@ -487,19 +482,19 @@ branch op lhs rhs = case op of
 
 memory :: CPUM ()
 memory = do
-  result <- gets meRe
+  res <- gets meRe
   instr <- gets meIr
 
   -- Store Forwarding
   try $ do
     rd <- getRd instr
-    res <- lift $ gets meRe
-    lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, res)}
+    me_res <- lift $ gets meRe
+    lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, me_res)}
 
   case instr of
     Instruction.SType size _ _ _ -> do
       r2 <- gets meVal
-      writeRAM (unpack result) size (unpack r2)
+      writeRAM (unpack res) size (unpack r2)
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
     Instruction.IType Load {} _ _ _ -> do
@@ -509,7 +504,7 @@ memory = do
             ctrlMeRegFwd = Nothing,
             ctrlMemOutputActive = True
           }
-      readRAM $ unpack result
+      readRAM $ unpack res
     Instruction.BType {} -> do
       branched <- gets meBranch
       when branched $
@@ -534,7 +529,7 @@ writeback :: CPUM ()
 writeback = do
   input <- asks inputMem
   ir <- gets wbIr
-  result <- gets wbRe
+  res <- gets wbRe
 
   halted <- gets pipeHalt
 
@@ -556,7 +551,7 @@ writeback = do
   try $ do
     rd <- getRd ir
     lift $ setLines $ \c ->
-      c {ctrlWbRegFwd = pure (rd, result)}
+      c {ctrlWbRegFwd = pure (rd, res)}
 
   -- We could do a lot better here. It's just annoying to deal with the type
   -- naturals.
@@ -568,9 +563,9 @@ writeback = do
         (Word, _) -> signExtend $ slice d31 d0 input
 
   case ir of
-    Instruction.RType _ rd _ _ -> writeRF rd result
-    Instruction.IType (Arith _) rd _ _ -> writeRF rd result
-    Instruction.UType _ rd _ -> writeRF rd result
+    Instruction.RType _ rd _ _ -> writeRF rd res
+    Instruction.IType (Arith _) rd _ _ -> writeRF rd res
+    Instruction.UType _ rd _ -> writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
       let val = loadExtend (size, sign)
       setLines $ \c ->
@@ -583,22 +578,22 @@ writeback = do
       setLines $ \c ->
         c {ctrlMemInputActive = True}
     Instruction.IType Jump rd _ _ ->
-      writeRF rd result
+      writeRF rd res
     Instruction.JType rd _ ->
-      writeRF rd result
+      writeRF rd res
     _ -> pure ()
   where
     writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
 
-readPC :: (MonadWriter Output m) => Address -> Bool -> m ()
-readPC addr stall =
+readPC :: (MonadWriter Output m) => Address -> m ()
+readPC addr =
   tell $
     mempty
       { outMem =
           pure $
             MemAccess
-              { memIsInst = not stall,
+              { memIsInst = True,
                 memAddress = addr,
                 memSize = Word,
                 memVal = Nothing

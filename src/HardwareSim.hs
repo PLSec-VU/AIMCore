@@ -1,27 +1,27 @@
 {-# LANGUAGE TupleSections #-}
 
-module HardwareSim where
+module HardwareSim () where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Clash.Sized.Vector (unsafeFromList)
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.RWS
-import Control.Monad.State
-import Control.Monad.Writer
-import Data.Bifunctor
-import Data.Either
-import Data.Maybe (fromMaybe)
-import Data.Monoid
-import qualified Debug.Trace as DB
-import Instruction hiding (decode)
-import Pipe
-import Regfile
-import qualified Simulate
-import Text.Read (readMaybe)
-import Types
-import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
-import qualified Prelude
+-- import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+-- import Clash.Sized.Vector (unsafeFromList)
+-- import Control.Monad
+-- import Control.Monad.IO.Class
+-- import Control.Monad.RWS
+-- import Control.Monad.State
+-- import Control.Monad.Writer
+-- import Data.Bifunctor
+-- import Data.Either
+-- import Data.Maybe (fromMaybe)
+-- import Data.Monoid
+-- import qualified Debug.Trace as DB
+-- import Instruction hiding (decode)
+-- import Pipe
+-- import Regfile
+-- import qualified Simulate
+-- import Text.Read (readMaybe)
+-- import Types
+-- import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
+-- import qualified Prelude
 
 -- simN :: Vec m Word -> Int -> [Either Output Word]
 -- simN prog n = sampleN @System n $ system prog

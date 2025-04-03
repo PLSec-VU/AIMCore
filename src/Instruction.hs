@@ -8,7 +8,6 @@ module Instruction
     Arith (..),
     Env (..),
     Comparison (..),
-    Size (..),
     Sign (..),
     UBase (..),
     getRd,
@@ -62,13 +61,6 @@ data Comparison
     LTU
   | -- | Greater or Equals than Unsigned
     GEU
-  deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
-
--- | Word sizes that can be loaded or stored.
-data Size
-  = Byte
-  | Half
-  | Word
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Sign extension of a load operation.

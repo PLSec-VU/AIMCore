@@ -1,15 +1,34 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Util where
+module Util
+  ( CircuitSim (..),
+    run1,
+    watch,
+    result,
+    cmpIO,
+    pageIO,
+    MonadMemory (..),
+    ramRead,
+    ramWrite,
+    regRead,
+    regWrite,
+    readWord,
+    write,
+    RAM_SIZE,
+    RAM_SIZE_BYTES,
+    PROG_SIZE,
+    MEM_SIZE,
+    MEM_SIZE_BYTES,
+    initPc,
+    mkProg,
+    mkRAM,
+    try,
+  )
+where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.RWS
-import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Control.Monad.Writer
 import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
 import Instruction
@@ -44,11 +63,11 @@ result c = watch c *> getRAM
 
 cmpIO :: (Show a, Show b) => [(a, b)] -> IO ()
 cmpIO = mapM_ $ \(a, b) -> do
-  putStrLn $ show a
+  print a
   putStrLn ""
   putStrLn "*************************"
   putStrLn ""
-  putStrLn $ show b
+  print b
   putStrLn ""
   putStrLn "------------------------"
   putStrLn "Press Enter to continue."
@@ -57,7 +76,7 @@ cmpIO = mapM_ $ \(a, b) -> do
 
 pageIO :: (Show a) => [a] -> IO ()
 pageIO = mapM_ $ \a -> do
-  putStrLn $ show a
+  print a
   putStrLn ""
   putStrLn "------------------------"
   putStrLn "Press Enter to continue."
@@ -124,10 +143,7 @@ initPc = fromIntegral $ natVal (Proxy @RAM_SIZE_BYTES)
 
 mkProg ::
   forall size.
-  ( KnownNat (size + (PROG_SIZE - size)),
-    KnownNat (PROG_SIZE - size),
-    KnownNat size,
-    KnownNat PROG_SIZE,
+  ( KnownNat (PROG_SIZE - size),
     PROG_SIZE ~ (size + (PROG_SIZE - size))
   ) =>
   Vec size Instruction ->

@@ -2,26 +2,24 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Simulate where
+module Simulate
+  ( Mem (..),
+    simulator,
+    runSimulator,
+    watchSim,
+    simResult,
+  )
+where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Clash.Sized.Vector (unsafeFromList)
-import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Control.Monad.State
-import Control.Monad.Writer
-import Data.Maybe (fromMaybe)
 import Data.Monoid
-import qualified Debug.Trace as DB
-import Instruction hiding (decode)
 import Pipe
 import Regfile
-import Text.Read (readMaybe)
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
-import qualified Prelude
 
 data Mem n = Mem
   { memRAM :: Vec n Byte,
@@ -29,15 +27,13 @@ data Mem n = Mem
   }
   deriving (Eq, Show, Generic, NFDataX)
 
-instance (MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
+instance (Monad m, MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
   getRAM = gets memRAM
   putRAM ram = modify $ \s -> s {memRAM = ram}
   getRegfile = gets memRf
   putRegfile rf = modify $ \s -> s {memRf = rf}
 
-type SimM n = RWS () () (Mem n)
-
-simulator :: forall m. (MonadMemory m) => CircuitSim m Input Pipe Output
+simulator :: forall m. (MonadState (Mem MEM_SIZE_BYTES) m) => CircuitSim m Input Pipe Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -46,9 +42,9 @@ simulator =
       circuitNext = next
     }
   where
-    step :: (MonadMemory m) => Input -> Pipe -> m (Pipe, Output)
+    step :: Input -> Pipe -> m (Pipe, Output)
     step i s = do
-      let (ctrl', s', o) = simPipe s i
+      let (_ctrl', s', o) = simPipe s i
       pure (s', o)
       where
         simPipe :: Pipe -> Input -> (Control, Pipe, Output)
@@ -65,7 +61,7 @@ simulator =
               resetCtrl
               pure ctrl
 
-    next :: (MonadMemory m) => Output -> m (Maybe Input)
+    next :: Output -> m (Maybe Input)
     next (Output mem rs1 rs2 rd hlt)
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
