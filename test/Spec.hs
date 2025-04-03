@@ -3,8 +3,13 @@ module Main where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
+import Control.Monad.State
+import Data.Bifunctor
+import Data.Monoid
+import Debug.Trace
 import qualified HardwareSim
 import Instruction
+import Leak.PC (SimState, TimeState)
 import qualified Leak.PC
 import Pipe
 import Regfile
@@ -82,8 +87,8 @@ tests =
         [ mkPCLeakTest "test 1" $ mkProg prog1,
           mkPCLeakTest "test 2" $ mkProg prog1,
           mkPCLeakTest "test 3" $ mkProg prog1,
-          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
-          -- testProperty "QuickCheck" $ Leak.PC.pcsEqual
+          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
+          testProperty "QuickCheck" $ theorem
         ]
         -- testGroup
         --  "Pure and clash simulations should agree."
@@ -185,7 +190,7 @@ instance Arbitrary IOperation where
     oneof
       [ Arith <$> arbitrary,
         Load <$> arbitrary <*> arbitrary,
-        Env <$> arbitrary,
+        -- Env <$> arbitrary, -- Fix
         pure Jump
       ]
 
@@ -235,3 +240,64 @@ instance Arbitrary Pipe where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+
+instance Arbitrary Input where
+  arbitrary =
+    Input
+      <$> arbitrary
+      <*> oneof
+        [ encode <$> arbitrary,
+          arbitrary
+        ]
+      <*> arbitrary
+      <*> arbitrary
+
+instance (KnownNat n) => Arbitrary (Mem n) where
+  arbitrary = Mem <$> arbitrary <*> arbitrary
+
+instance Arbitrary Regfile where
+  arbitrary = Regfile <$> arbitrary
+
+instance {-# OVERLAPS #-} Arbitrary (Leak.PC.TimeState, Leak.PC.SimState) where
+  arbitrary =
+    Leak.PC.proj <$> arbitrary
+
+theorem :: Gen Property
+theorem = do
+  input <- arbitrary
+  pipe <- arbitrary
+  let state = Leak.PC.proj $ pipe
+      (_, sim_pc) = circuit_sim input state
+      (_, pipe_pc) = second obs $ circuit_pipe pipe input
+  pure $
+    flip counterexample (sim_pc == pipe_pc) $
+      unlines
+        [ "input: ",
+          "-------------------------------",
+          show input,
+          "",
+          "pipe:",
+          "-------------------------------",
+          show pipe,
+          "",
+          "state:",
+          "-------------------------------",
+          show state,
+          "sim_pc:",
+          "-------------------------------",
+          show sim_pc,
+          "pipe_pc:",
+          "-------------------------------",
+          show pipe_pc
+        ]
+  where
+    circuit_sim :: Input -> (TimeState, SimState) -> ((TimeState, SimState), Maybe Address)
+    circuit_sim = Leak.PC.leakTimeSimRun
+    circuit_pipe :: Pipe -> Input -> (Pipe, Output)
+    circuit_pipe = Pipe.pipe
+
+    obs :: Output -> Maybe Address
+    obs sim_pc = do
+      mem <- getFirst $ outMem sim_pc
+      guard $ memIsInst mem
+      pure $ memAddress mem

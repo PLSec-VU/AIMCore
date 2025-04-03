@@ -517,9 +517,8 @@ simulator ::
   forall m.
   ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m
   ) =>
-  Vec PROG_SIZE Word ->
   CircuitSim m Input (TimeState, SimState) (Maybe Address, Maybe Address)
-simulator prog =
+simulator =
   CircuitSim
     { circuitInput = initInput,
       circuitState = (initTime, initSim),
@@ -561,7 +560,7 @@ runSimulator ::
   ) ->
   Vec PROG_SIZE Word ->
   a
-runSimulator f prog = evalState (f $ simulator prog) $ mkS prog
+runSimulator f prog = evalState (f simulator) $ mkS prog
   where
     mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
 
