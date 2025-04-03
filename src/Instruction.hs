@@ -270,7 +270,7 @@ encode instruction = do
             SRA | slice d11 d5 imm == 0 -> 0x5
             SLT -> 0x2
             SLTU -> 0x3
-            _ -> error "Incorrect instruction"
+            _ -> error $ "Incorrect instruction: " <> show instruction
 
       let rd' = pack rd
       let rs1' = pack rs1
@@ -283,7 +283,7 @@ encode instruction = do
             (Word, Signed) -> 0x2
             (Byte, Unsigned) -> 0x4
             (Half, Unsigned) -> 0x5
-            _ -> error "Incorrect instruction"
+            _ -> error $ "Incorrect instruction: " <> show instruction
 
       let rd' = pack rd
       let rs1' = pack rs1

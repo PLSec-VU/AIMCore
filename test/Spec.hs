@@ -88,7 +88,7 @@ tests =
           mkPCLeakTest "test 2" $ mkProg prog1,
           mkPCLeakTest "test 3" $ mkProg prog1,
           mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-          testProperty "QuickCheck" $ theorem
+          testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
         ]
         -- testGroup
         --  "Pure and clash simulations should agree."
@@ -188,9 +188,26 @@ instance Arbitrary Env where
 instance Arbitrary IOperation where
   arbitrary =
     oneof
-      [ Arith <$> arbitrary,
-        Load <$> arbitrary <*> arbitrary,
-        -- Env <$> arbitrary, -- Fix
+      [ Arith
+          <$> elements
+            [ ADD,
+              XOR,
+              OR,
+              AND,
+              SLL,
+              SRL,
+              SRA,
+              SLT,
+              SLTU
+            ],
+        (uncurry Load)
+          <$> elements
+            [ (Byte, Signed),
+              (Half, Signed),
+              (Word, Signed),
+              (Byte, Unsigned),
+              (Half, Unsigned)
+            ],
         pure Jump
       ]
 
@@ -257,8 +274,9 @@ theorem = do
   input <- arbitrary
   pipe <- arbitrary
   let state = Leak.PC.proj $ pipe
-      (_, sim_pc) = circuit_sim input state
-      (_, pipe_pc) = second obs $ circuit_pipe pipe input
+      (state_final, sim_pc) = circuit_sim input state
+      (pipe_final, pipe_output) = circuit_pipe pipe input
+      pipe_pc = obs pipe_output
   pure $
     flip counterexample (sim_pc == pipe_pc) $
       unlines
@@ -270,15 +288,29 @@ theorem = do
           "-------------------------------",
           show pipe,
           "",
+          "pipe_final:",
+          "-------------------------------",
+          show pipe_final,
+          "",
           "state:",
           "-------------------------------",
           show state,
+          "",
+          "state_final:",
+          "-------------------------------",
+          show state_final,
+          "",
           "sim_pc:",
           "-------------------------------",
           show sim_pc,
+          "",
           "pipe_pc:",
           "-------------------------------",
-          show pipe_pc
+          show pipe_pc,
+          "",
+          "pipe_output:",
+          "-------------------------------",
+          show pipe_output
         ]
   where
     circuit_sim :: Input -> (TimeState, SimState) -> ((TimeState, SimState), Maybe Address)

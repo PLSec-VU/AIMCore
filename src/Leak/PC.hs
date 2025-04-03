@@ -410,7 +410,6 @@ simDecode = do
   s <- get
   instr <- fromMaybe timeNop . getFirst <$> asks timeInst
   when (isLoad instr) $ do
-    simOutputNothing
     simDoStall [Fe]
   ex_ir <- gets simExInstr
   when (loadHazard instr ex_ir) $
@@ -493,9 +492,10 @@ simWriteback = do
             simExInstr = timeNop,
             simHalt = True
           }
-      simOutputNothing
-    TLoad {} -> simDoStall [De]
-    TStore -> simDoStall [De]
+    TLoad {} -> do
+      simDoStall [De]
+    TStore -> do
+      simDoStall [De]
     _ -> pure ()
 
 simTick :: SimM ()
@@ -590,8 +590,8 @@ proj s = (ts, ss)
           timeDePc = dePc s,
           timeExPc = exPc s,
           timeExInstr = convertInst $ exIr s,
-          timeMemInstr = convertInstDone s (meIr s) (meRe s),
-          timeWbInstr = convertInstDone s (wbIr s) (wbRe s),
+          timeMemInstr = convertInstDone s (meIr s) Mem,
+          timeWbInstr = convertInstDone s (wbIr s) Wb,
           timeStall = convertStall $ pipeCtrl s,
           timeHalt = pipeHalt s,
           timeMeRegFwd = ctrlMeRegFwd $ pipeCtrl s,
@@ -623,19 +623,22 @@ proj s = (ts, ss)
             inputRs1 = 0,
             inputRs2 = 0
           }
-    convertInstDone :: Pipe -> Instruction -> Word -> LeakInst Done -- fix
-    convertInstDone s i res =
+    convertInstDone :: Pipe -> Instruction -> Stage -> LeakInst Done -- fix
+    convertInstDone s i stage =
       case li of
         LReg rd _ -> LReg rd $ Done res
         LLoad size rd _ -> LLoad size rd $ Done $ bitCoerce res
-        LJump rd _ _ -> LJump rd (Done $ bitCoerce res) (error "")
-        LJumpReg rd _ _ -> LJumpReg rd (Done $ bitCoerce res) (error "")
+        LJump rd _ _ -> LJump rd (Done $ bitCoerce res) lol
+        LJumpReg rd _ _ -> LJumpReg rd (Done $ bitCoerce res) lol
         LStore size _ r2 -> LStore size (Done $ bitCoerce res) r2
-        LBranch _ _ -> LBranch (error "") (error "")
+        LBranch _ _ -> LBranch (Done branched) lol
         LNop -> LNop
         LHalt -> LHalt
       where
         li = convertInst i
+        res = if stage == Mem then meRe s else wbRe s
+        branched = if stage == Mem then meBranch s else False
+        lol = Done 0
 
     convertStall :: Control -> Set Stage
     convertStall ctrl =

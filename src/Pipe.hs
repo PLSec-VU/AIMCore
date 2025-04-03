@@ -216,12 +216,12 @@ pipe = flip $ execRWS pipeM
 -- | The CPU.
 pipeM :: CPUM ()
 pipeM = do
+  resetCtrl
   writeback
   memory
   execute
   decode
   fetch
-  resetCtrl
 
 initInput :: Input
 initInput =
@@ -278,6 +278,8 @@ halt =
 -- | The fetch stage.
 fetch :: CPUM ()
 fetch = do
+  dl <- gets (ctrlDecodeLoad . pipeCtrl)
+  mo <- gets (ctrlMemOutputActive . pipeCtrl)
   stall <-
     checkLines
       [ -- Have to always stall incrementing the program counter on any load
@@ -293,7 +295,9 @@ fetch = do
   pc <- gets fePc
   -- Fetch the next instruction from memory.  Will only actually happen if no
   -- other reads/writes occur in subsequent stages.
-  readPC pc stall
+  readPC pc False -- TODO: FIX!
+
+  -- traceM $ unlines [show stall, show pc, show dl, show mo]
 
   mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
   modify $ \s ->
