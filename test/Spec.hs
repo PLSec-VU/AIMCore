@@ -252,16 +252,6 @@ instance Arbitrary Input where
       <*> arbitrary
       <*> arbitrary
 
-instance (KnownNat n) => Arbitrary (Mem n) where
-  arbitrary = Mem <$> arbitrary <*> arbitrary
-
-instance Arbitrary Regfile where
-  arbitrary = Regfile <$> arbitrary
-
-instance {-# OVERLAPS #-} Arbitrary (Leak.PC.TimeState, Leak.PC.SimState) where
-  arbitrary =
-    Leak.PC.proj <$> arbitrary
-
 theorem :: Gen Property
 theorem = do
   input <- arbitrary

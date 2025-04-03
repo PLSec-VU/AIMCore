@@ -27,7 +27,7 @@ import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 data BaseTimeInst
-  = TJump (Maybe Address)
+  = TJump
   | TLoad RegIdx
   | TStore
   | TOther
@@ -172,10 +172,10 @@ timeDecode = do
 mkTimeInst :: LeakInst f -> BaseTimeInst
 mkTimeInst (LReg _ _) = TOther
 mkTimeInst (LLoad _ rd _) = TLoad rd
-mkTimeInst (LJump _ _ _) = TJump Nothing
-mkTimeInst (LJumpReg _ _ _) = TJump Nothing
+mkTimeInst (LJump _ _ _) = TJump
+mkTimeInst (LJumpReg _ _ _) = TJump
 mkTimeInst (LStore _ _ _) = TStore
-mkTimeInst (LBranch _ _) = TJump Nothing
+mkTimeInst (LBranch _ _) = TJump
 mkTimeInst LHalt = THalt
 mkTimeInst LNop = TOther
 
@@ -443,15 +443,22 @@ simExecute = do
       { simJumpAddr = mjmpAddr,
         simMemInstr = instr
       }
+
   case timeBaseInst instr of
-    TJump {} -> do
-      simDoStall [De]
-      modify $ \s ->
-        s
-          { simMemInstr = instr {timeBaseInst = TJump mjmpAddr}
-          }
+    TJump -> do
+      case mjmpAddr of
+        Just addr -> do
+          simDoStall [De]
+          modify $ \s ->
+            s
+              { simMemInstr = instr {timeBaseInst = TJump}
+              }
+        Nothing ->
+          modify $ \s ->
+            s
+              { simMemInstr = instr {timeBaseInst = TOther}
+              }
     _ -> pure ()
-  where
 
 simMemory :: SimM ()
 simMemory = do
@@ -463,7 +470,7 @@ simMemory = do
     TStore -> do
       simOutputNothing
       simDoStall [Fe]
-    TJump {} ->
+    TJump ->
       simDoStall [De]
     _ -> pure ()
 
