@@ -317,7 +317,7 @@ fetch = do
 -- | Decode stage.
 decode :: CPUM ()
 decode = do
-  ir <- Instruction.decode <$> asks inputMem
+  ir <- Instruction.decode' <$> asks inputMem
   ex_ir <- gets exIr
   readRf ir
 
@@ -377,9 +377,6 @@ execute = do
   -- Fetch alu operands
   aluInputs <- runMaybeT $
     case ir of
-      EBREAK -> empty
-      -- Unknown instruction
-      Invalid -> empty
       Instruction.RType op _ _ _ -> do
         r1 <- rs1
         r2 <- rs2
@@ -546,7 +543,7 @@ writeback = do
       mempty {outHalt = pure True}
     readRAM 0
 
-  when (ir == Instruction.halt) $ do
+  when (isBreak ir) $ do
     -- Flush the pipeline
     modify $ \s ->
       s

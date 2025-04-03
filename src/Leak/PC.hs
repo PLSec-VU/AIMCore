@@ -31,7 +31,7 @@ data BaseTimeInst
   | TLoad RegIdx
   | TStore
   | TOther
-  | THalt
+  | TBreak
   deriving (Show, Eq)
 
 timeNop :: TimeInst
@@ -176,7 +176,7 @@ mkTimeInst (LJump _ _ _) = TJump
 mkTimeInst (LJumpReg _ _ _) = TJump
 mkTimeInst (LStore _ _ _) = TStore
 mkTimeInst (LBranch _ _) = TJump
-mkTimeInst LHalt = THalt
+mkTimeInst LBreak = TBreak
 mkTimeInst LNop = TOther
 
 timeExecute :: TimeM ()
@@ -218,7 +218,7 @@ timeExecute = do
           modify $ \s -> s {timeJumpAddr = pure address}
           tell $ mempty {timeJumpAddress = pure address}
         pure $ LBranch (Done branched) (Done address)
-      LHalt -> pure LHalt
+      LBreak -> pure LBreak
       LNop -> pure LNop
 
   modify $ \s -> s {timeMemInstr = instr'}
@@ -307,7 +307,7 @@ timeWriteback = do
       LStore {} -> do
         stall [De]
         pure Nothing
-      LHalt -> do
+      LBreak -> do
         modify $ \s ->
           s
             { timeMemInstr = LNop,
@@ -484,7 +484,7 @@ simWriteback = do
     simOutputNothing
 
   case timeBaseInst instr of
-    THalt -> do
+    TBreak -> do
       simOutputNothing
       modify $ \s ->
         s
@@ -633,7 +633,7 @@ proj s = (ts, ss)
         LStore size _ r2 -> LStore size (Done $ bitCoerce res) r2
         LBranch _ _ -> LBranch (Done branched) lol
         LNop -> LNop
-        LHalt -> LHalt
+        LBreak -> LBreak
       where
         li = convertInst i
         res = if stage == Mem then meRe s else wbRe s

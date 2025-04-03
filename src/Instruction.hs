@@ -1,6 +1,7 @@
 module Instruction
   ( Instruction (..),
     decode,
+    decode',
     encode,
     nop,
     IOperation (..),
@@ -13,14 +14,15 @@ module Instruction
     getRd,
     getRs1,
     getRs2,
-    halt,
+    isBreak,
+    break,
   )
 where
 
-import Clash.Prelude hiding (Ordering (..), Word)
+import Clash.Prelude hiding (Ordering (..), Word, break)
 import Data.Maybe (fromMaybe)
 import Types
-import Prelude hiding (Ordering (..), Word, undefined)
+import Prelude hiding (Ordering (..), Word, break, undefined)
 
 -- | All arithmetic and logic operations.
 data Arith
@@ -109,129 +111,127 @@ data Instruction
     UType UBase RegIdx UImm
   | -- | JType rd imm
     JType RegIdx UImm
-  | Invalid
-  | EBREAK
   deriving (Eq, Show, Generic, NFDataX)
+
+decode' :: Word -> Instruction
+decode' = fromMaybe nop . decode
 
 -- | Decode a word to an instruction.
 --
 -- https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
-decode :: Word -> Instruction
-decode 0b00000000000100000000000001110011 = EBREAK
-decode word =
-  --
-  fromMaybe Invalid $ do
-    let opcode = slice d6 d0 word
+decode :: Word -> Maybe Instruction
+decode word = do
+  let opcode = slice d6 d0 word
 
-    let rd = unpack $ slice d11 d7 word
-    let rs1 = unpack $ slice d19 d15 word
-    let rs2 = unpack $ slice d24 d20 word
+  let rd = unpack $ slice d11 d7 word
+  let rs1 = unpack $ slice d19 d15 word
+  let rs2 = unpack $ slice d24 d20 word
 
-    let funct3 = slice d14 d12 word
-    let funct7 = slice d31 d25 word
+  let funct3 = slice d14 d12 word
+  let funct7 = slice d31 d25 word
 
-    let immI = slice d31 d20 word
-    let immS =
-          slice d31 d25 word
-            ++# slice d11 d7 word
-    let immB =
-          slice d31 d31 word
-            ++# slice d7 d7 word
-            ++# slice d30 d25 word
-            ++# slice d11 d8 word
-    let immU = slice d31 d12 word
-    let immJ =
-          slice d31 d31 word
-            ++# slice d19 d12 word
-            ++# slice d20 d20 word
-            ++# slice d30 d21 word
+  let immI = slice d31 d20 word
+  let immS =
+        slice d31 d25 word
+          ++# slice d11 d7 word
+  let immB =
+        slice d31 d31 word
+          ++# slice d7 d7 word
+          ++# slice d30 d25 word
+          ++# slice d11 d8 word
+  let immU = slice d31 d12 word
+  let immJ =
+        slice d31 d31 word
+          ++# slice d19 d12 word
+          ++# slice d20 d20 word
+          ++# slice d30 d21 word
 
-    case opcode of
-      -- R-Type
-      0b011_0011 -> do
-        arith <- case (funct3, funct7) of
-          (0x0, 0x00) -> pure ADD
-          (0x0, 0x20) -> pure SUB
-          (0x4, 0x00) -> pure XOR
-          (0x6, 0x00) -> pure OR
-          (0x7, 0x00) -> pure AND
-          (0x1, 0x00) -> pure SLL
-          (0x5, 0x00) -> pure SRL
-          (0x5, 0x20) -> pure SRA
-          (0x2, 0x00) -> pure SLT
-          (0x3, 0x00) -> pure SLTU
-          _ -> empty
-        pure $ RType arith rd rs1 rs2
+  case opcode of
+    -- R-Type
+    0b011_0011 -> do
+      arith <- case (funct3, funct7) of
+        (0x0, 0x00) -> pure ADD
+        (0x0, 0x20) -> pure SUB
+        (0x4, 0x00) -> pure XOR
+        (0x6, 0x00) -> pure OR
+        (0x7, 0x00) -> pure AND
+        (0x1, 0x00) -> pure SLL
+        (0x5, 0x00) -> pure SRL
+        (0x5, 0x20) -> pure SRA
+        (0x2, 0x00) -> pure SLT
+        (0x3, 0x00) -> pure SLTU
+        _ -> empty
+      pure $ RType arith rd rs1 rs2
 
-      -- I-Type arithmetic
-      0b001_0011 -> do
-        arith <- case funct3 of
-          0x0 -> pure ADD
-          0x4 -> pure XOR
-          0x6 -> pure OR
-          0x7 -> pure AND
-          0x1 | funct7 == 0x00 -> pure SLL
-          0x5 | funct7 == 0x00 -> pure SRL
-          0x5 | funct7 == 0x20 -> pure SRA
-          0x2 -> pure SLT
-          0x3 -> pure SLTU
-          _ -> empty
+    -- I-Type arithmetic
+    0b001_0011 -> do
+      arith <- case funct3 of
+        0x0 -> pure ADD
+        0x4 -> pure XOR
+        0x6 -> pure OR
+        0x7 -> pure AND
+        0x1 | funct7 == 0x00 -> pure SLL
+        0x5 | funct7 == 0x00 -> pure SRL
+        0x5 | funct7 == 0x20 -> pure SRA
+        0x2 -> pure SLT
+        0x3 -> pure SLTU
+        _ -> empty
 
-        pure $ IType (Arith arith) rd rs1 immI
+      pure $ IType (Arith arith) rd rs1 immI
 
-      -- I-Type load
-      0b000_0011 -> do
-        (size, sign) <- case funct3 of
-          0x0 -> pure (Byte, Signed)
-          0x1 -> pure (Half, Signed)
-          0x2 -> pure (Word, Signed)
-          0x4 -> pure (Byte, Unsigned)
-          0x5 -> pure (Half, Unsigned)
-          _ -> empty
+    -- I-Type load
+    0b000_0011 -> do
+      (size, sign) <- case funct3 of
+        0x0 -> pure (Byte, Signed)
+        0x1 -> pure (Half, Signed)
+        0x2 -> pure (Word, Signed)
+        0x4 -> pure (Byte, Unsigned)
+        0x5 -> pure (Half, Unsigned)
+        _ -> empty
 
-        pure $ IType (Load size sign) rd rs1 immI
+      pure $ IType (Load size sign) rd rs1 immI
 
-      -- I-Type jump
-      0b110_0111 | funct3 == 0x0 -> pure $ IType Jump rd rs1 immI
-      -- I-Type environment
-      0b111_0011 | funct3 == 0x0 -> do
-        env <- case immI of
-          0 -> pure Call
-          1 -> pure Break
-          _ -> empty
+    -- I-Type jump
+    0b110_0111 | funct3 == 0x0 -> pure $ IType Jump rd rs1 immI
+    -- I-Type environment
+    0b111_0011 | funct3 == 0x0 -> do
+      env <- case immI of
+        0 -> pure Call
+        1 -> pure Break
+        _ -> empty
 
-        pure $ IType (Env env) rd rs1 immI
+      pure $ IType (Env env) rd rs1 immI
 
-      -- S-Type
-      0b010_0011 -> do
-        size <- case funct3 of
-          0x0 -> pure Byte
-          0x1 -> pure Half
-          0x2 -> pure Word
-          _ -> empty
+    -- S-Type
+    0b010_0011 -> do
+      size <- case funct3 of
+        0x0 -> pure Byte
+        0x1 -> pure Half
+        0x2 -> pure Word
+        _ -> empty
 
-        pure $ SType size immS rs1 rs2
+      pure $ SType size immS rs1 rs2
 
-      -- B-Type
-      0b110_0011 -> do
-        cmp <- case funct3 of
-          0x0 -> pure EQ
-          0x1 -> pure NE
-          0x4 -> pure LT
-          0x5 -> pure GE
-          0x6 -> pure LTU
-          0x7 -> pure GEU
-          _ -> empty
+    -- B-Type
+    0b110_0011 -> do
+      cmp <- case funct3 of
+        0x0 -> pure EQ
+        0x1 -> pure NE
+        0x4 -> pure LT
+        0x5 -> pure GE
+        0x6 -> pure LTU
+        0x7 -> pure GEU
+        _ -> empty
 
-        pure $ BType cmp immB rs1 rs2
+      pure $ BType cmp immB rs1 rs2
 
-      -- U-Type load upper immediate
-      0b011_0111 -> pure $ UType Zero rd immU
-      -- U-Type add upper immediate to PC
-      0b001_0111 -> pure $ UType PC rd immU
-      -- J-Type
-      0b110_1111 -> pure $ JType rd immJ
-      _ -> empty
+    -- U-Type load upper immediate
+    0b011_0111 -> pure $ UType Zero rd immU
+    -- U-Type add upper immediate to PC
+    0b001_0111 -> pure $ UType PC rd immU
+    -- J-Type
+    0b110_1111 -> pure $ JType rd immJ
+    _ -> empty
 
 -- | Decode a word to an instruction.
 --
@@ -239,7 +239,6 @@ decode word =
 encode :: Instruction -> Word
 encode instruction = do
   case instruction of
-    EBREAK -> 0b00000000000100000000000001110011
     RType op rd rs1 rs2 -> do
       let opcode = 0b011_0011 :: BitVector 7
       let (funct3, funct7) :: (BitVector 3, BitVector 7) = case op of
@@ -360,7 +359,6 @@ encode instruction = do
 
       let rd' = pack rd
       imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
-    Invalid -> 0
 
 nop :: Instruction
 nop = RType ADD 0 0 0
@@ -391,5 +389,9 @@ getRs2 = \case
   Instruction.BType _ _ _ rs2 -> pure rs2
   _ -> empty
 
-halt :: Instruction
-halt = EBREAK
+isBreak :: Instruction -> Bool
+isBreak (IType (Env Break) _ _ _) = True
+isBreak _ = False
+
+break :: Instruction
+break = IType (Env Break) 0 0 0

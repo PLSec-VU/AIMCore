@@ -83,7 +83,7 @@ data LeakInst f
   | LStore Size (f Address) RegIdx
   | LBranch (f Bool) (f Address)
   | LNop
-  | LHalt
+  | LBreak
 
 deriving instance
   ( Show (f Word),
@@ -105,7 +105,7 @@ instance DepReg (LeakInst ISAF) where
   deps (LJumpReg _ _ f) = deps f
   deps (LStore _ f r2) = (fst $ deps f, pure r2)
   deps (LBranch f _) = deps f
-  deps LHalt = (empty, empty)
+  deps LBreak = (empty, empty)
   deps LNop = (empty, empty)
 
 depSet :: (DepReg a) => a -> Set RegIdx
@@ -129,6 +129,7 @@ getLeakR2 = snd . deps
 leak :: Input -> LeakInst ISAF
 leak input
   | not (inputIsInst input) = LNop
+  | isBreak inst = LBreak
   | otherwise =
       case inst of
         RType op rd r1 r2 ->
@@ -169,7 +170,6 @@ leak input
            in LReg rd $ pcF $ \pc -> bitCoerce pc + imm'
         JType rd imm ->
           LJump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
-        EBREAK -> LHalt
         _ -> LNop
   where
-    inst = Instruction.decode $ inputMem input
+    inst = Instruction.decode' $ inputMem input

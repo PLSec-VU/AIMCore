@@ -1,391 +1,391 @@
 module Leak.PCWithState where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Control.Monad
-import Control.Monad.RWS
-import Control.Monad.State
-import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust)
-import Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set as S
-import Data.Tuple (swap)
-import Debug.Trace
-import GHC.TypeNats
-import Instruction hiding (decode, halt)
-import qualified Instruction
-import Pipe
-import Regfile
-import qualified Simulate
-import Types
-import Util
-import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
-
-data BaseLeakInst
-  = LJ Address
-  | LLoad RegIdx
-  | LStore
-  | LOther
-  | LHalt
-  deriving (Eq, Ord, Show)
-
--- | Instructions passed to the Simulator
-data LeakInst = LeakInst
-  { leakBaseInst :: BaseLeakInst,
-    leakDeps :: Set RegIdx
-    -- Debugging fields
-    -- leakOgInst :: Instruction,
-    -- leakDePc :: Address
-  }
-  deriving (Eq, Show)
-
-data LeakState = LeakState
-  { leakRF :: Regfile,
-    leakRAM :: Vec MEM_SIZE_BYTES Byte,
-    leakPc :: Address,
-    leakStall :: Int
-  }
-  deriving (Eq, Show)
-
-leakNop :: LeakInst
-leakNop = LeakInst LOther mempty -- Instruction.nop 0
-
-initLeak :: Vec PROG_SIZE Word -> LeakState
-initLeak prog =
-  LeakState
-    { leakRF = initRF,
-      leakRAM = mkRAM prog,
-      leakPc = initPc,
-      leakStall = 0
-    }
-
-mkInst :: Instruction -> BaseLeakInst -> LeakInst
-mkInst inst leakInst =
-  LeakInst
-    { leakBaseInst = leakInst,
-      leakDeps = S.fromList $ catMaybes [getRs1 inst, getRs2 inst]
-      -- leakOgInst = inst,
-      -- leakDePc = pc
-    }
-
-type LeakM = State LeakState
-
-leak :: Input -> LeakM LeakInst
-leak input
-  | not (inputIsInst input) = pure leakNop
-  | otherwise =
-      unlessStall $ do
-        let mkInst' = mkInst inst
-        inst' <- case inst of
-          RType op rd r1 r2 -> do
-            writeRF rd =<< alu op <$> readRF r1 <*> readRF r2
-            pure $ mkInst' LOther
-          IType iop rd r1 imm -> do
-            let op =
-                  case iop of
-                    Arith op' -> op'
-                    _ -> ADD
-            res <- alu op <$> readRF r1 <*> pure (signExtend imm)
-            case iop of
-              Arith {} -> do
-                writeRF rd res
-                pure $ mkInst' LOther
-              Load size sign -> do
-                let loadExtend = \case
-                      (Byte, Signed) -> signExtend $ slice d7 d0 res
-                      (Byte, Unsigned) -> zeroExtend $ slice d7 d0 res
-                      (Half, Signed) -> signExtend $ slice d15 d0 res
-                      (Half, Unsigned) -> signExtend $ slice d15 d0 res
-                      (Word, _) -> signExtend $ slice d31 d0 res
-                    val = loadExtend (size, sign)
-                writeRF rd =<< readRAM (unpack val)
-                pure $ mkInst' $ LLoad rd
-              Jump -> do
-                writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
-                pure $ mkInst' $ LJ $ bitCoerce res
-              Env {} -> error ""
-          SType size imm r1 r2 -> do
-            addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
-            val <- readRF r2
-            writeRAM size addr val
-            pure $ mkInst' LStore
-          BType cmp imm r1 r2 -> do
-            branched <- branch cmp <$> readRF r1 <*> readRF r2
-            if branched
-              then
-                mkInst' . LJ . bitCoerce
-                  <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
-              else pure $ mkInst' LOther
-          UType Zero rd imm -> do
-            let imm' = imm ++# 0 `shiftL` 12
-            writeRF rd $ imm'
-            pure $ mkInst' LOther
-          UType PC rd imm -> do
-            let imm' = imm ++# 0 `shiftL` 12
-            writeRF rd imm'
-            pure $ mkInst' LOther
-          JType rd imm -> do
-            writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
-            mkInst' . LJ . bitCoerce
-              <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
-          EBREAK ->
-            pure $ mkInst' LHalt
-          _ ->
-            pure leakNop
-        case leakBaseInst inst' of
-          LJ pc' -> modify $ \s ->
-            s
-              { leakPc = pc',
-                leakStall = leakStall s + 2
-              }
-          LLoad {} -> modify $ \s -> s {leakStall = leakStall s + 1}
-          _ -> modify $ \s -> s {leakPc = leakPc s + 4}
-
-        pure inst'
-  where
-    inst = Instruction.decode $ inputMem input
-    unlessStall m = do
-      stall <- gets leakStall
-      if (stall > 0)
-        then do
-          modify $ \s -> s {leakStall = stall - 1}
-          pure leakNop
-        else m
-
-leakRun :: LeakState -> Input -> (LeakState, LeakInst)
-leakRun s i = swap $ runState (leak i) s
-
-readRF :: RegIdx -> LeakM Word
-readRF idx = gets $ lookupRF idx . leakRF
-
-writeRF :: RegIdx -> Word -> LeakM ()
-writeRF idx val =
-  modify $ \s -> s {leakRF = modifyRF idx val $ leakRF s}
-
-writeRAM :: Size -> Address -> Word -> LeakM ()
-writeRAM size addr w =
-  modify $ \s -> s {leakRAM = write size addr w $ leakRAM s}
-
-readRAM :: Address -> LeakM Word
-readRAM addr = gets $ readWord addr . leakRAM
-
-type SimM = RWS LeakInst (First (Maybe Address)) SimState
-
-stall :: [Stage] -> SimM ()
-stall stages =
-  modify $ \s -> s {simStall = simStall s <> S.fromList stages}
-
-stallingM :: Stage -> SimM Bool
-stallingM stage =
-  S.member stage <$> gets simStall
-
-outputPC :: Address -> SimM ()
-outputPC addr =
-  tell $ pure $ pure addr
-
-outputNothing :: SimM ()
-outputNothing = tell $ pure Nothing
-
-data Stage = Fe | De | Ex | Mem | Wb
-  deriving (Show, Eq, Ord)
-
-data SimState = SimState
-  { simFePc :: Address,
-    simDePc :: Address,
-    simExPc :: Address,
-    simJumpAddr :: Maybe Address,
-    simExInstr :: LeakInst,
-    simExRes :: Word,
-    simMemInstr :: LeakInst,
-    simMemRes :: Word,
-    simWbInstr :: LeakInst,
-    simStall :: Set Stage,
-    simHalt :: Bool
-  }
-  deriving (Show)
-
-initSim :: SimState
-initSim =
-  SimState
-    { simFePc = initPc,
-      simDePc = 0,
-      simExPc = 0,
-      simJumpAddr = Nothing,
-      simExInstr = leakNop,
-      simExRes = 0,
-      simMemInstr = leakNop,
-      simMemRes = 0,
-      simWbInstr = leakNop,
-      simStall = mempty,
-      simHalt = False
-    }
-
-simFetch :: SimM ()
-simFetch = do
-  s <- get
-  stalling <- stallingM Fe
-  unless stalling $ do
-    modify $ \s ->
-      s
-        { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
-          simDePc = simFePc s
-        }
-  outputPC $ simFePc s
-
-simDecode :: SimM ()
-simDecode = do
-  s <- get
-  instr <- ask
-  when (isLoad instr) $
-    stall [Fe]
-  ex_ir <- gets simExInstr
-  when (loadHazard instr ex_ir) $
-    stall [De]
-  stalling <- stallingM De
-  modify $ \s ->
-    s
-      { simExInstr =
-          if stalling
-            then leakNop
-            else instr,
-        simExPc = simDePc s
-      }
-  where
-    isLoad :: LeakInst -> Bool
-    isLoad (LeakInst LLoad {} _) = True
-    isLoad _ = False
-
-    loadHazard :: LeakInst -> LeakInst -> Bool
-    loadHazard de_ir ex_ir@(LeakInst (LLoad rd) _) =
-      any (== rd) $ S.toList $ leakDeps de_ir
-    loadHazard _ _ = False
-
-simExecute :: SimM ()
-simExecute = do
-  instr <- gets simExInstr
-  case leakBaseInst instr of
-    LJ addr -> do
-      stall [De]
-      modify $ \s -> s {simJumpAddr = pure addr}
-    _ -> pure ()
-
-  modify $ \s -> s {simMemInstr = instr}
-
-simMemory :: SimM ()
-simMemory = do
-  instr <- gets simMemInstr
-  case leakBaseInst instr of
-    LLoad _ -> do
-      outputNothing
-      stall [Fe]
-    LStore -> do
-      outputNothing
-      stall [Fe]
-    LJ {} ->
-      stall [De]
-    _ -> pure ()
-
-  modify $ \s -> s {simWbInstr = simMemInstr s}
-
-simWriteback :: SimM ()
-simWriteback = do
-  instr <- gets simWbInstr
-  halted <- gets simHalt
-
-  when halted $
-    outputNothing
-
-  case leakBaseInst instr of
-    LHalt -> do
-      modify $ \s ->
-        s
-          { simMemInstr = leakNop,
-            simExInstr = leakNop,
-            simHalt = True
-          }
-      outputNothing
-    LLoad {} -> stall [De]
-    LStore -> stall [De]
-    _ -> pure ()
-
-simTick :: SimM ()
-simTick = do
-  modify $ \s -> s {simStall = mempty, simJumpAddr = empty}
-  simWriteback
-  simMemory
-  simExecute
-  simDecode
-  simFetch
-
-simRun :: SimState -> LeakInst -> (SimState, Maybe Address)
-simRun s i = (fromMaybe Nothing . getFirst) <$> execRWS simTick i s
-
-simLeakRun ::
-  Input ->
-  (LeakState, SimState) ->
-  ((LeakState, SimState), Maybe Address)
-simLeakRun input (ls, ss) = ((ls', ss'), addr)
-  where
-    (ls', simin) = leakRun ls input
-    (ss', addr) = simRun ss simin
-
-simulator ::
-  forall m.
-  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m
-  ) =>
-  Vec PROG_SIZE Word ->
-  CircuitSim m Input (LeakState, SimState) (Maybe Address, Maybe Address)
-simulator prog =
-  CircuitSim
-    { circuitInput = initInput,
-      circuitState = (initLeak prog, initSim),
-      circuitStep = step,
-      circuitNext = next
-    }
-  where
-    obs :: Output -> Maybe Address
-    obs sim_o = do
-      mem <- getFirst $ outMem sim_o
-      guard $ memIsInst mem
-      pure $ memAddress mem
-
-    step ::
-      Input ->
-      (LeakState, SimState) ->
-      m ((LeakState, SimState), (Maybe Address, Maybe Address))
-    step i s = do
-      ((sim_s, _), mem) <- get
-      let (sim_res@(_, sim_o), mem') = runState (circuitStep Simulate.simulator i sim_s) mem
-      put (sim_res, mem')
-      let (s', o) = simLeakRun i s
-      pure (s', (o, obs sim_o))
-
-    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
-    next (o, sim_addr) = do
-      ((_, sim_o), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator sim_o) mem
-      modify $ \(s, _mem) -> (s, mem')
-      pure mi
-
-runSimulator ::
-  ( CircuitSim
-      (State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES))
-      Input
-      (LeakState, SimState)
-      (Maybe Address, Maybe Address) ->
-    State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) a
-  ) ->
-  Vec PROG_SIZE Word ->
-  a
-runSimulator f prog = evalState (f $ simulator prog) $ mkS prog
-  where
-    mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
-
-watchSim ::
-  Vec PROG_SIZE Word ->
-  [((LeakState, SimState), (Maybe Address, Maybe Address), Maybe Input)]
-watchSim = runSimulator watch
-
-pcsEqual :: Vec PROG_SIZE Word -> Bool
-pcsEqual = all check . watchSim
-  where
-    check (_, (o, o'), _) = o == o'
+-- import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+-- import Control.Monad
+-- import Control.Monad.RWS
+-- import Control.Monad.State
+-- import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust)
+-- import Data.Monoid
+-- import Data.Set (Set)
+-- import qualified Data.Set as S
+-- import Data.Tuple (swap)
+-- import Debug.Trace
+-- import GHC.TypeNats
+-- import Instruction hiding (decode, halt)
+-- import qualified Instruction
+-- import Pipe
+-- import Regfile
+-- import qualified Simulate
+-- import Types
+-- import Util
+-- import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+--
+-- data BaseLeakInst
+--  = LJ Address
+--  | LLoad RegIdx
+--  | LStore
+--  | LOther
+--  | LHalt
+--  deriving (Eq, Ord, Show)
+--
+---- | Instructions passed to the Simulator
+-- data LeakInst = LeakInst
+--  { leakBaseInst :: BaseLeakInst,
+--    leakDeps :: Set RegIdx
+--    -- Debugging fields
+--    -- leakOgInst :: Instruction,
+--    -- leakDePc :: Address
+--  }
+--  deriving (Eq, Show)
+--
+-- data LeakState = LeakState
+--  { leakRF :: Regfile,
+--    leakRAM :: Vec MEM_SIZE_BYTES Byte,
+--    leakPc :: Address,
+--    leakStall :: Int
+--  }
+--  deriving (Eq, Show)
+--
+-- leakNop :: LeakInst
+-- leakNop = LeakInst LOther mempty -- Instruction.nop 0
+--
+-- initLeak :: Vec PROG_SIZE Word -> LeakState
+-- initLeak prog =
+--  LeakState
+--    { leakRF = initRF,
+--      leakRAM = mkRAM prog,
+--      leakPc = initPc,
+--      leakStall = 0
+--    }
+--
+-- mkInst :: Instruction -> BaseLeakInst -> LeakInst
+-- mkInst inst leakInst =
+--  LeakInst
+--    { leakBaseInst = leakInst,
+--      leakDeps = S.fromList $ catMaybes [getRs1 inst, getRs2 inst]
+--      -- leakOgInst = inst,
+--      -- leakDePc = pc
+--    }
+--
+-- type LeakM = State LeakState
+--
+-- leak :: Input -> LeakM LeakInst
+-- leak input
+--  | not (inputIsInst input) = pure leakNop
+--  | otherwise =
+--      unlessStall $ do
+--        let mkInst' = mkInst inst
+--        inst' <- case inst of
+--          RType op rd r1 r2 -> do
+--            writeRF rd =<< alu op <$> readRF r1 <*> readRF r2
+--            pure $ mkInst' LOther
+--          IType iop rd r1 imm -> do
+--            let op =
+--                  case iop of
+--                    Arith op' -> op'
+--                    _ -> ADD
+--            res <- alu op <$> readRF r1 <*> pure (signExtend imm)
+--            case iop of
+--              Arith {} -> do
+--                writeRF rd res
+--                pure $ mkInst' LOther
+--              Load size sign -> do
+--                let loadExtend = \case
+--                      (Byte, Signed) -> signExtend $ slice d7 d0 res
+--                      (Byte, Unsigned) -> zeroExtend $ slice d7 d0 res
+--                      (Half, Signed) -> signExtend $ slice d15 d0 res
+--                      (Half, Unsigned) -> signExtend $ slice d15 d0 res
+--                      (Word, _) -> signExtend $ slice d31 d0 res
+--                    val = loadExtend (size, sign)
+--                writeRF rd =<< readRAM (unpack val)
+--                pure $ mkInst' $ LLoad rd
+--              Jump -> do
+--                writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+--                pure $ mkInst' $ LJ $ bitCoerce res
+--              Env {} -> error ""
+--          SType size imm r1 r2 -> do
+--            addr <- unpack <$> (alu ADD <$> readRF r1 <*> pure (signExtend imm))
+--            val <- readRF r2
+--            writeRAM size addr val
+--            pure $ mkInst' LStore
+--          BType cmp imm r1 r2 -> do
+--            branched <- branch cmp <$> readRF r1 <*> readRF r2
+--            if branched
+--              then
+--                mkInst' . LJ . bitCoerce
+--                  <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+--              else pure $ mkInst' LOther
+--          UType Zero rd imm -> do
+--            let imm' = imm ++# 0 `shiftL` 12
+--            writeRF rd $ imm'
+--            pure $ mkInst' LOther
+--          UType PC rd imm -> do
+--            let imm' = imm ++# 0 `shiftL` 12
+--            writeRF rd imm'
+--            pure $ mkInst' LOther
+--          JType rd imm -> do
+--            writeRF rd =<< (bitCoerce . (+ 4)) <$> gets leakPc
+--            mkInst' . LJ . bitCoerce
+--              <$> (alu ADD <$> (bitCoerce <$> gets leakPc) <*> pure (signExtend imm))
+--          EBREAK ->
+--            pure $ mkInst' LHalt
+--          _ ->
+--            pure leakNop
+--        case leakBaseInst inst' of
+--          LJ pc' -> modify $ \s ->
+--            s
+--              { leakPc = pc',
+--                leakStall = leakStall s + 2
+--              }
+--          LLoad {} -> modify $ \s -> s {leakStall = leakStall s + 1}
+--          _ -> modify $ \s -> s {leakPc = leakPc s + 4}
+--
+--        pure inst'
+--  where
+--    inst = Instruction.decode $ inputMem input
+--    unlessStall m = do
+--      stall <- gets leakStall
+--      if (stall > 0)
+--        then do
+--          modify $ \s -> s {leakStall = stall - 1}
+--          pure leakNop
+--        else m
+--
+-- leakRun :: LeakState -> Input -> (LeakState, LeakInst)
+-- leakRun s i = swap $ runState (leak i) s
+--
+-- readRF :: RegIdx -> LeakM Word
+-- readRF idx = gets $ lookupRF idx . leakRF
+--
+-- writeRF :: RegIdx -> Word -> LeakM ()
+-- writeRF idx val =
+--  modify $ \s -> s {leakRF = modifyRF idx val $ leakRF s}
+--
+-- writeRAM :: Size -> Address -> Word -> LeakM ()
+-- writeRAM size addr w =
+--  modify $ \s -> s {leakRAM = write size addr w $ leakRAM s}
+--
+-- readRAM :: Address -> LeakM Word
+-- readRAM addr = gets $ readWord addr . leakRAM
+--
+-- type SimM = RWS LeakInst (First (Maybe Address)) SimState
+--
+-- stall :: [Stage] -> SimM ()
+-- stall stages =
+--  modify $ \s -> s {simStall = simStall s <> S.fromList stages}
+--
+-- stallingM :: Stage -> SimM Bool
+-- stallingM stage =
+--  S.member stage <$> gets simStall
+--
+-- outputPC :: Address -> SimM ()
+-- outputPC addr =
+--  tell $ pure $ pure addr
+--
+-- outputNothing :: SimM ()
+-- outputNothing = tell $ pure Nothing
+--
+-- data Stage = Fe | De | Ex | Mem | Wb
+--  deriving (Show, Eq, Ord)
+--
+-- data SimState = SimState
+--  { simFePc :: Address,
+--    simDePc :: Address,
+--    simExPc :: Address,
+--    simJumpAddr :: Maybe Address,
+--    simExInstr :: LeakInst,
+--    simExRes :: Word,
+--    simMemInstr :: LeakInst,
+--    simMemRes :: Word,
+--    simWbInstr :: LeakInst,
+--    simStall :: Set Stage,
+--    simHalt :: Bool
+--  }
+--  deriving (Show)
+--
+-- initSim :: SimState
+-- initSim =
+--  SimState
+--    { simFePc = initPc,
+--      simDePc = 0,
+--      simExPc = 0,
+--      simJumpAddr = Nothing,
+--      simExInstr = leakNop,
+--      simExRes = 0,
+--      simMemInstr = leakNop,
+--      simMemRes = 0,
+--      simWbInstr = leakNop,
+--      simStall = mempty,
+--      simHalt = False
+--    }
+--
+-- simFetch :: SimM ()
+-- simFetch = do
+--  s <- get
+--  stalling <- stallingM Fe
+--  unless stalling $ do
+--    modify $ \s ->
+--      s
+--        { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
+--          simDePc = simFePc s
+--        }
+--  outputPC $ simFePc s
+--
+-- simDecode :: SimM ()
+-- simDecode = do
+--  s <- get
+--  instr <- ask
+--  when (isLoad instr) $
+--    stall [Fe]
+--  ex_ir <- gets simExInstr
+--  when (loadHazard instr ex_ir) $
+--    stall [De]
+--  stalling <- stallingM De
+--  modify $ \s ->
+--    s
+--      { simExInstr =
+--          if stalling
+--            then leakNop
+--            else instr,
+--        simExPc = simDePc s
+--      }
+--  where
+--    isLoad :: LeakInst -> Bool
+--    isLoad (LeakInst LLoad {} _) = True
+--    isLoad _ = False
+--
+--    loadHazard :: LeakInst -> LeakInst -> Bool
+--    loadHazard de_ir ex_ir@(LeakInst (LLoad rd) _) =
+--      any (== rd) $ S.toList $ leakDeps de_ir
+--    loadHazard _ _ = False
+--
+-- simExecute :: SimM ()
+-- simExecute = do
+--  instr <- gets simExInstr
+--  case leakBaseInst instr of
+--    LJ addr -> do
+--      stall [De]
+--      modify $ \s -> s {simJumpAddr = pure addr}
+--    _ -> pure ()
+--
+--  modify $ \s -> s {simMemInstr = instr}
+--
+-- simMemory :: SimM ()
+-- simMemory = do
+--  instr <- gets simMemInstr
+--  case leakBaseInst instr of
+--    LLoad _ -> do
+--      outputNothing
+--      stall [Fe]
+--    LStore -> do
+--      outputNothing
+--      stall [Fe]
+--    LJ {} ->
+--      stall [De]
+--    _ -> pure ()
+--
+--  modify $ \s -> s {simWbInstr = simMemInstr s}
+--
+-- simWriteback :: SimM ()
+-- simWriteback = do
+--  instr <- gets simWbInstr
+--  halted <- gets simHalt
+--
+--  when halted $
+--    outputNothing
+--
+--  case leakBaseInst instr of
+--    LHalt -> do
+--      modify $ \s ->
+--        s
+--          { simMemInstr = leakNop,
+--            simExInstr = leakNop,
+--            simHalt = True
+--          }
+--      outputNothing
+--    LLoad {} -> stall [De]
+--    LStore -> stall [De]
+--    _ -> pure ()
+--
+-- simTick :: SimM ()
+-- simTick = do
+--  modify $ \s -> s {simStall = mempty, simJumpAddr = empty}
+--  simWriteback
+--  simMemory
+--  simExecute
+--  simDecode
+--  simFetch
+--
+-- simRun :: SimState -> LeakInst -> (SimState, Maybe Address)
+-- simRun s i = (fromMaybe Nothing . getFirst) <$> execRWS simTick i s
+--
+-- simLeakRun ::
+--  Input ->
+--  (LeakState, SimState) ->
+--  ((LeakState, SimState), Maybe Address)
+-- simLeakRun input (ls, ss) = ((ls', ss'), addr)
+--  where
+--    (ls', simin) = leakRun ls input
+--    (ss', addr) = simRun ss simin
+--
+-- simulator ::
+--  forall m.
+--  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m
+--  ) =>
+--  Vec PROG_SIZE Word ->
+--  CircuitSim m Input (LeakState, SimState) (Maybe Address, Maybe Address)
+-- simulator prog =
+--  CircuitSim
+--    { circuitInput = initInput,
+--      circuitState = (initLeak prog, initSim),
+--      circuitStep = step,
+--      circuitNext = next
+--    }
+--  where
+--    obs :: Output -> Maybe Address
+--    obs sim_o = do
+--      mem <- getFirst $ outMem sim_o
+--      guard $ memIsInst mem
+--      pure $ memAddress mem
+--
+--    step ::
+--      Input ->
+--      (LeakState, SimState) ->
+--      m ((LeakState, SimState), (Maybe Address, Maybe Address))
+--    step i s = do
+--      ((sim_s, _), mem) <- get
+--      let (sim_res@(_, sim_o), mem') = runState (circuitStep Simulate.simulator i sim_s) mem
+--      put (sim_res, mem')
+--      let (s', o) = simLeakRun i s
+--      pure (s', (o, obs sim_o))
+--
+--    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
+--    next (o, sim_addr) = do
+--      ((_, sim_o), mem) <- get
+--      let (mi, mem') = runState (circuitNext Simulate.simulator sim_o) mem
+--      modify $ \(s, _mem) -> (s, mem')
+--      pure mi
+--
+-- runSimulator ::
+--  ( CircuitSim
+--      (State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES))
+--      Input
+--      (LeakState, SimState)
+--      (Maybe Address, Maybe Address) ->
+--    State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) a
+--  ) ->
+--  Vec PROG_SIZE Word ->
+--  a
+-- runSimulator f prog = evalState (f $ simulator prog) $ mkS prog
+--  where
+--    mkS prog = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+--
+-- watchSim ::
+--  Vec PROG_SIZE Word ->
+--  [((LeakState, SimState), (Maybe Address, Maybe Address), Maybe Input)]
+-- watchSim = runSimulator watch
+--
+-- pcsEqual :: Vec PROG_SIZE Word -> Bool
+-- pcsEqual = all check . watchSim
+--  where
+--    check (_, (o, o'), _) = o == o'

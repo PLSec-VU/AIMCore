@@ -1,6 +1,6 @@
 module Main where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log, resize)
+import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Control.Monad.State
@@ -19,7 +19,7 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.QuickCheck
 import Types
 import Util
-import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
 import qualified Prelude
 
 main :: IO ()
@@ -105,7 +105,7 @@ prog1 =
     :>
     -- mem[0 + r0] := r2
     SType Word 0 0 2
-    :> halt
+    :> break
     :> Nil
 
 prog2 =
@@ -123,7 +123,7 @@ prog2 =
     :>
     -- mem[1 + r0] := r4
     SType Word 4 0 4
-    :> halt
+    :> break
     :> Nil
 
 prog3 =
@@ -141,7 +141,7 @@ prog3 =
     :>
     -- mem[1 + r0] := r2
     SType Word 4 0 2
-    :> halt
+    :> break
     :> Nil
 
 sumTo :: Int -> Vec 8 Instruction
@@ -161,7 +161,7 @@ sumTo n =
       JType 0 (-12),
       -- mem[0] := r2
       SType Word 0 0 2,
-      halt
+      break
     ]
 
 genEnumBound :: (Enum a, Bounded a) => Gen a
@@ -220,8 +220,7 @@ instance Arbitrary Instruction where
           SType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
           BType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
           UType <$> arbitrary <*> regIdxGen <*> uImmGen,
-          JType <$> regIdxGen <*> uImmGen,
-          pure Invalid
+          JType <$> regIdxGen <*> uImmGen
         ]
     where
       regIdxGen = chooseBoundedIntegral (0, 31)
