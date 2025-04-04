@@ -21,12 +21,9 @@ import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified ISA
-import Instruction (Instruction)
 import qualified Instruction
 import Pipe (Input)
 import qualified Pipe
-import Regfile
-import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))

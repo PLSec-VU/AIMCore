@@ -1,21 +1,20 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.PC.PC where
-
--- ( leakTimeSimRun,
---   simulator,
---   runSimulator,
---   watchSim,
---   pcsEqual,
---   proj,
--- )
+module Leak.PC.PC
+  ( circuit,
+    simulator,
+    runSimulator,
+    watchSim,
+    pcsEqual,
+    proj,
+  )
+where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.State
-import Control.Monad.Trans.Maybe
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -110,10 +109,10 @@ proj s = (ts, ss)
         { Time.stateFePc = fePc s,
           Time.stateDePc = dePc s,
           Time.stateExPc = exPc s,
-          Time.stateExInstr = convertInst $ exIr s,
-          Time.stateMemInstr = convertInstDone (meIr s) Time.Mem,
-          Time.stateWbInstr = convertInstDone (wbIr s) Time.Wb,
-          Time.stateStall = convertStall $ pipeCtrl s,
+          Time.stateExInstr = toISAFunc $ exIr s,
+          Time.stateMemInstr = toISADone (meIr s) Time.Mem,
+          Time.stateWbInstr = toISADone (wbIr s) Time.Wb,
+          Time.stateStall = toStallStages $ pipeCtrl s,
           Time.stateHalt = pipeHalt s,
           Time.stateMeRegFwd = ctrlMeRegFwd $ pipeCtrl s,
           Time.stateWbRegFwd = ctrlWbRegFwd $ pipeCtrl s,
@@ -124,19 +123,19 @@ proj s = (ts, ss)
         { Sim.stateFePc = fePc s,
           Sim.stateDePc = dePc s,
           Sim.stateExPc = exPc s,
-          Sim.stateExInstr = convertTime $ exIr s,
-          Sim.stateMemInstr = convertTime $ meIr s,
-          Sim.stateWbInstr = convertTime $ wbIr s,
+          Sim.stateExInstr = toTimeInstr $ exIr s,
+          Sim.stateMemInstr = toTimeInstr $ meIr s,
+          Sim.stateWbInstr = toTimeInstr $ wbIr s,
           Sim.stateHalt = pipeHalt s,
-          Sim.stateStall = convertStall $ pipeCtrl s,
+          Sim.stateStall = toStallStages $ pipeCtrl s,
           Sim.stateJumpAddr = ctrlExBranch $ pipeCtrl s
         }
 
-    convertTime :: Instruction -> Time.Instr
-    convertTime inst = Time.Instr (Time.mkInstr $ convertInst inst) (ISA.depSet $ convertInst inst)
+    toTimeInstr :: Instruction -> Time.Instr
+    toTimeInstr inst = Time.Instr (Time.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
 
-    convertInst :: Instruction -> ISA.Instr ISA.Func -- fix
-    convertInst i =
+    toISAFunc :: Instruction -> ISA.Instr ISA.Func
+    toISAFunc i =
       ISA.interp $
         Input
           { inputIsInstr = True,
@@ -144,26 +143,27 @@ proj s = (ts, ss)
             inputRs1 = 0,
             inputRs2 = 0
           }
-    convertInstDone :: Instruction -> Time.Stage -> ISA.Instr ISA.Done -- fix
-    convertInstDone i stage =
+
+    toISADone :: Instruction -> Time.Stage -> ISA.Instr ISA.Done
+    toISADone i stage =
       case li of
         ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
         ISA.Load size rd _ -> ISA.Load size rd $ ISA.Done $ bitCoerce res
-        ISA.Jump rd _ _ -> ISA.Jump rd (ISA.Done $ bitCoerce res) lol
+        ISA.Jump rd _ _ -> ISA.Jump rd (ISA.Done $ bitCoerce res) dontCare
         ISA.Store size _ r2 -> ISA.Store size (ISA.Done $ bitCoerce res) r2
-        ISA.Branch _ _ -> ISA.Branch (ISA.Done branched) lol
+        ISA.Branch _ _ -> ISA.Branch (ISA.Done branched) dontCare
         ISA.Nop -> ISA.Nop
         ISA.Break -> ISA.Break
       where
-        li = convertInst i
+        li = toISAFunc i
         res
           | stage == Time.Mem = meRe s
           | otherwise = wbRe s
         branched = (stage == Time.Mem) && meBranch s
-        lol = ISA.Done 0
+        dontCare = ISA.Done 0
 
-    convertStall :: Control -> Set Time.Stage
-    convertStall ctrl =
+    toStallStages :: Control -> Set Time.Stage
+    toStallStages ctrl =
       S.fromList [stage | (stage, conds) <- stallConditions, any ($ ctrl) conds]
       where
         stallConditions =

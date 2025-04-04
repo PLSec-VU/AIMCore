@@ -9,17 +9,12 @@ where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
-import Control.Monad.Trans.Maybe
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
-import Instruction (Instruction)
-import qualified Instruction
 import Leak.PC.Time (Stage (..))
 import qualified Leak.PC.Time as Time
-import Regfile
-import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
