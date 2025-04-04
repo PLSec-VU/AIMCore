@@ -82,10 +82,10 @@ fetch = do
 decode :: SimM ()
 decode = do
   instr <- fromMaybe Time.nop . getFirst <$> asks Time.outInstr
-  when (isLoad instr) $ do
+  when (Time.isLoad instr) $ do
     stall Fe
   ex_ir <- gets stateExInstr
-  when (loadHazard instr ex_ir) $
+  when (Time.loadHazard instr ex_ir) $
     stall De
 
   modify $ \s -> s {stateExPc = stateDePc s}
@@ -93,15 +93,6 @@ decode = do
     De
     (modify $ \s -> s {stateExInstr = Time.nop})
     (modify $ \s -> s {stateExInstr = instr})
-  where
-    isLoad :: Time.Instr -> Bool
-    isLoad (Time.Instr (Time.Load {}) _) = True
-    isLoad _ = False
-
-    loadHazard :: Time.Instr -> Time.Instr -> Bool
-    loadHazard de_ir (Time.Instr (Time.Load rd) _) =
-      elem rd $ S.toList $ Time.instrDeps de_ir
-    loadHazard _ _ = False
 
 execute :: SimM ()
 execute = do

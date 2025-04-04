@@ -3,6 +3,8 @@ module Leak.PC.Time
     circuit,
     init,
     nop,
+    isLoad,
+    loadHazard,
     mkInstr,
     Stage (..),
     Instr (..),
@@ -42,6 +44,15 @@ data Instr = Instr
     instrDeps :: Set RegIdx
   }
   deriving (Show, Eq)
+
+isLoad :: Instr -> Bool
+isLoad (Instr (Load {}) _) = True
+isLoad _ = False
+
+loadHazard :: Instr -> Instr -> Bool
+loadHazard de_ir (Instr (Load rd) _) =
+  elem rd $ S.toList $ instrDeps de_ir
+loadHazard _ _ = False
 
 nop :: Instr
 nop = Instr Other mempty
@@ -121,9 +132,9 @@ decode :: TimeM ()
 decode = do
   instr <- fst <$> ask
   ex_ir <- gets stateExInstr
-  when (isLoad instr) $
+  when (ISA.isLoad instr) $
     stall Fe
-  when (loadHazard instr ex_ir) $
+  when (ISA.loadHazard instr ex_ir) $
     stall De
   ifStalling
     De
@@ -145,15 +156,6 @@ decode = do
                     }
             }
     )
-  where
-    isLoad :: ISA.Instr a -> Bool
-    isLoad (ISA.Load {}) = True
-    isLoad _ = False
-
-    loadHazard :: ISA.Instr ISA.Func -> ISA.Instr ISA.Func -> Bool
-    loadHazard de_ir (ISA.Load _ rd _) =
-      elem rd $ S.toList $ ISA.depSet de_ir
-    loadHazard _ _ = False
 
 mkInstr :: ISA.Instr a -> BaseInstr
 mkInstr ISA.Reg {} = Other

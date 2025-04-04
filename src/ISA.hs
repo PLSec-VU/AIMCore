@@ -13,6 +13,8 @@ module ISA
     getRd,
     getR1,
     getR2,
+    isLoad,
+    loadHazard,
     interp,
   )
 where
@@ -72,6 +74,15 @@ getR1 = fst . deps
 
 getR2 :: Instr Func -> Maybe RegIdx
 getR2 = snd . deps
+
+isLoad :: Instr a -> Bool
+isLoad Load {} = True
+isLoad _ = False
+
+loadHazard :: Instr Func -> Instr Func -> Bool
+loadHazard de_ir (ISA.Load _ rd _) =
+  elem rd $ S.toList $ depSet de_ir
+loadHazard _ _ = False
 
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
