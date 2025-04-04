@@ -1,4 +1,4 @@
-module Leak.PCWithState () where
+module Leak.PCWithState.PCWithState () where
 
 -- import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 -- import Control.Monad

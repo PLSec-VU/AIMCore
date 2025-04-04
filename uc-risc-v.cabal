@@ -28,11 +28,11 @@ library
       HardwareSim
       Instruction
       ISA
-      Leak.Architectural
-      Leak.PC
+      Leak.Arch.Arch
+      Leak.PC.PC
       Leak.PC.Sim
       Leak.PC.Time
-      Leak.PCWithState
+      Leak.PCWithState.PCWithState
       Pipe
       Pipeline
       Pretty

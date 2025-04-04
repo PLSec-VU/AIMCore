@@ -9,7 +9,7 @@ import Data.Monoid
 import Debug.Trace
 import qualified HardwareSim
 import Instruction
-import qualified Leak.PC
+import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.PC.Sim
 import qualified Leak.PC.Time
 import Pipe

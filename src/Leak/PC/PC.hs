@@ -1,6 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.PC where
+module Leak.PC.PC where
 
 -- ( leakTimeSimRun,
 --   simulator,
