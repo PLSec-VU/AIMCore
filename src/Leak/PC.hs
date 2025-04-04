@@ -7,6 +7,8 @@ module Leak.PC
     watchSim,
     pcsEqual,
     proj,
+    SimState (..),
+    TimeState (..),
   )
 where
 
@@ -389,6 +391,7 @@ simOutputNothing = tell $ pure Nothing
 simFetch :: SimM ()
 simFetch = do
   stalling <- simStallingM Fe
+  simOutputPC =<< gets simFePc
   modify $ \s ->
     if stalling
       then
@@ -400,8 +403,6 @@ simFetch = do
           { simFePc = fromMaybe (simFePc s + 4) (simJumpAddr s),
             simDePc = simFePc s
           }
-
-  simOutputPC =<< gets simFePc
 
 simDecode :: SimM ()
 simDecode = do
