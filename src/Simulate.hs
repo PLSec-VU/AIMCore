@@ -66,11 +66,11 @@ simulator =
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
           (rs1', rs2') <- doRegFile
-          (mem_in, mem_inst) <- doMemory
+          (mem_in, mem_instr) <- doMemory
           pure $
             pure $
               Input
-                { inputIsInst = mem_inst,
+                { inputIsInstr = mem_instr,
                   inputMem = mem_in,
                   inputRs1 = rs1',
                   inputRs2 = rs2'
@@ -85,12 +85,12 @@ simulator =
 
         doMemory :: m (Word, Bool)
         doMemory
-          | Just (MemAccess isInst addr size mval) <- getFirst mem =
+          | Just (MemAccess isInstr addr size mval) <- getFirst mem =
               case mval of
-                Nothing -> (,isInst) <$> ramRead addr
+                Nothing -> (,isInstr) <$> ramRead addr
                 Just val -> do
                   ramWrite addr size val
-                  pure (0, isInst)
+                  pure (0, isInstr)
           | otherwise = pure (0, False)
 
 runSimulator ::

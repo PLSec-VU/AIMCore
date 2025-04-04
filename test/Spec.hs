@@ -9,8 +9,9 @@ import Data.Monoid
 import Debug.Trace
 import qualified HardwareSim
 import Instruction
-import Leak.PC (SimState, TimeState)
 import qualified Leak.PC
+import qualified Leak.PC.Sim
+import qualified Leak.PC.Time
 import Pipe
 import Regfile
 import Simulate
@@ -312,13 +313,13 @@ theorem = do
           show pipe_output
         ]
   where
-    circuit_sim :: Input -> (TimeState, SimState) -> ((TimeState, SimState), Maybe Address)
-    circuit_sim = Leak.PC.leakTimeSimRun
+    circuit_sim :: Input -> (Leak.PC.Time.State, Leak.PC.Sim.State) -> ((Leak.PC.Time.State, Leak.PC.Sim.State), Maybe Address)
+    circuit_sim = Leak.PC.circuit
     circuit_pipe :: Pipe -> Input -> (Pipe, Output)
     circuit_pipe = Pipe.pipe
 
     obs :: Output -> Maybe Address
     obs sim_pc = do
       mem <- getFirst $ outMem sim_pc
-      guard $ memIsInst mem
+      guard $ memIsInstr mem
       pure $ memAddress mem

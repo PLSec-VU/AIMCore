@@ -37,7 +37,7 @@ import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (
 -- | The input to the CPU.
 data Input = Input
   { -- | Is this an instruction read?
-    inputIsInst :: Bool,
+    inputIsInstr :: Bool,
     -- | Reads from memory.
     inputMem :: Word,
     -- | Read from the register file (corresponding to the index requested in
@@ -52,7 +52,7 @@ data Input = Input
 -- | A memory access
 data MemAccess = MemAccess
   { -- | Is this an instruction read?
-    memIsInst :: Bool,
+    memIsInstr :: Bool,
     memAddress :: Address,
     memSize :: Size,
     -- | The word to be written, if there is one. If set to `Nothing`, then the
@@ -225,7 +225,7 @@ pipeM = do
 initInput :: Input
 initInput =
   Input
-    { inputIsInst = False,
+    { inputIsInstr = False,
       inputMem = 0,
       inputRs1 = 0,
       inputRs2 = 0
@@ -593,7 +593,7 @@ readPC addr =
       { outMem =
           pure $
             MemAccess
-              { memIsInst = True,
+              { memIsInstr = True,
                 memAddress = addr,
                 memSize = Word,
                 memVal = Nothing
@@ -607,7 +607,7 @@ readRAM addr =
       { outMem =
           pure $
             MemAccess
-              { memIsInst = False,
+              { memIsInstr = False,
                 memAddress = addr,
                 memSize = Word,
                 memVal = Nothing
@@ -621,7 +621,7 @@ writeRAM addr size val =
       { outMem =
           pure $
             MemAccess
-              { memIsInst = False,
+              { memIsInstr = False,
                 memAddress = addr,
                 memSize = size,
                 memVal = Just val

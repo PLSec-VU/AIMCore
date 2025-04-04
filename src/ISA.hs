@@ -2,12 +2,12 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Interp
-  ( InterpF,
-    DepReg (..),
-    applyInterpF,
-    Instr (..),
+module ISA
+  ( Func,
     Done (..),
+    DepReg (..),
+    apply,
+    Instr (..),
     PC,
     depSet,
     getRd,
@@ -28,50 +28,22 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 type PC = Address
 
-data InterpF a = InterpF
+data Func a = Func
   { isaFunc :: Word -> Word -> PC -> a,
     isaDeps :: (Maybe RegIdx, Maybe RegIdx)
   }
 
-instance Show (InterpF a) where
-  show _ = "<InterpF>"
+instance Show (Func a) where
+  show _ = "<Func>"
 
-instance Functor InterpF where
-  fmap g (InterpF f d) = InterpF (\r1 r2 pc -> g $ f r1 r2 pc) d
+instance Functor Func where
+  fmap g (Func f d) = Func (\r1 r2 pc -> g $ f r1 r2 pc) d
 
 newtype Done a = Done {unDone :: a}
   deriving (Show)
 
-constF :: a -> InterpF a
-constF a =
-  InterpF
-    { isaFunc = const $ const $ const a,
-      isaDeps = (empty, empty)
-    }
-
-unaryF :: RegIdx -> (Word -> a) -> InterpF a
-unaryF rid f =
-  InterpF
-    { isaFunc = \r _ _ -> f r,
-      isaDeps = (pure rid, empty)
-    }
-
-binaryF :: RegIdx -> RegIdx -> (Word -> Word -> a) -> InterpF a
-binaryF rid1 rid2 f =
-  InterpF
-    { isaFunc = \r1 r2 _ -> f r1 r2,
-      isaDeps = (pure rid1, pure rid2)
-    }
-
-pcF :: (PC -> a) -> InterpF a
-pcF f =
-  InterpF
-    { isaFunc = const $ const f,
-      isaDeps = (empty, empty)
-    }
-
-applyInterpF :: InterpF a -> Word -> Word -> PC -> Done a
-applyInterpF (InterpF f _) r1 r2 pc = Done $ f r1 r2 pc
+apply :: Func a -> Word -> Word -> PC -> Done a
+apply (Func f _) r1 r2 pc = Done $ f r1 r2 pc
 
 data Instr f
   = Reg RegIdx (f Word)
@@ -90,13 +62,26 @@ deriving instance
   ) =>
   Show (Instr f)
 
+getRd :: Instr a -> Maybe RegIdx
+getRd (Reg rd _) = pure rd
+getRd (Load _ rd _) = pure rd
+getRd (Jump rd _ _) = pure rd
+getRd (JumpReg rd _ _) = pure rd
+getRd _ = empty
+
+getR1 :: Instr Func -> Maybe RegIdx
+getR1 = fst . deps
+
+getR2 :: Instr Func -> Maybe RegIdx
+getR2 = snd . deps
+
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
 
-instance DepReg (InterpF a) where
-  deps (InterpF _ d) = d
+instance DepReg (Func a) where
+  deps (Func _ d) = d
 
-instance DepReg (Instr InterpF) where
+instance DepReg (Instr Func) where
   deps (Reg _ f) = deps f
   deps (Load _ _ f) = deps f
   deps Jump {} = (empty, empty)
@@ -111,20 +96,7 @@ depSet a =
   let (mr1, mr2) = deps a
    in S.fromList $ catMaybes [mr1, mr2]
 
-getRd :: Instr f -> Maybe RegIdx
-getRd (Reg rd _) = pure rd
-getRd (Load _ rd _) = pure rd
-getRd (Jump rd _ _) = pure rd
-getRd (JumpReg rd _ _) = pure rd
-getRd _ = empty
-
-getR1 :: Instr InterpF -> Maybe RegIdx
-getR1 = fst . deps
-
-getR2 :: Instr InterpF -> Maybe RegIdx
-getR2 = snd . deps
-
-interp :: Input -> Instr InterpF
+interp :: Input -> Instr Func
 interp input
   | not (inputIsInstr input) = Nop
   | Instruction.isBreak instr = Break
@@ -172,4 +144,33 @@ interp input
         Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
   where
+    instr :: Instruction.Instruction
     instr = Instruction.decode' $ inputMem input
+
+    constF :: a -> Func a
+    constF a =
+      Func
+        { isaFunc = const $ const $ const a,
+          isaDeps = (empty, empty)
+        }
+
+    unaryF :: RegIdx -> (Word -> a) -> Func a
+    unaryF rid f =
+      Func
+        { isaFunc = \r _ _ -> f r,
+          isaDeps = (pure rid, empty)
+        }
+
+    binaryF :: RegIdx -> RegIdx -> (Word -> Word -> a) -> Func a
+    binaryF rid1 rid2 f =
+      Func
+        { isaFunc = \r1 r2 _ -> f r1 r2,
+          isaDeps = (pure rid1, pure rid2)
+        }
+
+    pcF :: (PC -> a) -> Func a
+    pcF f =
+      Func
+        { isaFunc = const $ const f,
+          isaDeps = (empty, empty)
+        }

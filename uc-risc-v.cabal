@@ -27,11 +27,14 @@ library
   exposed-modules:
       HardwareSim
       Instruction
-      Interp
+      ISA
       Leak.Architectural
       Leak.PC
+      Leak.PC.Sim
+      Leak.PC.Time
       Leak.PCWithState
       Pipe
+      Pipeline
       Pretty
       Regfile
       Simulate

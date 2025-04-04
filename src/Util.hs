@@ -23,6 +23,7 @@ module Util
     mkProg,
     mkRAM,
     try,
+    ifM,
   )
 where
 
@@ -159,3 +160,8 @@ mkRAM prog =
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
+
+ifM :: (Monad m) => m Bool -> m a -> m a -> m a
+ifM mb mt mf = do
+  b <- mb
+  if b then mt else mf
