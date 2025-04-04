@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Core
       HardwareSim
       Instruction
       ISA
@@ -33,7 +34,6 @@ library
       Leak.PC.Sim
       Leak.PC.Time
       Leak.PCWithState.PCWithState
-      Pipe
       Pipeline
       Pretty
       Regfile

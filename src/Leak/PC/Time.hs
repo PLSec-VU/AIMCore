@@ -16,14 +16,13 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
+import Core (Input)
+import qualified Core
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified ISA
-import qualified Instruction
-import Pipe (Input)
-import qualified Pipe
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -203,10 +202,10 @@ execute = do
       modify $ \s -> s {stateJumpAddr = pure $ ISA.unDone jump_addr}
 
     r1M :: TimeM Word
-    r1M = regWithFwd ISA.getR1 =<< asks (Pipe.inputRs1 . snd)
+    r1M = regWithFwd ISA.getR1 =<< asks (Core.inputRs1 . snd)
 
     r2M :: TimeM Word
-    r2M = regWithFwd ISA.getR2 =<< asks (Pipe.inputRs2 . snd)
+    r2M = regWithFwd ISA.getR2 =<< asks (Core.inputRs2 . snd)
 
     regWithFwd :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> Word -> TimeM Word
     regWithFwd getR def = do
@@ -257,7 +256,7 @@ memory = do
 
 writeback :: TimeM ()
 writeback = do
-  input <- asks $ Pipe.inputMem . snd
+  input <- asks $ Core.inputMem . snd
   instr <- gets stateWbInstr
   stateHalted <- gets stateHalt
 

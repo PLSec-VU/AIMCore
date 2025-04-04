@@ -1,15 +1,15 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Use if" #-}
-module Pipe
+module Core
   ( initInput,
-    initPipe,
+    init,
     initCtrl,
     resetCtrl,
-    pipe,
+    circuit,
     Input (..),
     Output (..),
-    Pipe (..),
+    State (..),
     fetch,
     decode,
     execute,
@@ -86,35 +86,35 @@ instance Monoid Output where
   mempty = Output mempty mempty mempty mempty mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
-data Pipe = Pipe
+data State = State
   { -- | Program counter fetch stage
-    fePc :: Address,
+    stateFePc :: Address,
     -- | Program counter decode stage
-    dePc :: Address,
+    stateDePc :: Address,
     -- | Program counter execute stage
-    exPc :: Address,
+    stateExPc :: Address,
     -- | Instruction register execute stage
-    exIr :: Instruction,
+    stateExInstr :: Instruction,
     -- | Regster 1
-    exRs1 :: Word,
+    stateExRs1 :: Word,
     -- | Register 2
-    exRs2 :: Word,
+    stateExRs2 :: Word,
     -- | Instruction register memory stage
-    meIr :: Instruction,
+    stateMemInstr :: Instruction,
     -- | ALU result register memory stage
-    meRe :: Word,
-    -- | Memory value to write for stores (`meRe` only contains the address).
-    meVal :: Word,
+    stateMemRes :: Word,
+    -- | Memory value to write for stores (`stateMemRes` only contains the address).
+    stateMemVal :: Word,
     -- | Did we branch in the `execute` stage on this instruction?
-    meBranch :: Bool,
+    stateMemBranch :: Bool,
     -- | Instruction register writeback stage
-    wbIr :: Instruction,
+    stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
-    wbRe :: Word,
+    stateWbRes :: Word,
     -- | Control/forwarding lines.
-    pipeCtrl :: Control,
+    stateCtrl :: Control,
     -- | Are we done?
-    pipeHalt :: Bool
+    stateHalt :: Bool
   }
   deriving (Show, Generic, NFDataX)
 
@@ -150,11 +150,11 @@ data Control = Control
   deriving (Show, Eq, Generic, NFDataX)
 
 -- | The CPU monad.
-type CPUM = RWS Input Output Pipe
+type CPUM = RWS Input Output State
 
 -- | Run the CPU for one step.
-pipe :: Pipe -> Input -> (Pipe, Output)
-pipe = flip $ execRWS pipeM
+circuit :: State -> Input -> (State, Output)
+circuit = flip $ execRWS pipe
 
 -- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
 -- is sequential. That is, it works like so:
@@ -168,7 +168,7 @@ pipe = flip $ execRWS pipeM
 -- stage to update the state without affecting the execution of stages that have
 -- yet to execute during the current tick.
 --
--- That is, any writes to the `Pipe` state appear as if they're semantically atomic,
+-- That is, any writes to the `State` state appear as if they're semantically atomic,
 -- even if they operationally aren't in the pure simulation.
 --
 -- The control lines are an exception here because they send data backwards
@@ -194,27 +194,27 @@ pipe = flip $ execRWS pipeM
 -- due to the use of `First`.
 --
 -- Interstage reads/writes from the pipeline state create new dependencies
--- between stages. For example, writing to `wbRe` in `memory` and then reading
--- from `wbRe` in the `writeback` stage results in:
+-- between stages. For example, writing to `stateWbRes` in `memory` and then reading
+-- from `stateWbRes` in the `writeback` stage results in:
 --
 --    state
 --     ├── writeback
 --     |    /|\
 --     |     |
---     |    wbRe
+--     |    stateWbRes
 --     |     |
 --     ├── memory
 --     ├── execute
 --     ├── decode
 --     └── etch
 --
--- i.e., `wbRe` becomes part of the pipeline registers between the `memory` and
+-- i.e., `stateWbRes` becomes part of the pipeline registers between the `memory` and
 -- `writeback` stages. These dependencies implicitly define the ordering of the
 -- pipeline via data dependencies.
 
 -- | The CPU.
-pipeM :: CPUM ()
-pipeM = do
+pipe :: CPUM ()
+pipe = do
   resetCtrl
   writeback
   memory
@@ -231,23 +231,23 @@ initInput =
       inputRs2 = 0
     }
 
-initPipe :: Pipe
-initPipe =
-  Pipe
-    { fePc = initPc,
-      dePc = 0,
-      exPc = 0,
-      exIr = nop,
-      exRs1 = 0,
-      exRs2 = 0,
-      meIr = nop,
-      meRe = 0,
-      meVal = 0,
-      meBranch = False,
-      wbIr = nop,
-      wbRe = 0,
-      pipeCtrl = initCtrl,
-      pipeHalt = False
+init :: State
+init =
+  State
+    { stateFePc = initPc,
+      stateDePc = 0,
+      stateExPc = 0,
+      stateExInstr = nop,
+      stateExRs1 = 0,
+      stateExRs2 = 0,
+      stateMemInstr = nop,
+      stateMemRes = 0,
+      stateMemVal = 0,
+      stateMemBranch = False,
+      stateWbInstr = nop,
+      stateWbRes = 0,
+      stateCtrl = initCtrl,
+      stateHalt = False
     }
 
 -- | Initial control lines.
@@ -267,12 +267,12 @@ initCtrl =
 -- | The control lines need to be reset every tick.
 resetCtrl :: CPUM ()
 resetCtrl =
-  modify $ \s -> s {pipeCtrl = initCtrl {ctrlFirstCycle = False}}
+  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = False}}
 
 -- | Stop the CPU.
 halt :: CPUM ()
 halt =
-  modify $ \s -> s {pipeHalt = True}
+  modify $ \s -> s {stateHalt = True}
 
 -- | The fetch stage.
 fetch :: CPUM ()
@@ -289,31 +289,31 @@ fetch = do
         ctrlMemOutputActive
       ]
 
-  pc <- gets fePc
+  pc <- gets stateFePc
   -- Fetch the next instruction from memory.  Will only actually happen if no
   -- other reads/writes occur in subsequent stages.
   readPC pc
 
-  mBranchAddr <- gets $ ctrlExBranch . pipeCtrl
+  mBranchAddr <- gets $ ctrlExBranch . stateCtrl
   modify $ \s ->
     if stall
       then
         s
-          { fePc = fromMaybe pc mBranchAddr
+          { stateFePc = fromMaybe pc mBranchAddr
           }
       else
         s
           { -- Increment program counter for next fetch.
-            fePc = fromMaybe (pc + 4) mBranchAddr,
+            stateFePc = fromMaybe (pc + 4) mBranchAddr,
             -- Propagate program counter to next stage.
-            dePc = pc
+            stateDePc = pc
           }
 
 -- | Decode stage.
 decode :: CPUM ()
 decode = do
   ir <- Instruction.decode' <$> asks inputMem
-  ex_ir <- gets exIr
+  ex_ir <- gets stateExInstr
   readRf ir
 
   case ir of
@@ -340,11 +340,11 @@ decode = do
 
   modify $ \s ->
     if stall
-      then s {exIr = nop}
+      then s {stateExInstr = nop}
       else
         s
-          { exIr = ir,
-            exPc = dePc s
+          { stateExInstr = ir,
+            stateExPc = stateDePc s
           }
   where
     readRf ir =
@@ -366,8 +366,8 @@ decode = do
 -- | Execute stage.
 execute :: CPUM ()
 execute = do
-  ir <- gets exIr
-  modify $ \s -> s {meBranch = False}
+  ir <- gets stateExInstr
+  modify $ \s -> s {stateMemBranch = False}
 
   -- Fetch alu operands
   aluInputs <- runMaybeT $
@@ -377,9 +377,9 @@ execute = do
         r2 <- rs2
         pure (op, r1, r2)
       Instruction.IType Jump _ _ imm -> do
-        pc <- gets $ pack . exPc
+        pc <- gets $ pack . stateExPc
         r1 <- rs1
-        modify $ \s -> s {meBranch = True}
+        modify $ \s -> s {stateMemBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD r1 (signExtend imm)}
         pure (ADD, pc, 4)
@@ -395,27 +395,27 @@ execute = do
         r1 <- rs1
         r2 <- rs2
         let imm' = signExtend imm
-        modify $ \s -> s {meVal = r2}
+        modify $ \s -> s {stateMemVal = r2}
         pure (ADD, r1, imm')
       Instruction.BType cmp imm _ _ -> do
         r1 <- rs1
         r2 <- rs2
-        pc <- gets $ pack . exPc
+        pc <- gets $ pack . stateExPc
         let doBranch = branch cmp r1 r2
         when doBranch $ do
-          modify $ \s -> s {meBranch = True}
+          modify $ \s -> s {stateMemBranch = True}
           setLines $
             \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
         empty
       Instruction.UType base _ imm -> do
         base' <- case base of
           Zero -> pure 0
-          PC -> gets $ pack . exPc
+          PC -> gets $ pack . stateExPc
         let imm' = imm ++# 0 `shiftL` 12
         pure (ADD, base', imm')
       Instruction.JType _ imm -> do
-        pc <- gets $ pack . exPc
-        modify $ \s -> s {meBranch = True}
+        pc <- gets $ pack . stateExPc
+        modify $ \s -> s {stateMemBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
         pure (ADD, pc, 4)
@@ -425,8 +425,8 @@ execute = do
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
      in s
-          { meRe = res,
-            meIr = ir
+          { stateMemRes = res,
+            stateMemInstr = ir
           }
   where
     rs1 :: MaybeT CPUM Word
@@ -437,9 +437,9 @@ execute = do
 
     regWithFwd :: (Instruction -> Maybe RegIdx) -> Word -> CPUM Word
     regWithFwd getR def = do
-      ir <- gets exIr
+      ir <- gets stateExInstr
       let checkForFwd line = do
-            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . pipeCtrl
+            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . stateCtrl
             guard (hazardRW getR ir fwdIdx)
             pure fwdVal
       fmap
@@ -482,18 +482,18 @@ branch op lhs rhs = case op of
 
 memory :: CPUM ()
 memory = do
-  res <- gets meRe
-  instr <- gets meIr
+  res <- gets stateMemRes
+  instr <- gets stateMemInstr
 
   -- Store Forwarding
   try $ do
     rd <- getRd instr
-    me_res <- lift $ gets meRe
+    me_res <- lift $ gets stateMemRes
     lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, me_res)}
 
   case instr of
     Instruction.SType size _ _ _ -> do
-      r2 <- gets meVal
+      r2 <- gets stateMemVal
       writeRAM (unpack res) size (unpack r2)
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
@@ -506,7 +506,7 @@ memory = do
           }
       readRAM $ unpack res
     Instruction.BType {} -> do
-      branched <- gets meBranch
+      branched <- gets stateMemBranch
       when branched $
         setLines $ \c ->
           c {ctrlMemBranch = True}
@@ -520,18 +520,18 @@ memory = do
 
   modify $ \s ->
     s
-      { wbIr = meIr s,
-        wbRe = meRe s
+      { stateWbInstr = stateMemInstr s,
+        stateWbRes = stateMemRes s
       }
 
 -- | Commit computations to the register file.
 writeback :: CPUM ()
 writeback = do
   input <- asks inputMem
-  ir <- gets wbIr
-  res <- gets wbRe
+  ir <- gets stateWbInstr
+  res <- gets stateWbRes
 
-  halted <- gets pipeHalt
+  halted <- gets stateHalt
 
   when halted $ do
     tell $
@@ -542,8 +542,8 @@ writeback = do
     -- Flush the pipeline
     modify $ \s ->
       s
-        { meIr = nop,
-          exIr = nop
+        { stateMemInstr = nop,
+          stateExInstr = nop
         }
     readRAM 0
     halt
@@ -628,10 +628,10 @@ writeRAM addr size val =
               }
       }
 
-checkLines :: (MonadState Pipe m) => [Control -> Bool] -> m Bool
+checkLines :: (MonadState State m) => [Control -> Bool] -> m Bool
 checkLines ls = do
-  ctrl <- gets pipeCtrl
+  ctrl <- gets stateCtrl
   pure $ or [test ctrl | test <- ls]
 
-setLines :: (MonadState Pipe m) => (Control -> Control) -> m ()
-setLines f = modify $ \s -> s {pipeCtrl = f $ pipeCtrl s}
+setLines :: (MonadState State m) => (Control -> Control) -> m ()
+setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}

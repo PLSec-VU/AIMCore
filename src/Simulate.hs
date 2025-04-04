@@ -14,8 +14,9 @@ where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad.RWS
 import Control.Monad.State
+import Core hiding (State)
+import qualified Core
 import Data.Monoid
-import Pipe
 import Regfile
 import Types
 import Util
@@ -33,31 +34,31 @@ instance (Monad m, MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
   getRegfile = gets memRf
   putRegfile rf = modify $ \s -> s {memRf = rf}
 
-simulator :: forall m. (MonadState (Mem MEM_SIZE_BYTES) m) => CircuitSim m Input Pipe Output
+simulator :: forall m. (MonadState (Mem MEM_SIZE_BYTES) m) => CircuitSim m Input Core.State Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
-      circuitState = initPipe,
+      circuitState = init,
       circuitStep = step,
       circuitNext = next
     }
   where
-    step :: Input -> Pipe -> m (Pipe, Output)
+    step :: Input -> Core.State -> m (Core.State, Output)
     step i s = do
-      let (_ctrl', s', o) = simPipe s i
+      let (_ctrl', s', o) = simCore s i
       pure (s', o)
       where
-        simPipe :: Pipe -> Input -> (Control, Pipe, Output)
-        simPipe = flip $ runRWS simPipeM
+        simCore :: Core.State -> Input -> (Control, Core.State, Output)
+        simCore = flip $ runRWS simCoreM
           where
-            simPipeM :: CPUM Control
-            simPipeM = do
+            simCoreM :: CPUM Control
+            simCoreM = do
               writeback
               memory
               execute
               decode
               fetch
-              ctrl <- gets pipeCtrl
+              ctrl <- gets stateCtrl
               resetCtrl
               pure ctrl
 
@@ -94,14 +95,14 @@ simulator =
           | otherwise = pure (0, False)
 
 runSimulator ::
-  ( CircuitSim (State (Mem MEM_SIZE_BYTES)) Input Pipe Output ->
+  ( CircuitSim (State (Mem MEM_SIZE_BYTES)) Input Core.State Output ->
     State (Mem MEM_SIZE_BYTES) a
   ) ->
   Vec PROG_SIZE Word ->
   a
 runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
 
-watchSim :: Vec PROG_SIZE Word -> [(Pipe, Output, Maybe Input)]
+watchSim :: Vec PROG_SIZE Word -> [(Core.State, Output, Maybe Input)]
 watchSim = runSimulator watch
 
 simResult :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte

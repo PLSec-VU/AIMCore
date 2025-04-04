@@ -14,6 +14,8 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.State
+import Core (Input (..), MemAccess (..), Output (..), initInput)
+import qualified Core
 import Data.Maybe (isJust)
 import Data.Monoid
 import Data.Set (Set)
@@ -23,7 +25,6 @@ import Instruction (Instruction)
 import qualified Instruction
 import qualified Leak.PC.Sim as Sim
 import qualified Leak.PC.Time as Time
-import Pipe
 import Regfile
 import qualified Simulate
 import Types
@@ -42,7 +43,7 @@ circuit input (ts, ss) = ((ts', ss'), addr)
 
 simulator ::
   forall m.
-  ( MonadState ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) m
+  ( MonadState ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) m
   ) =>
   CircuitSim m Input (Time.State, Sim.State) (Maybe Address, Maybe Address)
 simulator =
@@ -79,17 +80,17 @@ simulator =
 
 runSimulator ::
   ( CircuitSim
-      (State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES))
+      (State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES))
       Input
       (Time.State, Sim.State)
       (Maybe Address, Maybe Address) ->
-    State ((Pipe, Output), Simulate.Mem MEM_SIZE_BYTES) a
+    State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) a
   ) ->
   Vec PROG_SIZE Word ->
   a
 runSimulator f prog = evalState (f simulator) s
   where
-    s = ((initPipe, mempty), Simulate.Mem (mkRAM prog) initRF)
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
 
 watchSim ::
   Vec PROG_SIZE Word ->
@@ -101,34 +102,34 @@ pcsEqual = all check . watchSim
   where
     check (_, (o, o'), _) = o == o'
 
-proj :: Pipe -> (Time.State, Sim.State)
+proj :: Core.State -> (Time.State, Sim.State)
 proj s = (ts, ss)
   where
     ts =
       Time.State
-        { Time.stateFePc = fePc s,
-          Time.stateDePc = dePc s,
-          Time.stateExPc = exPc s,
-          Time.stateExInstr = toISAFunc $ exIr s,
-          Time.stateMemInstr = toISADone (meIr s) Time.Mem,
-          Time.stateWbInstr = toISADone (wbIr s) Time.Wb,
-          Time.stateStall = toStallStages $ pipeCtrl s,
-          Time.stateHalt = pipeHalt s,
-          Time.stateMeRegFwd = ctrlMeRegFwd $ pipeCtrl s,
-          Time.stateWbRegFwd = ctrlWbRegFwd $ pipeCtrl s,
-          Time.stateJumpAddr = ctrlExBranch $ pipeCtrl s
+        { Time.stateFePc = Core.stateFePc s,
+          Time.stateDePc = Core.stateDePc s,
+          Time.stateExPc = Core.stateExPc s,
+          Time.stateExInstr = toISAFunc $ Core.stateExInstr s,
+          Time.stateMemInstr = toISADone (Core.stateMemInstr s) Time.Mem,
+          Time.stateWbInstr = toISADone (Core.stateWbInstr s) Time.Wb,
+          Time.stateStall = toStallStages $ Core.stateCtrl s,
+          Time.stateHalt = Core.stateHalt s,
+          Time.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
+          Time.stateWbRegFwd = Core.ctrlWbRegFwd $ Core.stateCtrl s,
+          Time.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
     ss =
       Sim.State
-        { Sim.stateFePc = fePc s,
-          Sim.stateDePc = dePc s,
-          Sim.stateExPc = exPc s,
-          Sim.stateExInstr = toTimeInstr $ exIr s,
-          Sim.stateMemInstr = toTimeInstr $ meIr s,
-          Sim.stateWbInstr = toTimeInstr $ wbIr s,
-          Sim.stateHalt = pipeHalt s,
-          Sim.stateStall = toStallStages $ pipeCtrl s,
-          Sim.stateJumpAddr = ctrlExBranch $ pipeCtrl s
+        { Sim.stateFePc = Core.stateFePc s,
+          Sim.stateDePc = Core.stateDePc s,
+          Sim.stateExPc = Core.stateExPc s,
+          Sim.stateExInstr = toTimeInstr $ Core.stateExInstr s,
+          Sim.stateMemInstr = toTimeInstr $ Core.stateMemInstr s,
+          Sim.stateWbInstr = toTimeInstr $ Core.stateWbInstr s,
+          Sim.stateHalt = Core.stateHalt s,
+          Sim.stateStall = toStallStages $ Core.stateCtrl s,
+          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
 
     toTimeInstr :: Instruction -> Time.Instr
@@ -157,16 +158,26 @@ proj s = (ts, ss)
       where
         li = toISAFunc i
         res
-          | stage == Time.Mem = meRe s
-          | otherwise = wbRe s
-        branched = (stage == Time.Mem) && meBranch s
+          | stage == Time.Mem = Core.stateMemRes s
+          | otherwise = Core.stateWbRes s
+        branched = (stage == Time.Mem) && Core.stateMemBranch s
         dontCare = ISA.Done 0
 
-    toStallStages :: Control -> Set Time.Stage
+    toStallStages :: Core.Control -> Set Time.Stage
     toStallStages ctrl =
       S.fromList [stage | (stage, conds) <- stallConditions, any ($ ctrl) conds]
       where
         stallConditions =
-          [ (Time.Fe, [ctrlDecodeLoad, ctrlMemOutputActive]),
-            (Time.De, [ctrlFirstCycle, isJust . ctrlExBranch, ctrlMemInputActive, ctrlMemBranch])
+          [ ( Time.Fe,
+              [ Core.ctrlDecodeLoad,
+                Core.ctrlMemOutputActive
+              ]
+            ),
+            ( Time.De,
+              [ Core.ctrlFirstCycle,
+                isJust . Core.ctrlExBranch,
+                Core.ctrlMemInputActive,
+                Core.ctrlMemBranch
+              ]
+            )
           ]

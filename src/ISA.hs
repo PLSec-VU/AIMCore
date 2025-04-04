@@ -18,11 +18,11 @@ module ISA
 where
 
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
+import Core
 import Data.Maybe (catMaybes)
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Instruction
-import Pipe
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 

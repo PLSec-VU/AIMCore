@@ -1,27 +1,21 @@
-module Main where
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+module Main (main) where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Control.Monad.State
-import Data.Bifunctor
+import Core
 import Data.Monoid
-import Debug.Trace
-import qualified HardwareSim
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
-import qualified Leak.PC.Sim
-import qualified Leak.PC.Time
-import Pipe
-import Regfile
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
-import qualified Prelude
 
 main :: IO ()
 main = defaultMain tests
@@ -100,6 +94,7 @@ tests =
         --  ]
     ]
 
+prog1 :: Vec 3 Instruction
 prog1 =
   -- r2 := r0 + 5
   IType (Arith ADD) 2 0 5
@@ -109,6 +104,7 @@ prog1 =
     :> break
     :> Nil
 
+prog2 :: Vec 6 Instruction
 prog2 =
   -- r2 := r0 + 5
   IType (Arith ADD) 2 0 5
@@ -127,6 +123,7 @@ prog2 =
     :> break
     :> Nil
 
+prog3 :: Vec 6 Instruction
 prog3 =
   -- r2 := r0 + 3
   IType (Arith ADD) 2 0 3
@@ -240,9 +237,9 @@ instance Arbitrary Control where
       <*> arbitrary
       <*> arbitrary
 
-instance Arbitrary Pipe where
+instance Arbitrary Core.State where
   arbitrary =
-    Pipe
+    Core.State
       <$> arbitrary
       <*> arbitrary
       <*> arbitrary
@@ -272,10 +269,10 @@ instance Arbitrary Input where
 theorem :: Gen Property
 theorem = do
   input <- arbitrary
-  pipe <- arbitrary
-  let state = Leak.PC.proj $ pipe
-      (state_final, sim_pc) = circuit_sim input state
-      (pipe_final, pipe_output) = circuit_pipe pipe input
+  core_state <- arbitrary
+  let state = Leak.PC.proj $ core_state
+      (state_final, sim_pc) = Leak.PC.circuit input state
+      (core_state_final, pipe_output) = Core.circuit core_state input
       pipe_pc = obs pipe_output
   pure $
     flip counterexample (sim_pc == pipe_pc) $
@@ -284,13 +281,13 @@ theorem = do
           "-------------------------------",
           show input,
           "",
-          "pipe:",
+          "core_state:",
           "-------------------------------",
-          show pipe,
+          show core_state,
           "",
-          "pipe_final:",
+          "core_state_final:",
           "-------------------------------",
-          show pipe_final,
+          show core_state_final,
           "",
           "state:",
           "-------------------------------",
@@ -313,11 +310,6 @@ theorem = do
           show pipe_output
         ]
   where
-    circuit_sim :: Input -> (Leak.PC.Time.State, Leak.PC.Sim.State) -> ((Leak.PC.Time.State, Leak.PC.Sim.State), Maybe Address)
-    circuit_sim = Leak.PC.circuit
-    circuit_pipe :: Pipe -> Input -> (Pipe, Output)
-    circuit_pipe = Pipe.pipe
-
     obs :: Output -> Maybe Address
     obs sim_pc = do
       mem <- getFirst $ outMem sim_pc
