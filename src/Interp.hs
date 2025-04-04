@@ -6,7 +6,7 @@ module Interp
   ( InterpF,
     DepReg (..),
     applyInterpF,
-    Inst (..),
+    Instr (..),
     Done (..),
     PC,
     depSet,
@@ -21,7 +21,7 @@ import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, l
 import Data.Maybe (catMaybes)
 import Data.Set (Set)
 import qualified Data.Set as S
-import qualified Instruction as Inst
+import qualified Instruction
 import Pipe
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -73,7 +73,7 @@ pcF f =
 applyInterpF :: InterpF a -> Word -> Word -> PC -> Done a
 applyInterpF (InterpF f _) r1 r2 pc = Done $ f r1 r2 pc
 
-data Inst f
+data Instr f
   = Reg RegIdx (f Word)
   | Load Size RegIdx (f Address)
   | Jump RegIdx (f Address) (f Address)
@@ -88,7 +88,7 @@ deriving instance
     Show (f Address),
     Show (f Bool)
   ) =>
-  Show (Inst f)
+  Show (Instr f)
 
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
@@ -96,7 +96,7 @@ class DepReg a where
 instance DepReg (InterpF a) where
   deps (InterpF _ d) = d
 
-instance DepReg (Inst InterpF) where
+instance DepReg (Instr InterpF) where
   deps (Reg _ f) = deps f
   deps (Load _ _ f) = deps f
   deps Jump {} = (empty, empty)
@@ -111,65 +111,65 @@ depSet a =
   let (mr1, mr2) = deps a
    in S.fromList $ catMaybes [mr1, mr2]
 
-getRd :: Inst f -> Maybe RegIdx
+getRd :: Instr f -> Maybe RegIdx
 getRd (Reg rd _) = pure rd
 getRd (Load _ rd _) = pure rd
 getRd (Jump rd _ _) = pure rd
 getRd (JumpReg rd _ _) = pure rd
 getRd _ = empty
 
-getR1 :: Inst InterpF -> Maybe RegIdx
+getR1 :: Instr InterpF -> Maybe RegIdx
 getR1 = fst . deps
 
-getR2 :: Inst InterpF -> Maybe RegIdx
+getR2 :: Instr InterpF -> Maybe RegIdx
 getR2 = snd . deps
 
-interp :: Input -> Inst InterpF
+interp :: Input -> Instr InterpF
 interp input
-  | not (inputIsInst input) = Nop
-  | Inst.isBreak inst = Break
+  | not (inputIsInstr input) = Nop
+  | Instruction.isBreak instr = Break
   | otherwise =
-      case inst of
-        Inst.RType op rd r1 r2 ->
+      case instr of
+        Instruction.RType op rd r1 r2 ->
           Reg rd $ binaryF r1 r2 $ alu op
-        Inst.IType iop rd r1 imm ->
+        Instruction.IType iop rd r1 imm ->
           let op =
                 case iop of
-                  Inst.Arith op' -> op'
-                  _ -> Inst.ADD
+                  Instruction.Arith op' -> op'
+                  _ -> Instruction.ADD
               alu_res = unaryF r1 $ flip (alu op) (signExtend imm)
            in case iop of
-                Inst.Arith {} ->
+                Instruction.Arith {} ->
                   Reg rd alu_res
-                Inst.Load size sign -> do
+                Instruction.Load size sign -> do
                   let loadExtend =
                         case (size, sign) of
-                          (Byte, Inst.Signed) -> signExtend . slice d7 d0
-                          (Byte, Inst.Unsigned) -> zeroExtend . slice d7 d0
-                          (Half, Inst.Signed) -> signExtend . slice d15 d0
-                          (Half, Inst.Unsigned) -> signExtend . slice d15 d0
+                          (Byte, Instruction.Signed) -> signExtend . slice d7 d0
+                          (Byte, Instruction.Unsigned) -> zeroExtend . slice d7 d0
+                          (Half, Instruction.Signed) -> signExtend . slice d15 d0
+                          (Half, Instruction.Unsigned) -> signExtend . slice d15 d0
                           (Word, _) -> signExtend . slice d31 d0
                   Load size rd $ bitCoerce . loadExtend <$> alu_res
-                Inst.Jump ->
+                Instruction.Jump ->
                   JumpReg rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
-                Inst.Env Inst.Break ->
+                Instruction.Env Instruction.Break ->
                   Break
-                Inst.Env Inst.Call ->
+                Instruction.Env Instruction.Call ->
                   Nop
-        Inst.SType size imm r1 r2 -> do
+        Instruction.SType size imm r1 r2 -> do
           let addr_comp = unpack <$> unaryF r1 (+ signExtend imm)
            in Store size addr_comp r2
-        Inst.BType cmp imm r1 r2 ->
+        Instruction.BType cmp imm r1 r2 ->
           let branched_comp = binaryF r1 r2 $ branch cmp
               addr_comp = pcF (+ bitCoerce (signExtend imm))
            in Branch branched_comp addr_comp
-        Inst.UType Inst.Zero rd imm ->
+        Instruction.UType Instruction.Zero rd imm ->
           let imm' = imm ++# 0 `shiftL` 12
            in Reg rd $ constF imm'
-        Inst.UType Inst.PC rd imm -> do
+        Instruction.UType Instruction.PC rd imm -> do
           let imm' = imm ++# 0 `shiftL` 12
            in Reg rd $ pcF $ \pc -> bitCoerce pc + imm'
-        Inst.JType rd imm ->
+        Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
   where
-    inst = Inst.decode' $ inputMem input
+    instr = Instruction.decode' $ inputMem input
