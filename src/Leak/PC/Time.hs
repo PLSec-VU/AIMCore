@@ -163,7 +163,6 @@ mkInstr :: ISA.Instr a -> BaseInstr
 mkInstr ISA.Reg {} = Other
 mkInstr (ISA.Load _ rd _) = Load rd
 mkInstr ISA.Jump {} = Jump
-mkInstr ISA.JumpReg {} = Jump
 mkInstr ISA.Store {} = Store
 mkInstr ISA.Branch {} = Jump
 mkInstr ISA.Break = Break
@@ -187,10 +186,6 @@ execute = do
         let jump_addr = apply f_jump_addr
         informJumpAddr jump_addr
         pure $ ISA.Jump rd (apply f_pc) jump_addr
-      ISA.JumpReg rd f_pc f_jump_addr -> do
-        let jump_addr = apply f_jump_addr
-        informJumpAddr jump_addr
-        pure $ ISA.JumpReg rd (apply f_pc) jump_addr
       ISA.Store size f_addr r ->
         pure $ ISA.Store size (apply f_addr) r
       ISA.Branch f_branched f_jump_addr -> do
@@ -247,9 +242,6 @@ memory = do
       ISA.Jump _ (ISA.Done addr) _ -> do
         stall De
         pure $ Just $ bitCoerce addr
-      ISA.JumpReg _ (ISA.Done addr) _ -> do
-        stall De
-        pure $ Just $ bitCoerce addr
       ISA.Store {} -> do
         stall Fe
         pure Nothing
@@ -289,8 +281,6 @@ writeback = do
         stall De
         pure $ Just input
       ISA.Jump _ (ISA.Done addr) _ ->
-        pure $ Just $ bitCoerce addr
-      ISA.JumpReg _ (ISA.Done addr) _ ->
         pure $ Just $ bitCoerce addr
       ISA.Store {} -> do
         stall De

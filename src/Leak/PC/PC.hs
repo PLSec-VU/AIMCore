@@ -150,7 +150,6 @@ proj s = (ts, ss)
         ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
         ISA.Load size rd _ -> ISA.Load size rd $ ISA.Done $ bitCoerce res
         ISA.Jump rd _ _ -> ISA.Jump rd (ISA.Done $ bitCoerce res) lol
-        ISA.JumpReg rd _ _ -> ISA.JumpReg rd (ISA.Done $ bitCoerce res) lol
         ISA.Store size _ r2 -> ISA.Store size (ISA.Done $ bitCoerce res) r2
         ISA.Branch _ _ -> ISA.Branch (ISA.Done branched) lol
         ISA.Nop -> ISA.Nop

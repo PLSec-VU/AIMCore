@@ -49,7 +49,6 @@ data Instr f
   = Reg RegIdx (f Word)
   | Load Size RegIdx (f Address)
   | Jump RegIdx (f Address) (f Address)
-  | JumpReg RegIdx (f Address) (f Address)
   | Store Size (f Address) RegIdx
   | Branch (f Bool) (f Address)
   | Nop
@@ -66,7 +65,6 @@ getRd :: Instr a -> Maybe RegIdx
 getRd (Reg rd _) = pure rd
 getRd (Load _ rd _) = pure rd
 getRd (Jump rd _ _) = pure rd
-getRd (JumpReg rd _ _) = pure rd
 getRd _ = empty
 
 getR1 :: Instr Func -> Maybe RegIdx
@@ -85,7 +83,6 @@ instance DepReg (Instr Func) where
   deps (Reg _ f) = deps f
   deps (Load _ _ f) = deps f
   deps Jump {} = (empty, empty)
-  deps (JumpReg _ _ f) = deps f
   deps (Store _ f r2) = (fst $ deps f, pure r2)
   deps (Branch f _) = deps f
   deps Break = (empty, empty)
@@ -123,7 +120,7 @@ interp input
                           (Word, _) -> signExtend . slice d31 d0
                   Load size rd $ bitCoerce . loadExtend <$> alu_res
                 Instruction.Jump ->
-                  JumpReg rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
+                  Jump rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
                 Instruction.Env Instruction.Break ->
                   Break
                 Instruction.Env Instruction.Call ->
