@@ -1,12 +1,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Leak.PC.PC
-  ( circuit,
+  ( obs,
+    leak,
+    sim,
+    circuit,
+    proj,
     simulator,
     runSimulator,
     watchSim,
     pcsEqual,
-    proj,
   )
 where
 
@@ -31,76 +34,33 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
+-- {-# ANN Core.circuit Spec
+--   { observation' = 'obs
+--   , leakage' = 'leak
+--   , simulator' = 'sim
+--   , projection' = 'proj
+--   } #-}
+
+obs :: Output -> Maybe Address
+obs o_sim = do
+  mem <- getFirst $ outMem o_sim
+  guard $ memIsInstr mem
+  pure $ memAddress mem
+
+leak :: Time.State -> Input -> (Time.State, Time.Out)
+leak ts input = Time.circuit ts (ISA.interp input, input)
+
+sim :: Sim.State -> Time.Out -> (Sim.State, Maybe Address)
+sim = Sim.circuit
+
 circuit ::
-  Input ->
   (Time.State, Sim.State) ->
+  Input ->
   ((Time.State, Sim.State), Maybe Address)
-circuit input (ts, ss) = ((ts', ss'), addr)
+circuit (ts, ss) input = ((ts', ss'), addr)
   where
-    isa_instr = ISA.interp input
-    (ts', leak) = Time.circuit ts (isa_instr, input)
-    (ss', addr) = Sim.circuit ss leak
-
-simulator ::
-  forall m.
-  ( MonadState ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) m
-  ) =>
-  CircuitSim m Input (Time.State, Sim.State) (Maybe Address, Maybe Address)
-simulator =
-  CircuitSim
-    { circuitInput = initInput,
-      circuitState = (Time.init, Sim.init),
-      circuitStep = step,
-      circuitNext = next
-    }
-  where
-    obs :: Output -> Maybe Address
-    obs o_sim = do
-      mem <- getFirst $ outMem o_sim
-      guard $ memIsInstr mem
-      pure $ memAddress mem
-
-    step ::
-      Input ->
-      (Time.State, Sim.State) ->
-      m ((Time.State, Sim.State), (Maybe Address, Maybe Address))
-    step i s = do
-      ((s_sim, _), mem) <- get
-      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
-      put (res_sim, mem')
-      let (s', o) = circuit i s
-      pure (s', (o, obs o_sim))
-
-    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
-    next (_o, _addr_sim) = do
-      ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
-      modify $ \(s, _mem) -> (s, mem')
-      pure mi
-
-runSimulator ::
-  ( CircuitSim
-      (State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES))
-      Input
-      (Time.State, Sim.State)
-      (Maybe Address, Maybe Address) ->
-    State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) a
-  ) ->
-  Vec PROG_SIZE Word ->
-  a
-runSimulator f prog = evalState (f simulator) s
-  where
-    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
-
-watchSim ::
-  Vec PROG_SIZE Word ->
-  [((Time.State, Sim.State), (Maybe Address, Maybe Address), Maybe Input)]
-watchSim = runSimulator watch
-
-pcsEqual :: Vec PROG_SIZE Word -> Bool
-pcsEqual = all check . watchSim
-  where
-    check (_, (o, o'), _) = o == o'
+    (ts', leakage) = leak ts input
+    (ss', addr) = sim ss leakage
 
 proj :: Core.State -> (Time.State, Sim.State)
 proj s = (ts, ss)
@@ -181,3 +141,58 @@ proj s = (ts, ss)
               ]
             )
           ]
+
+simulator ::
+  forall m.
+  ( MonadState ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) m
+  ) =>
+  CircuitSim m Input (Time.State, Sim.State) (Maybe Address, Maybe Address)
+simulator =
+  CircuitSim
+    { circuitInput = initInput,
+      circuitState = (Time.init, Sim.init),
+      circuitStep = step,
+      circuitNext = next
+    }
+  where
+    step ::
+      Input ->
+      (Time.State, Sim.State) ->
+      m ((Time.State, Sim.State), (Maybe Address, Maybe Address))
+    step i s = do
+      ((s_sim, _), mem) <- get
+      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
+      put (res_sim, mem')
+      let (s', o) = circuit s i
+      pure (s', (o, obs o_sim))
+
+    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
+    next (_o, _addr_sim) = do
+      ((_, o_sim), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+      modify $ \(s, _mem) -> (s, mem')
+      pure mi
+
+runSimulator ::
+  ( CircuitSim
+      (State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES))
+      Input
+      (Time.State, Sim.State)
+      (Maybe Address, Maybe Address) ->
+    State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) a
+  ) ->
+  Vec PROG_SIZE Word ->
+  a
+runSimulator f prog = evalState (f simulator) s
+  where
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
+
+watchSim ::
+  Vec PROG_SIZE Word ->
+  [((Time.State, Sim.State), (Maybe Address, Maybe Address), Maybe Input)]
+watchSim = runSimulator watch
+
+pcsEqual :: Vec PROG_SIZE Word -> Bool
+pcsEqual = all check . watchSim
+  where
+    check (_, (o, o'), _) = o == o'

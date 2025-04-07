@@ -6,7 +6,6 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
-import Data.Monoid
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
 import Simulate
@@ -269,49 +268,43 @@ instance Arbitrary Input where
 theorem :: Gen Property
 theorem = do
   input <- arbitrary
-  core_state <- arbitrary
-  let state = Leak.PC.proj $ core_state
-      (state_final, sim_pc) = Leak.PC.circuit input state
-      (core_state_final, pipe_output) = Core.circuit core_state input
-      pipe_pc = obs pipe_output
+  s_core <- arbitrary
+  let s_leaksim = Leak.PC.proj $ s_core
+      (s_leaksim', pc_leaksim) = Leak.PC.circuit s_leaksim input
+      (s_core', o_core) = Core.circuit s_core input
+      pc_core = Leak.PC.obs o_core
   pure $
-    flip counterexample (sim_pc == pipe_pc) $
+    flip counterexample (pc_core == pc_leaksim) $
       unlines
         [ "input: ",
           "-------------------------------",
           show input,
           "",
-          "core_state:",
+          "s_core:",
           "-------------------------------",
-          show core_state,
+          show s_core,
           "",
-          "core_state_final:",
+          "s_core':",
           "-------------------------------",
-          show core_state_final,
+          show s_core',
           "",
-          "state:",
+          "s_leaksim:",
           "-------------------------------",
-          show state,
+          show s_leaksim,
           "",
-          "state_final:",
+          "s_leaksim':",
           "-------------------------------",
-          show state_final,
+          show s_leaksim',
           "",
-          "sim_pc:",
+          "pc_leaksim:",
           "-------------------------------",
-          show sim_pc,
+          show pc_leaksim,
           "",
-          "pipe_pc:",
+          "pc_core:",
           "-------------------------------",
-          show pipe_pc,
+          show pc_core,
           "",
-          "pipe_output:",
+          "o_core:",
           "-------------------------------",
-          show pipe_output
+          show o_core
         ]
-  where
-    obs :: Output -> Maybe Address
-    obs sim_pc = do
-      mem <- getFirst $ outMem sim_pc
-      guard $ memIsInstr mem
-      pure $ memAddress mem

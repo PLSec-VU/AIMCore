@@ -319,4 +319,4 @@ pipe = do
           }
 
 circuit :: State -> (ISA.Instr ISA.Func, Input) -> (State, Out)
-circuit s i = execRWS pipe i s
+circuit = flip $ execRWS pipe
