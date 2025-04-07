@@ -63,15 +63,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ss', addr) = sim ss leakage
 
 proj :: Core.State -> (Leak.State, Sim.State)
-proj s =
-  (ts, ss)
+proj s = (ts, ss)
   where
-    -- error $
-    --  unlines
-    --    [ show $ toLeakInstrDone (Instruction.BType Instruction.NE 0b0000_0000_0000 25 18) Leak.Wb,
-    --      show $ toISADone (Instruction.BType Instruction.NE 0b0000_0000_0000 25 18) Leak.Wb
-    --    ]
-
     ts =
       Leak.State
         { Leak.stateFePc = Core.stateFePc s,
@@ -79,7 +72,6 @@ proj s =
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
           Leak.stateMemInstr = toISADone (Core.stateMemInstr s) Leak.Mem,
-          -- We kill branches on WB in leak for state equiv reasons.
           Leak.stateWbInstr = killBranch $ toISADone (Core.stateWbInstr s) Leak.Wb,
           Leak.stateStall = toStallStages $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
@@ -100,8 +92,19 @@ proj s =
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
 
+    killJump :: Leak.Instr -> Leak.Instr
+    killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
+    killJump i = i
+
+    killBranch :: ISA.Instr ISA.Done -> ISA.Instr ISA.Done
+    killBranch (ISA.Branch {}) = ISA.Nop
+    killBranch i = i
+
     toLeakInstrFunc :: Instruction -> Leak.Instr
-    toLeakInstrFunc inst = Leak.Instr (Leak.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
+    toLeakInstrFunc inst =
+      Leak.Instr
+        (Leak.mkInstr $ toISAFunc inst)
+        (ISA.depSet $ toISAFunc inst)
 
     toLeakInstrDone :: Instruction -> Leak.Stage -> Leak.Instr
     toLeakInstrDone inst stage = leak_inst
@@ -122,15 +125,6 @@ proj s =
             inputRs1 = 0,
             inputRs2 = 0
           }
-
-    killJump :: Leak.Instr -> Leak.Instr
-    killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
-    killJump i = i
-
-    killBranch :: ISA.Instr ISA.Done -> ISA.Instr ISA.Done
-    killBranch (ISA.Branch {}) = ISA.Nop
-    killBranch i = i
-
     toISADone :: Instruction -> Leak.Stage -> ISA.Instr ISA.Done
     toISADone i stage =
       case li of
