@@ -63,8 +63,15 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ss', addr) = sim ss leakage
 
 proj :: Core.State -> (Leak.State, Sim.State)
-proj s = (ts, ss)
+proj s =
+  (ts, ss)
   where
+    -- error $
+    --  unlines
+    --    [ show $ toLeakInstrDone (Instruction.BType Instruction.NE 0b0000_0000_0000 25 18) Leak.Wb,
+    --      show $ toISADone (Instruction.BType Instruction.NE 0b0000_0000_0000 25 18) Leak.Wb
+    --    ]
+
     ts =
       Leak.State
         { Leak.stateFePc = Core.stateFePc s,
@@ -72,7 +79,8 @@ proj s = (ts, ss)
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
           Leak.stateMemInstr = toISADone (Core.stateMemInstr s) Leak.Mem,
-          Leak.stateWbInstr = toISADone (Core.stateWbInstr s) Leak.Wb,
+          -- We kill branches on WB in leak for state equiv reasons.
+          Leak.stateWbInstr = killBranch $ toISADone (Core.stateWbInstr s) Leak.Wb,
           Leak.stateStall = toStallStages $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
           Leak.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
@@ -84,16 +92,26 @@ proj s = (ts, ss)
         { Sim.stateFePc = Core.stateFePc s,
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
-          Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
+          Sim.stateExInstr = toLeakInstrFunc $ Core.stateExInstr s,
+          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) Leak.Mem,
+          Sim.stateWbInstr = killJump $ toLeakInstrDone (Core.stateWbInstr s) Leak.Wb,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStall = toStallStages $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
 
-    toLeakInstr :: Instruction -> Leak.Instr
-    toLeakInstr inst = Leak.Instr (Leak.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
+    toLeakInstrFunc :: Instruction -> Leak.Instr
+    toLeakInstrFunc inst = Leak.Instr (Leak.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
+
+    toLeakInstrDone :: Instruction -> Leak.Stage -> Leak.Instr
+    toLeakInstrDone inst stage = leak_inst
+      where
+        leak_inst =
+          case isa_inst of
+            ISA.Branch (ISA.Done branched) _
+              | not branched -> Leak.nop
+            _ -> Leak.Instr (Leak.mkInstr isa_inst) (ISA.depSet $ toISAFunc inst)
+        isa_inst = toISADone inst stage
 
     toISAFunc :: Instruction -> ISA.Instr ISA.Func
     toISAFunc i =
@@ -105,11 +123,19 @@ proj s = (ts, ss)
             inputRs2 = 0
           }
 
+    killJump :: Leak.Instr -> Leak.Instr
+    killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
+    killJump i = i
+
+    killBranch :: ISA.Instr ISA.Done -> ISA.Instr ISA.Done
+    killBranch (ISA.Branch {}) = ISA.Nop
+    killBranch i = i
+
     toISADone :: Instruction -> Leak.Stage -> ISA.Instr ISA.Done
     toISADone i stage =
       case li of
         ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
-        ISA.Load size rd _ -> ISA.Load size rd $ ISA.Done $ bitCoerce res
+        ISA.Load size sign rd _ -> ISA.Load size sign rd $ ISA.Done $ bitCoerce res
         ISA.Jump rd _ _ -> ISA.Jump rd (ISA.Done $ bitCoerce res) dontCare
         ISA.Store size _ r2 -> ISA.Store size (ISA.Done $ bitCoerce res) r2
         ISA.Branch _ _ -> ISA.Branch (ISA.Done branched) dontCare
@@ -137,7 +163,8 @@ proj s = (ts, ss)
               [ Core.ctrlFirstCycle,
                 isJust . Core.ctrlExBranch,
                 Core.ctrlMemInputActive,
-                Core.ctrlMemBranch
+                Core.ctrlMemBranch,
+                Core.ctrlDecodeHazard
               ]
             )
           ]

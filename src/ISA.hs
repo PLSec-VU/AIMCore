@@ -25,6 +25,7 @@ import Core
 import Data.Maybe (catMaybes)
 import Data.Set (Set)
 import qualified Data.Set as S
+import Instruction (Sign)
 import qualified Instruction
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -50,7 +51,7 @@ apply (Func f _) r1 r2 pc = Done $ f r1 r2 pc
 
 data Instr f
   = Reg RegIdx (f Word)
-  | Load Size RegIdx (f Address)
+  | Load Size Sign RegIdx (f Address)
   | Jump RegIdx (f Address) (f Address)
   | Store Size (f Address) RegIdx
   | Branch (f Bool) (f Address)
@@ -73,7 +74,7 @@ deriving instance
 
 getRd :: Instr a -> Maybe RegIdx
 getRd (Reg rd _) = pure rd
-getRd (Load _ rd _) = pure rd
+getRd (Load _ _ rd _) = pure rd
 getRd (Jump rd _ _) = pure rd
 getRd _ = empty
 
@@ -88,7 +89,7 @@ isLoad Load {} = True
 isLoad _ = False
 
 loadHazard :: Instr Func -> Instr Func -> Bool
-loadHazard de_ir (ISA.Load _ rd _) =
+loadHazard de_ir (ISA.Load _ _ rd _) =
   elem rd $ S.toList $ depSet de_ir
 loadHazard _ _ = False
 
@@ -100,8 +101,8 @@ instance DepReg (Func a) where
 
 instance DepReg (Instr Func) where
   deps (Reg _ f) = deps f
-  deps (Load _ _ f) = deps f
-  deps Jump {} = (empty, empty)
+  deps (Load _ _ _ f) = deps f
+  deps (Jump _ _ f) = deps f
   deps (Store _ f r2) = (fst $ deps f, pure r2)
   deps (Branch f _) = deps f
   deps Break = (empty, empty)
@@ -133,15 +134,17 @@ interp' instr
            in case iop of
                 Instruction.Arith {} ->
                   Reg rd alu_res
-                Instruction.Load size sign -> do
-                  let loadExtend =
-                        case (size, sign) of
-                          (Byte, Instruction.Signed) -> signExtend . slice d7 d0
-                          (Byte, Instruction.Unsigned) -> zeroExtend . slice d7 d0
-                          (Half, Instruction.Signed) -> signExtend . slice d15 d0
-                          (Half, Instruction.Unsigned) -> signExtend . slice d15 d0
-                          (Word, _) -> signExtend . slice d31 d0
-                  Load size rd $ bitCoerce . loadExtend <$> alu_res
+                Instruction.Load size sign ->
+                  Load size sign rd $ bitCoerce <$> alu_res
+                -- Instruction.Load size sign -> do
+                --  let loadExtend =
+                --        case (size, sign) of
+                --          (Byte, Instruction.Signed) -> signExtend . slice d7 d0
+                --          (Byte, Instruction.Unsigned) -> zeroExtend . slice d7 d0
+                --          (Half, Instruction.Signed) -> signExtend . slice d15 d0
+                --          (Half, Instruction.Unsigned) -> signExtend . slice d15 d0
+                --          (Word, _) -> signExtend . slice d31 d0
+                --  Load size rd $ bitCoerce . loadExtend <$> alu_res
                 Instruction.Jump ->
                   Jump rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
                 Instruction.Env Instruction.Break ->

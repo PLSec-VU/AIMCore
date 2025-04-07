@@ -44,7 +44,11 @@ data Instr = Instr
   { instrBase :: BaseInstr,
     instrDeps :: Set RegIdx
   }
-  deriving (Show, Eq)
+  deriving (Show)
+
+instance Eq Instr where
+  Instr i1 ds1 == Instr i2 ds2 =
+    i1 == i2 && S.filter (/= 0) ds1 == S.filter (/= 0) ds2
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
@@ -142,6 +146,17 @@ decode = do
   when (Core.loadHazard instr ex_ir) $
     stall De
 
+  let isaInstr = ISA.interp' instr
+  tell $
+    mempty
+      { outInstr =
+          pure $
+            Instr
+              { instrBase = mkInstr isaInstr,
+                instrDeps = ISA.depSet isaInstr
+              }
+      }
+
   ifStalling
     De
     ( modify $ \s -> s {stateExInstr = Core.nop}
@@ -152,21 +167,11 @@ decode = do
             { stateExInstr = instr,
               stateExPc = stateDePc s
             }
-        let isaInstr = ISA.interp' instr
-        tell $
-          mempty
-            { outInstr =
-                pure $
-                  Instr
-                    { instrBase = mkInstr isaInstr,
-                      instrDeps = ISA.depSet isaInstr
-                    }
-            }
     )
 
 mkInstr :: ISA.Instr a -> BaseInstr
 mkInstr ISA.Reg {} = Other
-mkInstr (ISA.Load _ rd _) = Load rd
+mkInstr (ISA.Load _ _ rd _) = Load rd
 mkInstr ISA.Jump {} = Jump
 mkInstr ISA.Store {} = Store
 mkInstr ISA.Branch {} = Jump
@@ -202,8 +207,8 @@ execute = do
     case instr of
       ISA.Reg rd f ->
         pure $ ISA.Reg rd $ apply f
-      ISA.Load size rd f ->
-        pure $ ISA.Load size rd $ apply f
+      ISA.Load size sign rd f ->
+        pure $ ISA.Load size sign rd $ apply f
       ISA.Jump rd f_pc f_jump_addr -> do
         informJumpAddr $ apply f_jump_addr
         pure $ ISA.Jump rd (apply f_pc) dontCare
@@ -262,7 +267,17 @@ memory = do
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {stateMeRegFwd = pure (rd, res)}
 
-  modify $ \s -> s {stateWbInstr = stateMemInstr s}
+  modify $ \s ->
+    s
+      { stateWbInstr =
+          -- No longer care about the branches (matters for state equivalence)
+          if isBranch instr
+            then ISA.Nop
+            else instr
+      }
+  where
+    isBranch (ISA.Branch {}) = True
+    isBranch _ = False
 
 writeback :: LeakM ()
 writeback = do
@@ -283,9 +298,9 @@ writeback = do
     case instr of
       ISA.Reg _ (ISA.Done res) ->
         pure $ Just res
-      ISA.Load {} -> do
+      ISA.Load size sign _ _ -> do
         stall De
-        pure $ Just input
+        pure $ Just $ Core.loadExtend size sign input
       ISA.Jump _ (ISA.Done addr) _ ->
         pure $ Just $ bitCoerce addr
       ISA.Store {} -> do

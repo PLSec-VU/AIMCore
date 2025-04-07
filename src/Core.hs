@@ -142,7 +142,9 @@ data Control = Control
     ctrlExBranch :: Maybe Address,
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
-    ctrlMemBranch :: Bool
+    ctrlMemBranch :: Bool,
+    -- Load hazard in decode
+    ctrlDecodeHazard :: Bool
   }
   -- \| Need propagate whether a branch instruction is in the `memory` stage
   -- so we can stall the decode stall another cycle.
@@ -261,7 +263,8 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
-      ctrlMemBranch = False
+      ctrlMemBranch = False,
+      ctrlDecodeHazard = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -312,7 +315,12 @@ fetch = do
 -- | Decode stage.
 decode :: CPUM ()
 decode = do
-  ir <- Instruction.decode' <$> asks inputMem
+  input <- ask
+  -- ir <- Instruction.decode' <$> asks inputMem
+  let ir
+        | inputIsInstr input =
+            Instruction.decode' $ inputMem input
+        | otherwise = Instruction.nop
   ex_ir <- gets stateExInstr
   readRf ir
 
@@ -320,22 +328,28 @@ decode = do
     setLines $
       \c -> c {ctrlDecodeLoad = True}
 
+  -- Has to be in the state for processor equivalence proofs
+  when (loadHazard ir ex_ir) $
+    setLines $
+      \c -> c {ctrlDecodeHazard = True}
+
   stall <-
-    (loadHazard ir ex_ir ||)
-      <$> checkLines
-        [ -- First cycle = gibberish from memory, so we stall.
-          ctrlFirstCycle,
-          -- This means that the branch was taken, so we have to stall and wait
-          -- until the next cycle to get the correct instruction.
-          isJust . ctrlExBranch,
-          -- If the memory input is active (i.e., there's a load down the pipe),
-          -- stall.
-          ctrlMemInputActive,
-          -- Is there a branch instruction in the memory stage for which we take
-          -- the branch? Then the current instruction in the `decode` stage is
-          -- stale and we have to stall.
-          ctrlMemBranch
-        ]
+    checkLines
+      [ -- First cycle = gibberish from memory, so we stall.
+        ctrlFirstCycle,
+        -- This means that the branch was taken, so we have to stall and wait
+        -- until the next cycle to get the correct instruction.
+        isJust . ctrlExBranch,
+        -- If the memory input is active (i.e., there's a load down the pipe),
+        -- stall.
+        ctrlMemInputActive,
+        -- Is there a branch instruction in the memory stage for which we take
+        -- the branch? Then the current instruction in the `decode` stage is
+        -- stale and we have to stall.
+        ctrlMemBranch,
+        -- Load hazard between de_ir and ex_ir
+        ctrlDecodeHazard
+      ]
 
   modify $ \s ->
     if stall
@@ -543,21 +557,12 @@ writeback = do
     lift $ setLines $ \c ->
       c {ctrlWbRegFwd = pure (rd, res)}
 
-  -- We could do a lot better here. It's just annoying to deal with the type
-  -- naturals.
-  let loadExtend = \case
-        (Byte, Signed) -> signExtend $ slice d7 d0 input
-        (Byte, Unsigned) -> zeroExtend $ slice d7 d0 input
-        (Half, Signed) -> signExtend $ slice d15 d0 input
-        (Half, Unsigned) -> signExtend $ slice d15 d0 input
-        (Word, _) -> signExtend $ slice d31 d0 input
-
   case ir of
     Instruction.RType _ rd _ _ -> writeRF rd res
     Instruction.IType (Arith _) rd _ _ -> writeRF rd res
     Instruction.UType _ rd _ -> writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
-      let val = loadExtend (size, sign)
+      let val = loadExtend size sign input
       setLines $ \c ->
         c
           { ctrlWbRegFwd = pure (rd, val),

@@ -82,17 +82,21 @@ fetch = do
 decode :: SimM ()
 decode = do
   instr <- fromMaybe Leak.nop . getFirst <$> asks Leak.outInstr
+  ex_ir <- gets stateExInstr
   when (Leak.isLoad instr) $ do
     stall Fe
-  ex_ir <- gets stateExInstr
   when (Leak.loadHazard instr ex_ir) $
     stall De
 
-  modify $ \s -> s {stateExPc = stateDePc s}
   ifStalling
     De
     (modify $ \s -> s {stateExInstr = Leak.nop})
-    (modify $ \s -> s {stateExInstr = instr})
+    ( modify $ \s ->
+        s
+          { stateExInstr = instr,
+            stateExPc = stateDePc s
+          }
+    )
 
 execute :: SimM ()
 execute = do
@@ -116,7 +120,7 @@ execute = do
         Nothing ->
           modify $ \s ->
             s
-              { stateMemInstr = instr {Leak.instrBase = Leak.Other}
+              { stateMemInstr = Leak.nop
               }
     _ -> pure ()
 
@@ -134,7 +138,17 @@ memory = do
       stall De
     _ -> pure ()
 
-  modify $ \s -> s {stateWbInstr = stateMemInstr s}
+  modify $ \s ->
+    s
+      { stateWbInstr =
+          -- No longer care about the jumps (matters for state equivalence)
+          if isJump instr
+            then Leak.nop
+            else instr
+      }
+  where
+    isJump (Leak.Instr Leak.Jump {} _) = True
+    isJump _ = False
 
 writeback :: SimM ()
 writeback = do

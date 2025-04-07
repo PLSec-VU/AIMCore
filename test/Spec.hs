@@ -6,6 +6,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
+import Data.Maybe (fromJust, isJust)
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
 import Simulate
@@ -213,7 +214,16 @@ instance Arbitrary Instruction where
     resize 10 $
       oneof
         [ RType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> regIdxGen,
-          IType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> immGen,
+          (IType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> immGen)
+            `suchThat` ( \instr -> case instr of
+                           IType (Arith arith) rd rs1 imm ->
+                             case arith of
+                               SLL -> slice d11 d5 imm == 0
+                               SRL -> slice d11 d5 imm == 0
+                               SRA -> slice d11 d5 imm == 0
+                               _ -> True
+                           _ -> True
+                       ),
           SType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
           BType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
           UType <$> arbitrary <*> regIdxGen <*> uImmGen,
@@ -228,6 +238,7 @@ instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
@@ -255,15 +266,15 @@ instance Arbitrary Core.State where
       <*> arbitrary
 
 instance Arbitrary Input where
-  arbitrary =
-    Input
-      <$> arbitrary
-      <*> oneof
-        [ encode <$> arbitrary,
-          arbitrary
-        ]
-      <*> arbitrary
-      <*> arbitrary
+  arbitrary = do
+    isInstr <- arbitrary
+    mem <-
+      if isInstr
+        then fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust)
+        else arbitrary
+    r1 <- arbitrary
+    r2 <- arbitrary
+    pure $ Input isInstr mem r1 r2
 
 theorem :: Gen Property
 theorem = do
@@ -295,6 +306,10 @@ theorem = do
           "s_leaksim':",
           "-------------------------------",
           show s_leaksim',
+          "",
+          "Leak.PC.proj s_core'",
+          "-------------------------------",
+          show $ Leak.PC.proj s_core',
           "",
           "pc_leaksim:",
           "-------------------------------",

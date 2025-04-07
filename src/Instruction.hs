@@ -3,6 +3,7 @@ module Instruction
     decode,
     decode',
     encode,
+    encode',
     nop,
     IOperation (..),
     Arith (..),
@@ -17,6 +18,7 @@ module Instruction
     break,
     loadHazard,
     isLoad,
+    loadExtend,
   )
 where
 
@@ -231,8 +233,8 @@ decode word = do
 -- | Decode a word to an instruction.
 --
 -- https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
-encode :: Instruction -> Word
-encode instruction = do
+encode' :: Instruction -> Maybe Word
+encode' instruction =
   case instruction of
     RType op rd rs1 rs2 -> do
       let opcode = 0b011_0011 :: BitVector 7
@@ -251,43 +253,41 @@ encode instruction = do
       let rd' = pack rd
       let rs1' = pack rs1
       let rs2' = pack rs2
-      funct7 ++# rs2' ++# rs1' ++# funct3 ++# rd' ++# opcode
+      pure $ funct7 ++# rs2' ++# rs1' ++# funct3 ++# rd' ++# opcode
     IType (Arith arith) rd rs1 imm -> do
       let opcode = 0b001_0011 :: BitVector 7
-      let funct3 = case arith of
-            ADD -> 0x0
-            XOR -> 0x4
-            OR -> 0x6
-            AND -> 0x7
-            SLL | slice d11 d5 imm == 0 -> 0x1
-            SRL | slice d11 d5 imm == 0 -> 0x5
-            SRA | slice d11 d5 imm == 0 -> 0x5
-            SLT -> 0x2
-            SLTU -> 0x3
-            _ -> error $ "Incorrect instruction: " <> show instruction
-
+      funct3 <- case arith of
+        ADD -> pure 0x0
+        XOR -> pure 0x4
+        OR -> pure 0x6
+        AND -> pure 0x7
+        SLL | slice d11 d5 imm == 0 -> pure 0x1
+        SRL | slice d11 d5 imm == 0 -> pure 0x5
+        SRA | slice d11 d5 imm == 0 -> pure 0x5
+        SLT -> pure 0x2
+        SLTU -> pure 0x3
+        _ -> Nothing -- error $ "Incorrect instruction: " <> show instruction
       let rd' = pack rd
       let rs1' = pack rs1
-      imm ++# rs1' ++# funct3 ++# rd' ++# opcode
+      pure $ imm ++# rs1' ++# funct3 ++# rd' ++# opcode
     IType (Load size sign) rd rs1 imm -> do
       let opcode = 0b000_0011 :: BitVector 7
-      let funct3 = case (size, sign) of
-            (Byte, Signed) -> 0x0
-            (Half, Signed) -> 0x1
-            (Word, Signed) -> 0x2
-            (Byte, Unsigned) -> 0x4
-            (Half, Unsigned) -> 0x5
-            _ -> error $ "Incorrect instruction: " <> show instruction
-
+      funct3 <- case (size, sign) of
+        (Byte, Signed) -> pure 0x0
+        (Half, Signed) -> pure 0x1
+        (Word, Signed) -> pure 0x2
+        (Byte, Unsigned) -> pure 0x4
+        (Half, Unsigned) -> pure 0x5
+        _ -> Nothing
       let rd' = pack rd
       let rs1' = pack rs1
-      imm ++# rs1' ++# funct3 ++# rd' ++# opcode
+      pure $ imm ++# rs1' ++# funct3 ++# rd' ++# opcode
     IType Jump rd rs1 imm -> do
       let opcode = 0b110_0111 :: BitVector 7
       let funct3 = 0x0
       let rd' = pack rd
       let rs1' = pack rs1
-      imm ++# rs1' ++# funct3 ++# rd' ++# opcode
+      pure $ imm ++# rs1' ++# funct3 ++# rd' ++# opcode
     IType (Env env) rd rs1 _ -> do
       let opcode = 0b111_0011 :: BitVector 7
       let funct3 = 0x0 :: BitVector 3
@@ -296,7 +296,7 @@ encode instruction = do
             Break -> 1
       let rd' = pack rd
       let rs1' = pack rs1
-      imm ++# rs1' ++# funct3 ++# rd' ++# opcode
+      pure $ imm ++# rs1' ++# funct3 ++# rd' ++# opcode
     SType size imm rs1 rs2 -> do
       let opcode = 0b010_0011 :: BitVector 7
       let funct3 :: BitVector 3 = case size of
@@ -309,7 +309,7 @@ encode instruction = do
 
       let rs1' = pack rs1
       let rs2' = pack rs2
-      immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
+      pure $ immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
     BType cmp imm rs1 rs2 -> do
       let opcode = 0b110_0011 :: BitVector 7
 
@@ -330,13 +330,13 @@ encode instruction = do
 
       let rs1' = pack rs1
       let rs2' = pack rs2
-      imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11 ++# opcode
+      pure $ imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11 ++# opcode
     UType base rd imm -> do
       let opcode :: BitVector 7 = case base of
             Zero -> 0b011_0111
             PC -> 0b001_0111
       let rd' = pack rd
-      imm ++# rd' ++# opcode
+      pure $ imm ++# rd' ++# opcode
     JType rd imm -> do
       let opcode :: BitVector 7 = 0b110_1111
 
@@ -353,7 +353,11 @@ encode instruction = do
       let imm20 = slice d19 d19 imm
 
       let rd' = pack rd
-      imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
+      pure $ imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
+
+encode :: Instruction -> Word
+encode instr =
+  fromMaybe (error $ "Incorrect instruction: " <> show instr) $ encode' instr
 
 nop :: Instruction
 nop = RType ADD 0 0 0
@@ -403,3 +407,10 @@ loadHazard _ _ = False
 isLoad :: Instruction -> Bool
 isLoad (IType Load {} _ _ _) = True
 isLoad _ = False
+
+loadExtend :: Size -> Sign -> Word -> Word
+loadExtend Byte Signed = signExtend . slice d7 d0
+loadExtend Byte Unsigned = zeroExtend . slice d7 d0
+loadExtend Half Signed = signExtend . slice d15 d0
+loadExtend Half Unsigned = signExtend . slice d15 d0
+loadExtend Word _ = signExtend . slice d31 d0
