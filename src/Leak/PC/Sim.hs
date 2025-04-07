@@ -85,11 +85,8 @@ decode = do
   ex_ir <- gets stateExInstr
   when (Leak.isLoad instr) $ do
     stall Fe
-  when (Leak.loadHazard instr ex_ir) $
-    stall De
-
-  ifStalling
-    De
+  ifM
+    ((Leak.loadHazard instr ex_ir ||) <$> gets (S.member De . stateStall))
     (modify $ \s -> s {stateExInstr = Leak.nop})
     ( modify $ \s ->
         s

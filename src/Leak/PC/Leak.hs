@@ -143,9 +143,6 @@ decode = do
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
     stall Fe
-  when (Core.loadHazard instr ex_ir) $
-    stall De
-
   let isaInstr = ISA.interp' instr
   tell $
     mempty
@@ -157,8 +154,8 @@ decode = do
               }
       }
 
-  ifStalling
-    De
+  ifM
+    ((Core.loadHazard instr ex_ir ||) <$> gets (S.member De . stateStall))
     ( modify $ \s -> s {stateExInstr = Core.nop}
     )
     ( do

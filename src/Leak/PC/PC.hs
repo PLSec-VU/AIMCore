@@ -163,8 +163,7 @@ proj s =
               [ Core.ctrlFirstCycle,
                 isJust . Core.ctrlExBranch,
                 Core.ctrlMemInputActive,
-                Core.ctrlMemBranch,
-                Core.ctrlDecodeHazard
+                Core.ctrlMemBranch
               ]
             )
           ]

@@ -216,7 +216,7 @@ instance Arbitrary Instruction where
         [ RType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> regIdxGen,
           (IType <$> arbitrary <*> regIdxGen <*> regIdxGen <*> immGen)
             `suchThat` ( \instr -> case instr of
-                           IType (Arith arith) rd rs1 imm ->
+                           IType (Arith arith) _ _ imm ->
                              case arith of
                                SLL -> slice d11 d5 imm == 0
                                SRL -> slice d11 d5 imm == 0
@@ -238,7 +238,6 @@ instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary

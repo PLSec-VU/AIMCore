@@ -142,9 +142,7 @@ data Control = Control
     ctrlExBranch :: Maybe Address,
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
-    ctrlMemBranch :: Bool,
-    -- Load hazard in decode
-    ctrlDecodeHazard :: Bool
+    ctrlMemBranch :: Bool
   }
   -- \| Need propagate whether a branch instruction is in the `memory` stage
   -- so we can stall the decode stall another cycle.
@@ -263,8 +261,7 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
-      ctrlMemBranch = False,
-      ctrlDecodeHazard = False
+      ctrlMemBranch = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -328,28 +325,22 @@ decode = do
     setLines $
       \c -> c {ctrlDecodeLoad = True}
 
-  -- Has to be in the state for processor equivalence proofs
-  when (loadHazard ir ex_ir) $
-    setLines $
-      \c -> c {ctrlDecodeHazard = True}
-
   stall <-
-    checkLines
-      [ -- First cycle = gibberish from memory, so we stall.
-        ctrlFirstCycle,
-        -- This means that the branch was taken, so we have to stall and wait
-        -- until the next cycle to get the correct instruction.
-        isJust . ctrlExBranch,
-        -- If the memory input is active (i.e., there's a load down the pipe),
-        -- stall.
-        ctrlMemInputActive,
-        -- Is there a branch instruction in the memory stage for which we take
-        -- the branch? Then the current instruction in the `decode` stage is
-        -- stale and we have to stall.
-        ctrlMemBranch,
-        -- Load hazard between de_ir and ex_ir
-        ctrlDecodeHazard
-      ]
+    (loadHazard ir ex_ir ||)
+      <$> checkLines
+        [ -- First cycle = gibberish from memory, so we stall.
+          ctrlFirstCycle,
+          -- This means that the branch was taken, so we have to stall and wait
+          -- until the next cycle to get the correct instruction.
+          isJust . ctrlExBranch,
+          -- If the memory input is active (i.e., there's a load down the pipe),
+          -- stall.
+          ctrlMemInputActive,
+          -- Is there a branch instruction in the memory stage for which we take
+          -- the branch? Then the current instruction in the `decode` stage is
+          -- stale and we have to stall.
+          ctrlMemBranch
+        ]
 
   modify $ \s ->
     if stall
