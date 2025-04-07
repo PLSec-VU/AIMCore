@@ -1,4 +1,4 @@
-module Leak.PC.Time
+module Leak.PC.Leak
   ( pipe,
     circuit,
     init,
@@ -25,11 +25,12 @@ import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified ISA
+import qualified Instruction as Core
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-type TimeM = RWS (ISA.Instr ISA.Func, Input) Out State
+type LeakM = RWS Input Out State
 
 data BaseInstr
   = Jump
@@ -64,7 +65,7 @@ data State = State
   { stateFePc :: Address,
     stateDePc :: Address,
     stateExPc :: Address,
-    stateExInstr :: ISA.Instr ISA.Func,
+    stateExInstr :: Core.Instruction,
     stateMemInstr :: ISA.Instr ISA.Done,
     stateWbInstr :: ISA.Instr ISA.Done,
     stateStall :: Set Stage,
@@ -73,7 +74,7 @@ data State = State
     stateWbRegFwd :: Maybe (RegIdx, Word),
     stateJumpAddr :: Maybe Address
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 init :: State
 init =
@@ -81,7 +82,7 @@ init =
     { stateFePc = initPc,
       stateDePc = 0,
       stateExPc = 0,
-      stateExInstr = ISA.Nop,
+      stateExInstr = Core.nop,
       stateMemInstr = ISA.Nop,
       stateWbInstr = ISA.Nop,
       stateHalt = False,
@@ -102,17 +103,17 @@ instance Semigroup Out where
 instance Monoid Out where
   mempty = Out mempty mempty
 
-ifStalling :: Stage -> TimeM a -> TimeM a -> TimeM a
+ifStalling :: Stage -> LeakM a -> LeakM a -> LeakM a
 ifStalling stage = ifM $ gets $ S.member stage . stateStall
 
-stall :: Stage -> TimeM ()
+stall :: Stage -> LeakM ()
 stall stage =
   modify $ \s -> s {stateStall = stage `S.insert` stateStall s}
 
-outputNothing :: TimeM ()
+outputNothing :: LeakM ()
 outputNothing = tell mempty
 
-fetch :: TimeM ()
+fetch :: LeakM ()
 fetch = do
   ifStalling
     Fe
@@ -128,17 +129,22 @@ fetch = do
           }
     )
 
-decode :: TimeM ()
+decode :: LeakM ()
 decode = do
-  instr <- fst <$> ask
+  input <- ask
+  let instr
+        | Core.inputIsInstr input =
+            Core.decode' $ Core.inputMem input
+        | otherwise = Core.nop
   ex_ir <- gets stateExInstr
-  when (ISA.isLoad instr) $
+  when (Core.isLoad instr) $
     stall Fe
-  when (ISA.loadHazard instr ex_ir) $
+  when (Core.loadHazard instr ex_ir) $
     stall De
+
   ifStalling
     De
-    ( modify $ \s -> s {stateExInstr = ISA.Nop}
+    ( modify $ \s -> s {stateExInstr = Core.nop}
     )
     ( do
         modify $ \s ->
@@ -146,13 +152,14 @@ decode = do
             { stateExInstr = instr,
               stateExPc = stateDePc s
             }
+        let isaInstr = ISA.interp' instr
         tell $
           mempty
             { outInstr =
                 pure $
                   Instr
-                    { instrBase = mkInstr instr,
-                      instrDeps = ISA.depSet instr
+                    { instrBase = mkInstr isaInstr,
+                      instrDeps = ISA.depSet isaInstr
                     }
             }
     )
@@ -166,9 +173,26 @@ mkInstr ISA.Branch {} = Jump
 mkInstr ISA.Break = Break
 mkInstr ISA.Nop = Other
 
-execute :: TimeM ()
+execute :: LeakM ()
 execute = do
-  instr <- gets stateExInstr
+  instr <- gets $ ISA.interp' . stateExInstr
+  let r1M :: LeakM Word
+      r1M = regWithFwd ISA.getR1 =<< asks Core.inputRs1
+
+      r2M :: LeakM Word
+      r2M = regWithFwd ISA.getR2 =<< asks Core.inputRs2
+
+      regWithFwd :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> Word -> LeakM Word
+      regWithFwd getR def =
+        let checkForFwd line = do
+              (fwdIdx, fwdVal) <- MaybeT $ gets line
+              guard (hazardRW getR instr fwdIdx)
+              pure fwdVal
+         in fmap
+              (fromMaybe def)
+              $ runMaybeT
+              $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
+
   r1 <- r1M
   r2 <- r2M
   pc <- gets stateExPc
@@ -181,52 +205,36 @@ execute = do
       ISA.Load size rd f ->
         pure $ ISA.Load size rd $ apply f
       ISA.Jump rd f_pc f_jump_addr -> do
-        let jump_addr = apply f_jump_addr
-        informJumpAddr jump_addr
-        pure $ ISA.Jump rd (apply f_pc) jump_addr
+        informJumpAddr $ apply f_jump_addr
+        pure $ ISA.Jump rd (apply f_pc) dontCare
       ISA.Store size f_addr r ->
         pure $ ISA.Store size (apply f_addr) r
       ISA.Branch f_branched f_jump_addr -> do
         let branched = apply f_branched
-            jump_addr = apply f_jump_addr
         when (ISA.unDone branched) $
-          informJumpAddr jump_addr
-        pure $ ISA.Branch branched jump_addr
+          informJumpAddr $
+            apply f_jump_addr
+        pure $ ISA.Branch branched dontCare
       ISA.Break -> pure ISA.Break
       ISA.Nop -> pure ISA.Nop
 
   modify $ \s -> s {stateMemInstr = instr'}
   where
-    informJumpAddr :: ISA.Done Address -> TimeM ()
+    dontCare :: ISA.Done Address
+    dontCare = ISA.Done 0
+
+    informJumpAddr :: ISA.Done Address -> LeakM ()
     informJumpAddr jump_addr = do
       stall De
       tell $ mempty {outJumpAddr = pure $ ISA.unDone jump_addr}
       modify $ \s -> s {stateJumpAddr = pure $ ISA.unDone jump_addr}
-
-    r1M :: TimeM Word
-    r1M = regWithFwd ISA.getR1 =<< asks (Core.inputRs1 . snd)
-
-    r2M :: TimeM Word
-    r2M = regWithFwd ISA.getR2 =<< asks (Core.inputRs2 . snd)
-
-    regWithFwd :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> Word -> TimeM Word
-    regWithFwd getR def = do
-      ir <- gets stateExInstr
-      let checkForFwd line = do
-            (fwdIdx, fwdVal) <- MaybeT $ gets line
-            guard (hazardRW getR ir fwdIdx)
-            pure fwdVal
-      fmap
-        (fromMaybe def)
-        $ runMaybeT
-        $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
     hazardRW :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> ISA.Instr ISA.Func -> RegIdx -> Bool
     hazardRW getR src rd = isJust $ do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
 
-memory :: TimeM ()
+memory :: LeakM ()
 memory = do
   instr <- gets stateMemInstr
 
@@ -256,9 +264,9 @@ memory = do
 
   modify $ \s -> s {stateWbInstr = stateMemInstr s}
 
-writeback :: TimeM ()
+writeback :: LeakM ()
 writeback = do
-  input <- asks $ Core.inputMem . snd
+  input <- asks Core.inputMem
   instr <- gets stateWbInstr
   stateHalted <- gets stateHalt
 
@@ -287,7 +295,7 @@ writeback = do
         modify $ \s ->
           s
             { stateMemInstr = ISA.Nop,
-              stateExInstr = ISA.Nop,
+              stateExInstr = Core.nop,
               stateHalt = True
             }
         outputNothing
@@ -299,7 +307,7 @@ writeback = do
     res <- MaybeT $ pure mres
     lift $ modify $ \s -> s {stateWbRegFwd = pure (rd, res)}
 
-pipe :: TimeM ()
+pipe :: LeakM ()
 pipe = do
   resetCtrl
   writeback
@@ -308,7 +316,7 @@ pipe = do
   decode
   fetch
   where
-    resetCtrl :: TimeM ()
+    resetCtrl :: LeakM ()
     resetCtrl =
       modify $ \s ->
         s
@@ -318,5 +326,5 @@ pipe = do
             stateJumpAddr = Nothing
           }
 
-circuit :: State -> (ISA.Instr ISA.Func, Input) -> (State, Out)
+circuit :: State -> Input -> (State, Out)
 circuit = flip $ execRWS pipe

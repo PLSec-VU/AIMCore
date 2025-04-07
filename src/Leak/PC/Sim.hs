@@ -13,8 +13,8 @@ import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as S
-import Leak.PC.Time (Stage (..))
-import qualified Leak.PC.Time as Time
+import Leak.PC.Leak (Stage (..))
+import qualified Leak.PC.Leak as Leak
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -23,14 +23,14 @@ data State = State
   { stateFePc :: Address,
     stateDePc :: Address,
     stateExPc :: Address,
-    stateExInstr :: Time.Instr,
-    stateMemInstr :: Time.Instr,
-    stateWbInstr :: Time.Instr,
+    stateExInstr :: Leak.Instr,
+    stateMemInstr :: Leak.Instr,
+    stateWbInstr :: Leak.Instr,
     stateJumpAddr :: Maybe Address,
     stateStall :: Set Stage,
     stateHalt :: Bool
   }
-  deriving (Show)
+  deriving (Show, Eq)
 
 init :: State
 init =
@@ -38,15 +38,15 @@ init =
     { stateFePc = initPc,
       stateDePc = 0,
       stateExPc = 0,
-      stateExInstr = Time.nop,
-      stateMemInstr = Time.nop,
-      stateWbInstr = Time.nop,
+      stateExInstr = Leak.nop,
+      stateMemInstr = Leak.nop,
+      stateWbInstr = Leak.nop,
       stateHalt = False,
       stateStall = mempty,
       stateJumpAddr = Nothing
     }
 
-type SimM = RWS Time.Out (First (Maybe Address)) State
+type SimM = RWS Leak.Out (First (Maybe Address)) State
 
 ifStalling :: Stage -> SimM a -> SimM a -> SimM a
 ifStalling stage = ifM $ gets $ S.member stage . stateStall
@@ -81,56 +81,56 @@ fetch = do
 
 decode :: SimM ()
 decode = do
-  instr <- fromMaybe Time.nop . getFirst <$> asks Time.outInstr
-  when (Time.isLoad instr) $ do
+  instr <- fromMaybe Leak.nop . getFirst <$> asks Leak.outInstr
+  when (Leak.isLoad instr) $ do
     stall Fe
   ex_ir <- gets stateExInstr
-  when (Time.loadHazard instr ex_ir) $
+  when (Leak.loadHazard instr ex_ir) $
     stall De
 
   modify $ \s -> s {stateExPc = stateDePc s}
   ifStalling
     De
-    (modify $ \s -> s {stateExInstr = Time.nop})
+    (modify $ \s -> s {stateExInstr = Leak.nop})
     (modify $ \s -> s {stateExInstr = instr})
 
 execute :: SimM ()
 execute = do
   instr <- gets stateExInstr
-  mjmpAddr <- getFirst <$> asks Time.outJumpAddr
+  mjmpAddr <- getFirst <$> asks Leak.outJumpAddr
   modify $ \s ->
     s
       { stateJumpAddr = mjmpAddr,
         stateMemInstr = instr
       }
 
-  case Time.instrBase instr of
-    Time.Jump -> do
+  case Leak.instrBase instr of
+    Leak.Jump -> do
       case mjmpAddr of
         Just {} -> do
           stall De
           modify $ \s ->
             s
-              { stateMemInstr = instr {Time.instrBase = Time.Jump}
+              { stateMemInstr = instr {Leak.instrBase = Leak.Jump}
               }
         Nothing ->
           modify $ \s ->
             s
-              { stateMemInstr = instr {Time.instrBase = Time.Other}
+              { stateMemInstr = instr {Leak.instrBase = Leak.Other}
               }
     _ -> pure ()
 
 memory :: SimM ()
 memory = do
   instr <- gets stateMemInstr
-  case Time.instrBase instr of
-    Time.Load {} -> do
+  case Leak.instrBase instr of
+    Leak.Load {} -> do
       outputNothing
       stall Fe
-    Time.Store -> do
+    Leak.Store -> do
       outputNothing
       stall Fe
-    Time.Jump ->
+    Leak.Jump ->
       stall De
     _ -> pure ()
 
@@ -145,18 +145,18 @@ writeback = do
     halted
     outputNothing
 
-  case Time.instrBase instr of
-    Time.Break -> do
+  case Leak.instrBase instr of
+    Leak.Break -> do
       outputNothing
       modify $ \s ->
         s
-          { stateMemInstr = Time.nop,
-            stateExInstr = Time.nop,
+          { stateMemInstr = Leak.nop,
+            stateExInstr = Leak.nop,
             stateHalt = True
           }
-    Time.Load {} -> do
+    Leak.Load {} -> do
       stall De
-    Time.Store -> do
+    Leak.Store -> do
       stall De
     _ -> pure ()
 
@@ -177,5 +177,5 @@ pipe = do
             stateJumpAddr = Nothing
           }
 
-circuit :: State -> Time.Out -> (State, Maybe Address)
+circuit :: State -> Leak.Out -> (State, Maybe Address)
 circuit s i = fromMaybe Nothing . getFirst <$> execRWS pipe i s

@@ -316,10 +316,9 @@ decode = do
   ex_ir <- gets stateExInstr
   readRf ir
 
-  case ir of
-    IType Load {} _ _ _ ->
-      setLines $ \c -> c {ctrlDecodeLoad = True}
-    _ -> pure ()
+  when (isLoad ir) $
+    setLines $
+      \c -> c {ctrlDecodeLoad = True}
 
   stall <-
     (loadHazard ir ex_ir ||)
@@ -353,15 +352,6 @@ decode = do
           { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
             outRs2 = pure $ fromMaybe 0 $ getRs2 ir
           }
-
-    loadHazard :: Instruction -> Instruction -> Bool
-    loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
-      let mr1 = getRs1 de_ir
-          mr2 = getRs2 de_ir
-          mrd = getRd ex_ir
-      (guard =<< (==) <$> mrd <*> mr1)
-        <|> (guard =<< (==) <$> mrd <*> mr2)
-    loadHazard _ _ = False
 
 -- | Execute stage.
 execute :: CPUM ()

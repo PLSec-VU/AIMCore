@@ -30,9 +30,9 @@ library
       Instruction
       ISA
       Leak.Arch.Arch
+      Leak.PC.Leak
       Leak.PC.PC
       Leak.PC.Sim
-      Leak.PC.Time
       Leak.PCWithState.PCWithState
       Pretty
       Regfile

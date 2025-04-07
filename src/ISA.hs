@@ -16,6 +16,7 @@ module ISA
     isLoad,
     loadHazard,
     interp,
+    interp',
   )
 where
 
@@ -42,7 +43,7 @@ instance Functor Func where
   fmap g (Func f d) = Func (\r1 r2 pc -> g $ f r1 r2 pc) d
 
 newtype Done a = Done {unDone :: a}
-  deriving (Show)
+  deriving (Show, Eq)
 
 apply :: Func a -> Word -> Word -> PC -> Done a
 apply (Func f _) r1 r2 pc = Done $ f r1 r2 pc
@@ -62,6 +63,13 @@ deriving instance
     Show (f Bool)
   ) =>
   Show (Instr f)
+
+deriving instance
+  ( Eq (f Word),
+    Eq (f Address),
+    Eq (f Bool)
+  ) =>
+  Eq (Instr f)
 
 getRd :: Instr a -> Maybe RegIdx
 getRd (Reg rd _) = pure rd
@@ -107,6 +115,10 @@ depSet a =
 interp :: Input -> Instr Func
 interp input
   | not (inputIsInstr input) = Nop
+  | otherwise = interp' $ Instruction.decode' $ inputMem input
+
+interp' :: Instruction.Instruction -> Instr Func
+interp' instr
   | Instruction.isBreak instr = Break
   | otherwise =
       case instr of
@@ -152,9 +164,6 @@ interp input
         Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
   where
-    instr :: Instruction.Instruction
-    instr = Instruction.decode' $ inputMem input
-
     constF :: a -> Func a
     constF a =
       Func

@@ -274,7 +274,7 @@ theorem = do
       (s_core', o_core) = Core.circuit s_core input
       pc_core = Leak.PC.obs o_core
   pure $
-    flip counterexample (pc_core == pc_leaksim) $
+    flip counterexample (pc_core == pc_leaksim && Leak.PC.proj s_core' == s_leaksim') $
       unlines
         [ "input: ",
           "-------------------------------",

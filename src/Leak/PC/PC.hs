@@ -26,8 +26,8 @@ import qualified Data.Set as S
 import qualified ISA
 import Instruction (Instruction)
 import qualified Instruction
+import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
-import qualified Leak.PC.Time as Time
 import Regfile
 import qualified Simulate
 import Types
@@ -47,53 +47,53 @@ obs o_sim = do
   guard $ memIsInstr mem
   pure $ memAddress mem
 
-leak :: Time.State -> Input -> (Time.State, Time.Out)
-leak ts input = Time.circuit ts (ISA.interp input, input)
+leak :: Leak.State -> Input -> (Leak.State, Leak.Out)
+leak = Leak.circuit
 
-sim :: Sim.State -> Time.Out -> (Sim.State, Maybe Address)
+sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
 sim = Sim.circuit
 
 circuit ::
-  (Time.State, Sim.State) ->
+  (Leak.State, Sim.State) ->
   Input ->
-  ((Time.State, Sim.State), Maybe Address)
+  ((Leak.State, Sim.State), Maybe Address)
 circuit (ts, ss) input = ((ts', ss'), addr)
   where
     (ts', leakage) = leak ts input
     (ss', addr) = sim ss leakage
 
-proj :: Core.State -> (Time.State, Sim.State)
+proj :: Core.State -> (Leak.State, Sim.State)
 proj s = (ts, ss)
   where
     ts =
-      Time.State
-        { Time.stateFePc = Core.stateFePc s,
-          Time.stateDePc = Core.stateDePc s,
-          Time.stateExPc = Core.stateExPc s,
-          Time.stateExInstr = toISAFunc $ Core.stateExInstr s,
-          Time.stateMemInstr = toISADone (Core.stateMemInstr s) Time.Mem,
-          Time.stateWbInstr = toISADone (Core.stateWbInstr s) Time.Wb,
-          Time.stateStall = toStallStages $ Core.stateCtrl s,
-          Time.stateHalt = Core.stateHalt s,
-          Time.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
-          Time.stateWbRegFwd = Core.ctrlWbRegFwd $ Core.stateCtrl s,
-          Time.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
+      Leak.State
+        { Leak.stateFePc = Core.stateFePc s,
+          Leak.stateDePc = Core.stateDePc s,
+          Leak.stateExPc = Core.stateExPc s,
+          Leak.stateExInstr = Core.stateExInstr s,
+          Leak.stateMemInstr = toISADone (Core.stateMemInstr s) Leak.Mem,
+          Leak.stateWbInstr = toISADone (Core.stateWbInstr s) Leak.Wb,
+          Leak.stateStall = toStallStages $ Core.stateCtrl s,
+          Leak.stateHalt = Core.stateHalt s,
+          Leak.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
+          Leak.stateWbRegFwd = Core.ctrlWbRegFwd $ Core.stateCtrl s,
+          Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
     ss =
       Sim.State
         { Sim.stateFePc = Core.stateFePc s,
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
-          Sim.stateExInstr = toTimeInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toTimeInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = toTimeInstr $ Core.stateWbInstr s,
+          Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
+          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStall = toStallStages $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
 
-    toTimeInstr :: Instruction -> Time.Instr
-    toTimeInstr inst = Time.Instr (Time.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
+    toLeakInstr :: Instruction -> Leak.Instr
+    toLeakInstr inst = Leak.Instr (Leak.mkInstr $ toISAFunc inst) (ISA.depSet $ toISAFunc inst)
 
     toISAFunc :: Instruction -> ISA.Instr ISA.Func
     toISAFunc i =
@@ -105,7 +105,7 @@ proj s = (ts, ss)
             inputRs2 = 0
           }
 
-    toISADone :: Instruction -> Time.Stage -> ISA.Instr ISA.Done
+    toISADone :: Instruction -> Leak.Stage -> ISA.Instr ISA.Done
     toISADone i stage =
       case li of
         ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
@@ -118,22 +118,22 @@ proj s = (ts, ss)
       where
         li = toISAFunc i
         res
-          | stage == Time.Mem = Core.stateMemRes s
+          | stage == Leak.Mem = Core.stateMemRes s
           | otherwise = Core.stateWbRes s
-        branched = (stage == Time.Mem) && Core.stateMemBranch s
+        branched = (stage == Leak.Mem) && Core.stateMemBranch s
         dontCare = ISA.Done 0
 
-    toStallStages :: Core.Control -> Set Time.Stage
+    toStallStages :: Core.Control -> Set Leak.Stage
     toStallStages ctrl =
       S.fromList [stage | (stage, conds) <- stallConditions, any ($ ctrl) conds]
       where
         stallConditions =
-          [ ( Time.Fe,
+          [ ( Leak.Fe,
               [ Core.ctrlDecodeLoad,
                 Core.ctrlMemOutputActive
               ]
             ),
-            ( Time.De,
+            ( Leak.De,
               [ Core.ctrlFirstCycle,
                 isJust . Core.ctrlExBranch,
                 Core.ctrlMemInputActive,
@@ -146,19 +146,19 @@ simulator ::
   forall m.
   ( MonadState ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) m
   ) =>
-  CircuitSim m Input (Time.State, Sim.State) (Maybe Address, Maybe Address)
+  CircuitSim m Input (Leak.State, Sim.State) (Maybe Address, Maybe Address)
 simulator =
   CircuitSim
     { circuitInput = initInput,
-      circuitState = (Time.init, Sim.init),
+      circuitState = (Leak.init, Sim.init),
       circuitStep = step,
       circuitNext = next
     }
   where
     step ::
       Input ->
-      (Time.State, Sim.State) ->
-      m ((Time.State, Sim.State), (Maybe Address, Maybe Address))
+      (Leak.State, Sim.State) ->
+      m ((Leak.State, Sim.State), (Maybe Address, Maybe Address))
     step i s = do
       ((s_sim, _), mem) <- get
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
@@ -177,7 +177,7 @@ runSimulator ::
   ( CircuitSim
       (State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES))
       Input
-      (Time.State, Sim.State)
+      (Leak.State, Sim.State)
       (Maybe Address, Maybe Address) ->
     State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) a
   ) ->
@@ -189,7 +189,7 @@ runSimulator f prog = evalState (f simulator) s
 
 watchSim ::
   Vec PROG_SIZE Word ->
-  [((Time.State, Sim.State), (Maybe Address, Maybe Address), Maybe Input)]
+  [((Leak.State, Sim.State), (Maybe Address, Maybe Address), Maybe Input)]
 watchSim = runSimulator watch
 
 pcsEqual :: Vec PROG_SIZE Word -> Bool

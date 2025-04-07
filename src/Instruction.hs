@@ -15,11 +15,14 @@ module Instruction
     getRs2,
     isBreak,
     break,
+    loadHazard,
+    isLoad,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, break)
-import Data.Maybe (fromMaybe)
+import Control.Monad
+import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined)
 
@@ -387,3 +390,16 @@ isBreak _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0
+
+loadHazard :: Instruction -> Instruction -> Bool
+loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
+  let mr1 = getRs1 de_ir
+      mr2 = getRs2 de_ir
+      mrd = getRd ex_ir
+  (guard =<< (==) <$> mrd <*> mr1)
+    <|> (guard =<< (==) <$> mrd <*> mr2)
+loadHazard _ _ = False
+
+isLoad :: Instruction -> Bool
+isLoad (IType Load {} _ _ _) = True
+isLoad _ = False
