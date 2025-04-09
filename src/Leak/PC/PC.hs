@@ -6,7 +6,7 @@ module Leak.PC.PC
     sim,
     circuit,
     proj,
-    simulator,
+    Leak.PC.PC.simulator,
     runSimulator,
     watchSim,
     pcsEqual,
@@ -32,18 +32,22 @@ import qualified Leak.PC.Sim as Sim
 import Regfile
 import qualified Simulate
 import Types
+import UC
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 -- Uncomment this to check the leakage.
 -- import UC (Spec (..))
 --
--- {-# ANN implementation Spec
---   { observation' = 'obs
---   , leakage' = 'leak
---   , simulator' = 'sim
---   , projection' = 'proj
---   } #-}
+-- {-# ANN
+--   implementation
+--   Spec
+--     { observation' = 'obs,
+--       leakage' = 'leak,
+--       simulator' = 'sim,
+--       projection' = 'proj
+--     }
+--   #-}
 implementation :: Core.State -> Input -> (Core.State, Output)
 implementation = Core.circuit
 
@@ -215,7 +219,7 @@ runSimulator ::
   ) ->
   Vec PROG_SIZE Word ->
   a
-runSimulator f prog = evalState (f simulator) s
+runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
     s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
 
