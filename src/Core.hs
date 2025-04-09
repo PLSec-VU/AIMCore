@@ -20,6 +20,7 @@ module Core
     Control (..),
     alu,
     branch,
+    topEntity,
   )
 where
 
@@ -33,6 +34,14 @@ import Instruction hiding (decode)
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
+
+topEntity ::
+  Clock System ->
+  Reset System ->
+  Enable System ->
+  Signal System Input ->
+  Signal System Output
+topEntity = exposeClockResetEnable $ mealy circuit init
 
 -- | The input to the CPU.
 data Input = Input
@@ -313,7 +322,6 @@ fetch = do
 decode :: CPUM ()
 decode = do
   input <- ask
-  -- ir <- Instruction.decode' <$> asks inputMem
   let ir
         | inputIsInstr input =
             Instruction.decode' $ inputMem input

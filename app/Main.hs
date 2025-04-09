@@ -9,7 +9,7 @@ module Main (main) where
 -- import Prelude hiding (Word, init)
 
 main :: IO ()
-main = undefined
+main = pure ()
 
 -- main :: IO ()
 -- main = do
