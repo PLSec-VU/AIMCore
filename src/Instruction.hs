@@ -110,8 +110,110 @@ data Instruction
     JType RegIdx UImm
   deriving (Eq, Show, Generic, NFDataX)
 
+{-# INLINE decode' #-}
 decode' :: Word -> Instruction
-decode' = fromMaybe nop . decode
+decode' word =
+  let opcode = slice d6 d0 word
+
+      rd = unpack $ slice d11 d7 word
+      rs1 = unpack $ slice d19 d15 word
+      rs2 = unpack $ slice d24 d20 word
+
+      funct3 = slice d14 d12 word
+      funct7 = slice d31 d25 word
+
+      immI = slice d31 d20 word
+      immS =
+        slice d31 d25 word
+          ++# slice d11 d7 word
+      immB =
+        slice d31 d31 word
+          ++# slice d7 d7 word
+          ++# slice d30 d25 word
+          ++# slice d11 d8 word
+      immU = slice d31 d12 word
+      immJ =
+        slice d31 d31 word
+          ++# slice d19 d12 word
+          ++# slice d20 d20 word
+          ++# slice d30 d21 word
+   in case opcode of
+        -- R-Type
+        0b011_0011 ->
+          let instr arith = RType arith rd rs1 rs2
+           in case (funct3, funct7) of
+                (0x0, 0x00) -> instr ADD
+                (0x0, 0x20) -> instr SUB
+                (0x4, 0x00) -> instr XOR
+                (0x6, 0x00) -> instr OR
+                (0x7, 0x00) -> instr AND
+                (0x1, 0x00) -> instr SLL
+                (0x5, 0x00) -> instr SRL
+                (0x5, 0x20) -> instr SRA
+                (0x2, 0x00) -> instr SLT
+                (0x3, 0x00) -> instr SLTU
+                _ -> nop
+        -- I-Type arithmetic
+        0b001_0011 ->
+          let instr arith = IType (Arith arith) rd rs1 immI
+           in case funct3 of
+                0x0 -> instr ADD
+                0x4 -> instr XOR
+                0x6 -> instr OR
+                0x7 -> instr AND
+                0x1 | funct7 == 0x00 -> instr SLL
+                0x5 | funct7 == 0x00 -> instr SRL
+                0x5 | funct7 == 0x20 -> instr SRA
+                0x2 -> instr SLT
+                0x3 -> instr SLTU
+                _ -> nop
+        -- I-Type load
+        0b000_0011 -> do
+          let instr (size, sign) = IType (Load size sign) rd rs1 immI
+           in case funct3 of
+                0x0 -> instr (Byte, Signed)
+                0x1 -> instr (Half, Signed)
+                0x2 -> instr (Word, Signed)
+                0x4 -> instr (Byte, Unsigned)
+                0x5 -> instr (Half, Unsigned)
+                _ -> nop
+
+        -- I-Type jump
+        0b110_0111 | funct3 == 0x0 -> IType Jump rd rs1 immI
+        -- I-Type environment
+        0b111_0011
+          | funct3 == 0x0 ->
+              let instr env = IType (Env env) rd rs1 immI
+               in case immI of
+                    0 -> instr Call
+                    1 -> instr Break
+                    _ -> nop
+        -- S-Type
+        0b010_0011 ->
+          let instr size = SType size immS rs1 rs2
+           in case funct3 of
+                0x0 -> instr Byte
+                0x1 -> instr Half
+                0x2 -> instr Word
+                _ -> nop
+        -- B-Type
+        0b110_0011 ->
+          let instr cmp = BType cmp immB rs1 rs2
+           in case funct3 of
+                0x0 -> instr EQ
+                0x1 -> instr NE
+                0x4 -> instr LT
+                0x5 -> instr GE
+                0x6 -> instr LTU
+                0x7 -> instr GEU
+                _ -> nop
+        -- U-Type load upper immediate
+        0b011_0111 -> UType Zero rd immU
+        -- U-Type add upper immediate to PC
+        0b001_0111 -> UType PC rd immU
+        -- J-Type
+        0b110_1111 -> JType rd immJ
+        _ -> nop
 
 -- | Decode a word to an instruction.
 --
