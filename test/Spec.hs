@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE PackageImports #-}
 
 module Main (main) where
 
@@ -13,8 +14,8 @@ import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
-import Types
-import Util
+import "uc-risc-v" Types
+import "uc-risc-v" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
 
 main :: IO ()

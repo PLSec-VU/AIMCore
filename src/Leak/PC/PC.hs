@@ -10,6 +10,7 @@ module Leak.PC.PC
     runSimulator,
     watchSim,
     pcsEqual,
+    implementation,
   )
 where
 
@@ -34,15 +35,26 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
--- {-# ANN Core.circuit Spec
+-- Uncomment this to check the leakage.
+-- import UC (Spec (..))
+--
+-- {-# ANN implementation Spec
 --   { observation' = 'obs
 --   , leakage' = 'leak
 --   , simulator' = 'sim
 --   , projection' = 'proj
 --   } #-}
+implementation :: Core.State -> Input -> (Core.State, Output)
+implementation = Core.circuit
 
-obs :: Output -> Maybe Address
-obs o_sim = do
+stateless :: (a -> b) -> () -> a -> ((), b)
+stateless f _ x = ((), f x)
+
+obs :: () -> Output -> ((), Maybe Address)
+obs = stateless obs'
+
+obs' :: Output -> Maybe Address
+obs' o_sim = do
   mem <- getFirst $ outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
@@ -62,8 +74,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ts', leakage) = leak ts input
     (ss', addr) = sim ss leakage
 
-proj :: Core.State -> (Leak.State, Sim.State)
-proj s = (ts, ss)
+proj :: (Core.State, ()) -> (Leak.State, Sim.State)
+proj (s, _) = (ts, ss)
   where
     ts =
       Leak.State
@@ -184,7 +196,7 @@ simulator =
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
       put (res_sim, mem')
       let (s', o) = circuit s i
-      pure (s', (o, obs o_sim))
+      pure (s', (o, obs' o_sim))
 
     next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
     next (_o, _addr_sim) = do
