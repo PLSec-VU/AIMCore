@@ -21,8 +21,6 @@ import Core (Input)
 import qualified Core
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set as S
 import qualified ISA
 import qualified Instruction as Core
 import Types
@@ -41,25 +39,29 @@ data BaseInstr
 
 data Instr = Instr
   { instrBase :: BaseInstr,
-    instrDeps :: Set RegIdx
+    instrDeps :: (Maybe RegIdx, Maybe RegIdx)
   }
   deriving (Show)
 
 instance Eq Instr where
-  Instr i1 ds1 == Instr i2 ds2 =
-    i1 == i2 && S.filter (/= 0) ds1 == S.filter (/= 0) ds2
+  Instr i1 (ra1, rb1) == Instr i2 (ra2, rb2) =
+    i1 == i2 && ((noZero ra1, noZero rb1) == (noZero ra2, noZero rb2))
+    where
+      noZero (Just 0) = Nothing
+      noZero r = r
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
 isLoad _ = False
 
 loadHazard :: Instr -> Instr -> Bool
-loadHazard de_ir (Instr (Load rd) _) =
-  elem rd $ S.toList $ instrDeps de_ir
+loadHazard (Instr _ (dep1, dep2)) (Instr (Load rd) _) =
+  fromMaybe False ((rd ==) <$> dep1)
+    || fromMaybe False ((rd ==) <$> dep2)
 loadHazard _ _ = False
 
 nop :: Instr
-nop = Instr Other mempty
+nop = Instr Other (Nothing, Nothing)
 
 data State = State
   { stateFePc :: Address,
@@ -147,7 +149,7 @@ decode = do
           pure $
             Instr
               { instrBase = mkInstr isaInstr,
-                instrDeps = ISA.depSet isaInstr
+                instrDeps = ISA.deps isaInstr
               }
       }
 

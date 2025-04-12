@@ -120,7 +120,7 @@ proj (s, _) = (ts, ss)
     toLeakInstrFunc inst =
       Leak.Instr
         (Leak.mkInstr $ toISAFunc inst)
-        (ISA.depSet $ toISAFunc inst)
+        (ISA.deps $ toISAFunc inst)
 
     toLeakInstrDone :: Instruction -> Bool -> Leak.Instr
     toLeakInstrDone inst isMem = leak_inst
@@ -129,7 +129,7 @@ proj (s, _) = (ts, ss)
           case isa_inst of
             ISA.Branch (ISA.Done branched) _
               | not branched -> Leak.nop
-            _ -> Leak.Instr (Leak.mkInstr isa_inst) (ISA.depSet $ toISAFunc inst)
+            _ -> Leak.Instr (Leak.mkInstr isa_inst) (ISA.deps $ toISAFunc inst)
         isa_inst = toISADone inst isMem
 
     toISAFunc :: Instruction -> ISA.Instr ISA.Func
