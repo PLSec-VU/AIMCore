@@ -494,14 +494,14 @@ memory = do
       writeRAM (unpack res) size (unpack r2)
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
-    Instruction.IType Load {} _ _ _ -> do
+    Instruction.IType (Load size _) _ _ _ -> do
       setLines $ \c ->
         c
           { -- Don't forward loads that haven't happened yet
             ctrlMeRegFwd = Nothing,
             ctrlMemOutputActive = True
           }
-      readRAM $ unpack res
+      readRAM (unpack res) size
     Instruction.BType {} -> do
       branched <- gets stateMemBranch
       when branched $
@@ -533,7 +533,7 @@ writeback = do
   when halted $ do
     tell $
       mempty {outHalt = pure True}
-    readRAM 0
+    readRAM 0 Word
 
   when (isBreak ir) $ do
     -- Flush the pipeline
@@ -542,7 +542,7 @@ writeback = do
         { stateMemInstr = nop,
           stateExInstr = nop
         }
-    readRAM 0
+    readRAM 0 Word
     halt
 
   try $ do
@@ -588,8 +588,8 @@ readPC addr =
               }
       }
 
-readRAM :: (MonadWriter Output m) => Address -> m ()
-readRAM addr =
+readRAM :: (MonadWriter Output m) => Address -> Size -> m ()
+readRAM addr size =
   tell $
     mempty
       { outMem =
@@ -597,7 +597,7 @@ readRAM addr =
             MemAccess
               { memIsInstr = False,
                 memAddress = addr,
-                memSize = Word,
+                memSize = size,
                 memVal = Nothing
               }
       }

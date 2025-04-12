@@ -1,109 +1,146 @@
 {-# LANGUAGE TupleSections #-}
 
-module HardwareSim () where
+module HardwareSim (topEntity) where
 
--- import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
--- import Clash.Sized.Vector (unsafeFromList)
--- import Control.Monad
--- import Control.Monad.IO.Class
--- import Control.Monad.RWS
--- import Control.Monad.State
--- import Control.Monad.Writer
--- import Data.Bifunctor
--- import Data.Either
--- import Data.Maybe (fromMaybe)
--- import Data.Monoid
--- import qualified Debug.Trace as DB
--- import Instruction hiding (decode)
--- import Pipe
--- import Regfile
--- import qualified Simulate
--- import Text.Read (readMaybe)
--- import Types
--- import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
--- import qualified Prelude
+import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
+import Clash.Sized.Vector (unsafeFromList)
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.RWS
+import Control.Monad.State
+import Control.Monad.Writer
+import Core hiding (topEntity)
+import Data.Bifunctor
+import Data.Either
+import Data.Maybe (fromMaybe)
+import Data.Monoid
+import qualified Debug.Trace as DB
+import qualified GHC.TypeNats
+import Instruction hiding (decode)
+import Regfile
+import qualified Simulate
+import Text.Read (readMaybe)
+import Types
+import Util (PROG_SIZE)
+import qualified Util
+import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
+import qualified Prelude
 
--- simN :: Vec m Word -> Int -> [Either Output Word]
--- simN prog n = sampleN @System n $ system prog
---
--- simToHalt :: Vec m Word -> Word
--- simToHalt prog =
---   Prelude.head $ rights $ simN prog maxBound
---
--- cpu :: (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
--- cpu = mealy pipe initPipe
---
--- system :: (HiddenClockResetEnable dom) => Vec m Word -> Signal dom (Either Output Word)
--- system prog = out
---   where
---     out =
---       mux
---         (fromMaybe False . getFirst . outHalt <$> cpuOut)
---         (Right <$> ram)
---         (Left <$> cpuOut)
---     cpuInput = register initInput input
---     cpuOut = cpu cpuInput
---     regfile = mkRegfile $ mkRegAccess <$> cpuOut
---     ram = mkRAM prog (mkMemRead <$> cpuOut) (mkMemWrite <$> cpuOut)
---     input = (\mread (rs1, rs2) -> Input mread rs1 rs2) <$> ram <*> regfile
---     mkMemRead = maybe 0 memAddress . getFirst . outMem
---     mkMemWrite = ((\ma -> (memAddress ma,) <$> memVal ma) =<<) . getFirst . outMem
---     mkRegAccess (Output _ mr1 mr2 mrd _) =
---       RegAccess
---         { regRs1 = fromMaybe 0 $ getFirst mr1,
---           regRs2 = fromMaybe 0 $ getFirst mr2,
---           regRd = fromMaybe (0, 0) $ getFirst mrd
---         }
---
--- data RegAccess = RegAccess
---   { regRs1 :: RegIdx,
---     regRs2 :: RegIdx,
---     regRd :: (RegIdx, Word)
---   }
---   deriving (Show, Generic, NFDataX)
---
--- mkRegfile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
--- mkRegfile input = mkOutput <$> reg_update <*> input
---   where
---     reg_output = register initRF reg_update
---     reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output
---     mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
---
--- mkRAM ::
---   (HiddenClockResetEnable dom) =>
---   Vec m Word ->
---   Signal dom Address ->
---   Signal dom (Maybe (Address, Word)) ->
---   Signal dom Word
--- mkRAM = blockRam . Simulate.mkRAM
---
--- prog1 =
---   map encode $
---     -- r2 := r0 + 5
---     IType (Arith ADD) 2 0 5
---       :>
---       -- mem[0 + r0] := r2
---       SType Word 0 0 2
---       :> halt
---       :> Nil
---
--- sumTo :: Int -> Vec 8 Word
--- sumTo n =
---   map encode $
---     unsafeFromList
---       [ -- r1 := r0 + n
---         IType (Arith ADD) 1 0 $ fromIntegral n,
---         -- r2 := 0 (res = 0)
---         IType (Arith ADD) 2 0 0,
---         -- r1 == r0 ? jump pc + 4
---         BType EQ 4 1 0,
---         -- r2 := r2 + r1 (res += n)
---         RType ADD 2 2 1,
---         -- r1 := r1 - 1 (n -= 1)
---         IType (Arith ADD) 1 1 (-1),
---         -- jump back to the branch
---         JType 0 (-3),
---         -- mem[0] := r2
---         SType Word 0 0 2,
---         halt
---       ]
+topEntity ::
+  Clock System ->
+  Reset System ->
+  Enable System ->
+  Signal System Output
+topEntity = exposeClockResetEnable $ system prog3
+
+cpu :: (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
+cpu = mealy circuit init
+
+system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom Output
+system prog = cpuOut
+  where
+    cpuInput :: Signal dom Input
+    cpuInput = register initInput input
+    cpuOut = cpu cpuInput
+    regfile = mkRegfile $ mkRegAccess <$> cpuOut
+    ram = mkRAM prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
+    input =
+      ( \o mread (rs1, rs2) ->
+          Input
+            ( fromMaybe False $ memIsInstr <$> getFirst (outMem o)
+            )
+            mread
+            rs1
+            rs2
+      )
+        <$> cpuOut
+        <*> ram
+        <*> regfile
+    mkRegAccess (Output _ mr1 mr2 mrd _) =
+      RegAccess
+        { regRs1 = fromMaybe 0 $ getFirst mr1,
+          regRs2 = fromMaybe 0 $ getFirst mr2,
+          regRd = fromMaybe (0, 0) $ getFirst mrd
+        }
+
+data RegAccess = RegAccess
+  { regRs1 :: RegIdx,
+    regRs2 :: RegIdx,
+    regRd :: (RegIdx, Word)
+  }
+  deriving (Show, Generic, NFDataX)
+
+mkRegfile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
+mkRegfile input = mkOutput <$> reg_update <*> input
+  where
+    reg_output = register initRF reg_update
+    reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output
+    mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
+
+mkRAM ::
+  (HiddenClockResetEnable dom) =>
+  Vec PROG_SIZE Word ->
+  Signal dom MemAccess ->
+  Signal dom Word
+mkRAM prog memAccessM =
+  combine <$> ram0 <*> ram1 <*> ram2 <*> ram3
+  where
+    addr = memAddress <$> memAccessM
+
+    mkWrite n =
+      fmap $ \memAccess -> do
+        w <- memVal memAccess
+        pure (memAddress memAccess, extractByte n w)
+
+    extractByte 0 w = slice d7 d0 w
+    extractByte 1 w = slice d15 d8 w
+    extractByte 2 w = slice d23 d16 w
+    extractByte 3 w = slice d31 d24 w
+    extractByte _ _ = error "Invalid byte index"
+
+    vecRam = Util.mkRAM prog
+
+    every4th ::
+      forall n offset a.
+      (KnownNat n, KnownNat offset, KnownNat ((GHC.TypeNats.*) n 4)) =>
+      SNat offset ->
+      Vec ((GHC.TypeNats.*) n 4) a ->
+      Vec n a
+    every4th offset v =
+      imap (\(i :: Index n) _ -> v !! idx i) (repeat undefined)
+      where
+        off :: Int
+        off = fromIntegral (snatToNum offset)
+
+        idx :: Index n -> Index ((GHC.TypeNats.*) n 4)
+        idx i = fromInteger (toInteger off + toInteger i * 4)
+
+    ram0 = blockRam (every4th d0 vecRam) addr (mkWrite 0 memAccessM)
+    ram1 = blockRam (every4th d1 vecRam) addr (mkWrite 1 memAccessM)
+    ram2 = blockRam (every4th d2 vecRam) addr (mkWrite 2 memAccessM)
+    ram3 = blockRam (every4th d3 vecRam) addr (mkWrite 3 memAccessM)
+
+    combine :: Byte -> Byte -> Byte -> Byte -> Word
+    combine b0 b1 b2 b3 =
+      b3 ++# b2 ++# b1 ++# b0
+
+prog3 :: Vec PROG_SIZE Word
+prog3 =
+  Util.mkProg $
+    ( -- r2 := r0 + 3
+      IType (Arith ADD) 2 0 3
+        :>
+        -- r3 := r0 + r2
+        RType ADD 3 0 2
+        :>
+        -- r2 == r3 ? jump pc + 8
+        BType EQ 8 2 3
+        :>
+        -- mem[0 + r0] := r2
+        SType Word 0 0 2
+        :>
+        -- mem[1 + r0] := r2
+        SType Word 4 0 2
+        :> Instruction.break
+        :> Nil
+    )

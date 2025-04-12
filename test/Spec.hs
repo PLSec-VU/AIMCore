@@ -1,5 +1,5 @@
-{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE PackageImports #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
 
@@ -280,12 +280,12 @@ theorem :: Gen Property
 theorem = do
   input <- arbitrary
   s_core <- arbitrary
-  let s_leaksim = Leak.PC.proj $ s_core
+  let s_leaksim = Leak.PC.proj (s_core, ())
       (s_leaksim', pc_leaksim) = Leak.PC.circuit s_leaksim input
       (s_core', o_core) = Core.circuit s_core input
-      pc_core = Leak.PC.obs o_core
+      (_, pc_core) = Leak.PC.obs () o_core
   pure $
-    flip counterexample (pc_core == pc_leaksim && Leak.PC.proj s_core' == s_leaksim') $
+    flip counterexample (pc_core == pc_leaksim && Leak.PC.proj (s_core', ()) == s_leaksim') $
       unlines
         [ "input: ",
           "-------------------------------",
@@ -309,7 +309,7 @@ theorem = do
           "",
           "Leak.PC.proj s_core'",
           "-------------------------------",
-          show $ Leak.PC.proj s_core',
+          show $ Leak.PC.proj (s_core', ()),
           "",
           "pc_leaksim:",
           "-------------------------------",
