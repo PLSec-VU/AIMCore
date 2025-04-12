@@ -22,8 +22,6 @@ import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
 import Data.Maybe (isJust)
 import Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set as S
 import qualified ISA
 import Instruction (Instruction)
 import qualified Instruction
@@ -75,8 +73,8 @@ circuit ::
   ((Leak.State, Sim.State), Maybe Address)
 circuit (ts, ss) input = ((ts', ss'), addr)
   where
-    (ts', leakage) = leak ts input
-    (ss', addr) = sim ss leakage
+    (ts', o_leak) = leak ts input
+    (ss', addr) = sim ss o_leak
 
 proj :: (Core.State, ()) -> (Leak.State, Sim.State)
 proj (s, _) = (ts, ss)
@@ -87,9 +85,10 @@ proj (s, _) = (ts, ss)
           Leak.stateDePc = Core.stateDePc s,
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
-          Leak.stateMemInstr = toISADone (Core.stateMemInstr s) Leak.Mem,
-          Leak.stateWbInstr = killBranch $ toISADone (Core.stateWbInstr s) Leak.Wb,
-          Leak.stateStall = toStallStages $ Core.stateCtrl s,
+          Leak.stateMemInstr = toISADone (Core.stateMemInstr s) True,
+          Leak.stateWbInstr = killBranch $ toISADone (Core.stateWbInstr s) False,
+          Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
+          Leak.stateStallDecode = toStallDecode $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
           Leak.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
           Leak.stateWbRegFwd = Core.ctrlWbRegFwd $ Core.stateCtrl s,
@@ -101,10 +100,11 @@ proj (s, _) = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstrFunc $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) Leak.Mem,
-          Sim.stateWbInstr = killJump $ toLeakInstrDone (Core.stateWbInstr s) Leak.Wb,
+          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) True,
+          Sim.stateWbInstr = killJump $ toLeakInstrDone (Core.stateWbInstr s) False,
           Sim.stateHalt = Core.stateHalt s,
-          Sim.stateStall = toStallStages $ Core.stateCtrl s,
+          Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
+          Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
         }
 
@@ -122,15 +122,15 @@ proj (s, _) = (ts, ss)
         (Leak.mkInstr $ toISAFunc inst)
         (ISA.depSet $ toISAFunc inst)
 
-    toLeakInstrDone :: Instruction -> Leak.Stage -> Leak.Instr
-    toLeakInstrDone inst stage = leak_inst
+    toLeakInstrDone :: Instruction -> Bool -> Leak.Instr
+    toLeakInstrDone inst isMem = leak_inst
       where
         leak_inst =
           case isa_inst of
             ISA.Branch (ISA.Done branched) _
               | not branched -> Leak.nop
             _ -> Leak.Instr (Leak.mkInstr isa_inst) (ISA.depSet $ toISAFunc inst)
-        isa_inst = toISADone inst stage
+        isa_inst = toISADone inst isMem
 
     toISAFunc :: Instruction -> ISA.Instr ISA.Func
     toISAFunc i =
@@ -141,8 +141,8 @@ proj (s, _) = (ts, ss)
             inputRs1 = 0,
             inputRs2 = 0
           }
-    toISADone :: Instruction -> Leak.Stage -> ISA.Instr ISA.Done
-    toISADone i stage =
+    toISADone :: Instruction -> Bool -> ISA.Instr ISA.Done
+    toISADone i isMem =
       case li of
         ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
         ISA.Load size sign rd _ -> ISA.Load size sign rd $ ISA.Done $ bitCoerce res
@@ -154,29 +154,22 @@ proj (s, _) = (ts, ss)
       where
         li = toISAFunc i
         res
-          | stage == Leak.Mem = Core.stateMemRes s
+          | isMem = Core.stateMemRes s
           | otherwise = Core.stateWbRes s
-        branched = (stage == Leak.Mem) && Core.stateMemBranch s
+        branched = isMem && Core.stateMemBranch s
         dontCare = ISA.Done 0
 
-    toStallStages :: Core.Control -> Set Leak.Stage
-    toStallStages ctrl =
-      S.fromList [stage | (stage, conds) <- stallConditions, any ($ ctrl) conds]
-      where
-        stallConditions =
-          [ ( Leak.Fe,
-              [ Core.ctrlDecodeLoad,
-                Core.ctrlMemOutputActive
-              ]
-            ),
-            ( Leak.De,
-              [ Core.ctrlFirstCycle,
-                isJust . Core.ctrlExBranch,
-                Core.ctrlMemInputActive,
-                Core.ctrlMemBranch
-              ]
-            )
-          ]
+    toStallFetch :: Core.Control -> Bool
+    toStallFetch ctrl =
+      Core.ctrlDecodeLoad ctrl
+        || Core.ctrlMemOutputActive ctrl
+
+    toStallDecode :: Core.Control -> Bool
+    toStallDecode ctrl =
+      Core.ctrlFirstCycle ctrl
+        || isJust (Core.ctrlExBranch ctrl)
+        || Core.ctrlMemInputActive ctrl
+        || Core.ctrlMemBranch ctrl
 
 simulator ::
   forall m.

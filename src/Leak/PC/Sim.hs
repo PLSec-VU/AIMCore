@@ -11,9 +11,6 @@ import Control.Monad
 import Control.Monad.RWS
 import Data.Maybe (fromMaybe)
 import Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set as S
-import Leak.PC.Leak (Stage (..))
 import qualified Leak.PC.Leak as Leak
 import Types
 import Util
@@ -27,7 +24,8 @@ data State = State
     stateMemInstr :: Leak.Instr,
     stateWbInstr :: Leak.Instr,
     stateJumpAddr :: Maybe Address,
-    stateStall :: Set Stage,
+    stateStallFetch :: Bool,
+    stateStallDecode :: Bool,
     stateHalt :: Bool
   }
   deriving (Show, Eq)
@@ -42,18 +40,18 @@ init =
       stateMemInstr = Leak.nop,
       stateWbInstr = Leak.nop,
       stateHalt = False,
-      stateStall = mempty,
+      stateStallFetch = False,
+      stateStallDecode = False,
       stateJumpAddr = Nothing
     }
 
 type SimM = RWS Leak.Out (First (Maybe Address)) State
 
-ifStalling :: Stage -> SimM a -> SimM a -> SimM a
-ifStalling stage = ifM $ gets $ S.member stage . stateStall
+stallFetch :: SimM ()
+stallFetch = modify $ \s -> s {stateStallFetch = True}
 
-stall :: Stage -> SimM ()
-stall stage =
-  modify $ \s -> s {stateStall = stage `S.insert` stateStall s}
+stallDecode :: SimM ()
+stallDecode = modify $ \s -> s {stateStallDecode = True}
 
 outputPc :: Address -> SimM ()
 outputPc addr =
@@ -65,8 +63,8 @@ outputNothing = tell $ pure Nothing
 fetch :: SimM ()
 fetch = do
   outputPc =<< gets stateFePc
-  ifStalling
-    Fe
+  ifM
+    (gets stateStallFetch)
     ( modify $ \s ->
         s
           { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
@@ -84,9 +82,9 @@ decode = do
   instr <- fromMaybe Leak.nop . getFirst <$> asks Leak.outInstr
   ex_ir <- gets stateExInstr
   when (Leak.isLoad instr) $ do
-    stall Fe
+    stallFetch
   ifM
-    ((Leak.loadHazard instr ex_ir ||) <$> gets (S.member De . stateStall))
+    ((Leak.loadHazard instr ex_ir ||) <$> gets stateStallDecode)
     (modify $ \s -> s {stateExInstr = Leak.nop})
     ( modify $ \s ->
         s
@@ -109,7 +107,7 @@ execute = do
     Leak.Jump -> do
       case mjmpAddr of
         Just {} -> do
-          stall De
+          stallDecode
           modify $ \s ->
             s
               { stateMemInstr = instr {Leak.instrBase = Leak.Jump}
@@ -127,12 +125,12 @@ memory = do
   case Leak.instrBase instr of
     Leak.Load {} -> do
       outputNothing
-      stall Fe
+      stallFetch
     Leak.Store -> do
       outputNothing
-      stall Fe
+      stallFetch
     Leak.Jump ->
-      stall De
+      stallDecode
     _ -> pure ()
 
   modify $ \s ->
@@ -166,9 +164,9 @@ writeback = do
             stateHalt = True
           }
     Leak.Load {} -> do
-      stall De
+      stallDecode
     Leak.Store -> do
-      stall De
+      stallDecode
     _ -> pure ()
 
 pipe :: SimM ()
@@ -184,7 +182,8 @@ pipe = do
     resetCtrl =
       modify $ \s ->
         s
-          { stateStall = mempty,
+          { stateStallFetch = False,
+            stateStallDecode = False,
             stateJumpAddr = Nothing
           }
 

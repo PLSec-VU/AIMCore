@@ -6,7 +6,6 @@ module Leak.PC.Leak
     isLoad,
     loadHazard,
     mkInstr,
-    Stage (..),
     Instr (..),
     BaseInstr (..),
     State (..),
@@ -62,9 +61,6 @@ loadHazard _ _ = False
 nop :: Instr
 nop = Instr Other mempty
 
-data Stage = Fe | De | Ex | Mem | Wb
-  deriving (Show, Eq, Ord)
-
 data State = State
   { stateFePc :: Address,
     stateDePc :: Address,
@@ -72,7 +68,8 @@ data State = State
     stateExInstr :: Core.Instruction,
     stateMemInstr :: ISA.Instr ISA.Done,
     stateWbInstr :: ISA.Instr ISA.Done,
-    stateStall :: Set Stage,
+    stateStallFetch :: Bool,
+    stateStallDecode :: Bool,
     stateHalt :: Bool,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
@@ -90,7 +87,8 @@ init =
       stateMemInstr = ISA.Nop,
       stateWbInstr = ISA.Nop,
       stateHalt = False,
-      stateStall = mempty,
+      stateStallFetch = False,
+      stateStallDecode = False,
       stateMeRegFwd = Nothing,
       stateWbRegFwd = Nothing,
       stateJumpAddr = Nothing
@@ -107,20 +105,19 @@ instance Semigroup Out where
 instance Monoid Out where
   mempty = Out mempty mempty
 
-ifStalling :: Stage -> LeakM a -> LeakM a -> LeakM a
-ifStalling stage = ifM $ gets $ S.member stage . stateStall
+stallDecode :: LeakM ()
+stallDecode = modify $ \s -> s {stateStallDecode = True}
 
-stall :: Stage -> LeakM ()
-stall stage =
-  modify $ \s -> s {stateStall = stage `S.insert` stateStall s}
+stallFetch :: LeakM ()
+stallFetch = modify $ \s -> s {stateStallFetch = True}
 
 outputNothing :: LeakM ()
 outputNothing = tell mempty
 
 fetch :: LeakM ()
 fetch = do
-  ifStalling
-    Fe
+  ifM
+    (gets stateStallFetch)
     ( modify $ \s ->
         s
           { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
@@ -142,7 +139,7 @@ decode = do
         | otherwise = Core.nop
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
-    stall Fe
+    stallFetch
   let isaInstr = ISA.interp' instr
   tell $
     mempty
@@ -155,7 +152,7 @@ decode = do
       }
 
   ifM
-    ((Core.loadHazard instr ex_ir ||) <$> gets (S.member De . stateStall))
+    ((Core.loadHazard instr ex_ir ||) <$> gets stateStallDecode)
     ( modify $ \s -> s {stateExInstr = Core.nop}
     )
     ( do
@@ -227,7 +224,7 @@ execute = do
 
     informJumpAddr :: ISA.Done Address -> LeakM ()
     informJumpAddr jump_addr = do
-      stall De
+      stallDecode
       tell $ mempty {outJumpAddr = pure $ ISA.unDone jump_addr}
       modify $ \s -> s {stateJumpAddr = pure $ ISA.unDone jump_addr}
 
@@ -245,17 +242,17 @@ memory = do
       ISA.Reg _ (ISA.Done res) ->
         pure $ Just res
       ISA.Load {} -> do
-        stall Fe
+        stallFetch
         pure Nothing
       ISA.Jump _ (ISA.Done addr) _ -> do
-        stall De
+        stallDecode
         pure $ Just $ bitCoerce addr
       ISA.Store {} -> do
-        stall Fe
+        stallFetch
         pure Nothing
       ISA.Branch (ISA.Done branched) _ -> do
         when branched $
-          stall De
+          stallDecode
         pure Nothing
       _ -> pure Nothing
 
@@ -287,8 +284,8 @@ writeback = do
     outputNothing
 
   case instr of
-    ISA.Load {} -> stall De
-    ISA.Store {} -> stall De
+    ISA.Load {} -> stallDecode
+    ISA.Store {} -> stallDecode
     _ -> pure ()
 
   mres <-
@@ -296,12 +293,12 @@ writeback = do
       ISA.Reg _ (ISA.Done res) ->
         pure $ Just res
       ISA.Load size sign _ _ -> do
-        stall De
+        stallDecode
         pure $ Just $ Core.loadExtend size sign input
       ISA.Jump _ (ISA.Done addr) _ ->
         pure $ Just $ bitCoerce addr
       ISA.Store {} -> do
-        stall De
+        stallDecode
         pure Nothing
       ISA.Break -> do
         modify $ \s ->
@@ -332,7 +329,8 @@ pipe = do
     resetCtrl =
       modify $ \s ->
         s
-          { stateStall = mempty,
+          { stateStallFetch = False,
+            stateStallDecode = False,
             stateMeRegFwd = Nothing,
             stateWbRegFwd = Nothing,
             stateJumpAddr = Nothing

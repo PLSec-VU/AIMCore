@@ -90,7 +90,7 @@ class (Monad m) => MonadMemory m where
   getRegfile :: m Regfile
   putRegfile :: Regfile -> m ()
 
-ramRead :: (MonadMemory m) => Address -> Size -> m Word
+ramRead :: (MonadMemory m) => Address -> m Word
 ramRead addr = readWord addr <$> getRAM
 
 ramWrite :: (MonadMemory m) => Address -> Size -> Word -> m ()
