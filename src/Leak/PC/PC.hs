@@ -20,7 +20,7 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified ISA
 import Instruction (Instruction)
@@ -137,7 +137,7 @@ proj (s, _) = (ts, ss)
       ISA.interp $
         Input
           { inputIsInstr = True,
-            inputMem = Instruction.encode i,
+            inputMem = fromMaybe 0 $ Instruction.encode' i,
             inputRs1 = 0,
             inputRs2 = 0
           }
