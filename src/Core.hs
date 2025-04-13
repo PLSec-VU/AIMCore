@@ -376,7 +376,6 @@ execute = do
       Instruction.IType Jump _ _ imm -> do
         pc <- gets $ pack . stateExPc
         r1 <- rs1
-        modify $ \s -> s {stateMemBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD r1 (signExtend imm)}
         pure (ADD, pc, 4)
@@ -412,7 +411,6 @@ execute = do
         pure (ADD, base', imm')
       Instruction.JType _ imm -> do
         pc <- gets $ pack . stateExPc
-        modify $ \s -> s {stateMemBranch = True}
         setLines $
           \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
         pure (ADD, pc, 4)
