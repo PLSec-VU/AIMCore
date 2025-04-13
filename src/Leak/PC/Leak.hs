@@ -23,6 +23,7 @@ import qualified Core
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified Instruction as Core
+import Interp
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -218,47 +219,18 @@ execute = do
           $ runMaybeT
           $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
-  r1 <- r1M
-  r2 <- r2M
-  pc <- gets stateExPc
+  (res, mjump, mbranched) <- interp instr <$> r1M <*> r2M <*> gets stateExPc
 
-  res <-
-    case instr of
-      Core.RType op rd _ _ ->
-        pure $ Core.alu op r1 r2
-      Core.IType iop rd _ imm ->
-        let op =
-              case iop of
-                Core.Arith op' -> op'
-                _ -> Core.ADD
-            alu_res = Core.alu op r1 (signExtend imm)
-         in case iop of
-              Core.Arith {} -> pure alu_res
-              Core.Load size sign -> pure $ bitCoerce alu_res
-              Core.Jump -> do
-                informJumpAddr $ bitCoerce $ alu_res
-                pure $ bitCoerce $ pc + 4
-              Core.Env Core.Break ->
-                pure $ alu_res
-              Core.Env Core.Call ->
-                pure alu_res
-      Core.SType size imm _ _ -> do
-        pure $ unpack (r1 + signExtend imm)
-      Core.BType cmp imm _ _ -> do
-        let branched = Core.branch cmp r1 r2
-        when branched $ do
+  case (instr, mjump, mbranched) of
+    (Core.IType Core.Jump _ _ _, Just addr, _) ->
+      informJumpAddr addr
+    (Core.BType {}, Just addr, Just branched)
+      | branched -> do
           modify $ \s -> s {stateMemBranch = True}
-          informJumpAddr $
-            pc + bitCoerce (signExtend imm)
-        pure 0
-      Core.UType Core.Zero rd imm ->
-        pure $ imm ++# 0 `shiftL` 12
-      Core.UType Core.PC rd imm -> do
-        let imm' = imm ++# 0 `shiftL` 12
-        pure $ bitCoerce pc + imm'
-      Core.JType rd imm -> do
-        informJumpAddr $ pc + bitCoerce (signExtend imm)
-        pure $ bitCoerce $ pc + 4
+          informJumpAddr addr
+    (Core.JType {}, Just addr, _) ->
+      informJumpAddr addr
+    _ -> pure ()
 
   modify $ \s ->
     s

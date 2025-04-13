@@ -36,15 +36,15 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- Uncomment this to check the leakage.
 -- import UC (Spec (..))
 --
--- {-# ANN
---  implementation
---  Spec
---    { observation' = 'obs,
---      leakage' = 'leak,
---      simulator' = 'sim,
---      projection' = 'proj
---    }
---  #-}
+{-# ANN
+  implementation
+  Spec
+    { observation' = 'obs,
+      leakage' = 'leak,
+      simulator' = 'sim,
+      projection' = 'proj
+    }
+  #-}
 implementation :: Core.State -> Input -> (Core.State, Output)
 implementation = Core.circuit
 
