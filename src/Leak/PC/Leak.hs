@@ -219,23 +219,32 @@ execute = do
           $ runMaybeT
           $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
-  (res, mjump, mbranched) <- interp instr <$> r1M <*> r2M <*> gets stateExPc
+  interp_res <- interp instr <$> r1M <*> r2M <*> gets stateExPc
 
-  case (instr, mjump, mbranched) of
-    (Core.IType Core.Jump _ _ _, Just addr, _) ->
-      informJumpAddr addr
-    (Core.BType {}, Just addr, Just branched)
-      | branched -> do
-          modify $ \s -> s {stateMemBranch = True}
+  case instr of
+    Core.IType Core.Jump _ _ _ ->
+      case interp_res of
+        Interp _ (Just addr) _ ->
           informJumpAddr addr
-    (Core.JType {}, Just addr, _) ->
-      informJumpAddr addr
+        _ -> pure ()
+    Core.BType {} ->
+      case interp_res of
+        Interp _ (Just addr) (Just branched)
+          | branched -> do
+              modify $ \s -> s {stateMemBranch = True}
+              informJumpAddr addr
+        _ -> pure ()
+    Core.JType {} ->
+      case interp_res of
+        Interp _ (Just addr) _ ->
+          informJumpAddr addr
+        _ -> pure ()
     _ -> pure ()
 
   modify $ \s ->
     s
       { stateMemInstr = instr,
-        stateMemRes = res
+        stateMemRes = interpRes interp_res
       }
   where
     informJumpAddr :: Address -> LeakM ()
