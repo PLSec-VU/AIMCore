@@ -68,8 +68,11 @@ data State = State
     stateDePc :: Address,
     stateExPc :: Address,
     stateExInstr :: Core.Instruction,
-    stateMemInstr :: ISA.Instr ISA.Done,
-    stateWbInstr :: ISA.Instr ISA.Done,
+    stateMemInstr :: Core.Instruction,
+    stateMemRes :: Word,
+    stateMemBranch :: Bool,
+    stateWbInstr :: Core.Instruction,
+    stateWbRes :: Word,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
     stateHalt :: Bool,
@@ -86,8 +89,11 @@ init =
       stateDePc = 0,
       stateExPc = 0,
       stateExInstr = Core.nop,
-      stateMemInstr = ISA.Nop,
-      stateWbInstr = ISA.Nop,
+      stateMemInstr = Core.nop,
+      stateMemRes = 0,
+      stateMemBranch = False,
+      stateWbInstr = Core.nop,
+      stateWbRes = 0,
       stateHalt = False,
       stateStallFetch = False,
       stateStallDecode = False,
@@ -142,14 +148,13 @@ decode = do
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
     stallFetch
-  let isaInstr = ISA.interp' instr
   tell $
     mempty
       { outInstr =
           pure $
             Instr
-              { instrBase = mkInstr isaInstr,
-                instrDeps = ISA.deps isaInstr
+              { instrBase = mkInstr instr,
+                instrDeps = (Core.getRs1 instr, Core.getRs2 instr)
               }
       }
 
@@ -165,72 +170,110 @@ decode = do
             }
     )
 
-mkInstr :: ISA.Instr a -> BaseInstr
-mkInstr ISA.Reg {} = Other
-mkInstr (ISA.Load _ _ rd _) = Load rd
-mkInstr ISA.Jump {} = Jump
-mkInstr ISA.Store {} = Store
-mkInstr ISA.Branch {} = Jump
-mkInstr ISA.Break = Break
-mkInstr ISA.Nop = Other
+mkInstr :: Core.Instruction -> BaseInstr
+mkInstr instr =
+  case instr of
+    Core.RType {} -> Other
+    Core.IType iop rd r1 imm ->
+      case iop of
+        Core.Arith {} ->
+          Other
+        Core.Load size sign ->
+          Load rd
+        Core.Jump ->
+          Jump
+        Core.Env Core.Break ->
+          Break
+        Core.Env Core.Call ->
+          Other
+    Core.SType size imm r1 r2 ->
+      Store
+    Core.BType cmp imm r1 r2 ->
+      Jump
+    Core.UType Core.Zero rd imm ->
+      Other
+    Core.UType Core.PC rd imm -> do
+      Other
+    Core.JType rd imm ->
+      Jump
 
 execute :: LeakM ()
 execute = do
-  instr <- gets $ ISA.interp' . stateExInstr
+  instr <- gets stateExInstr
+  modify $ \s -> s {stateMemBranch = False}
   let r1M :: LeakM Word
-      r1M = regWithFwd ISA.getR1 =<< asks Core.inputRs1
+      r1M = regWithFwd Core.getRs1 =<< asks Core.inputRs1
 
       r2M :: LeakM Word
-      r2M = regWithFwd ISA.getR2 =<< asks Core.inputRs2
+      r2M = regWithFwd Core.getRs2 =<< asks Core.inputRs2
 
-      regWithFwd :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> Word -> LeakM Word
-      regWithFwd getR def =
+      regWithFwd :: (Core.Instruction -> Maybe RegIdx) -> Word -> LeakM Word
+      regWithFwd getR def = do
+        ir <- gets stateExInstr
         let checkForFwd line = do
               (fwdIdx, fwdVal) <- MaybeT $ gets line
-              guard (hazardRW getR instr fwdIdx)
+              guard (hazardRW getR ir fwdIdx)
               pure fwdVal
-         in fmap
-              (fromMaybe def)
-              $ runMaybeT
-              $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
+        fmap
+          (fromMaybe def)
+          $ runMaybeT
+          $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
   r1 <- r1M
   r2 <- r2M
   pc <- gets stateExPc
-  let apply f = ISA.apply f r1 r2 pc
 
-  instr' <-
+  res <-
     case instr of
-      ISA.Reg rd f ->
-        pure $ ISA.Reg rd $ apply f
-      ISA.Load size sign rd f ->
-        pure $ ISA.Load size sign rd $ apply f
-      ISA.Jump rd f_pc f_jump_addr -> do
-        informJumpAddr $ apply f_jump_addr
-        pure $ ISA.Jump rd (apply f_pc) dontCare
-      ISA.Store size f_addr r ->
-        pure $ ISA.Store size (apply f_addr) r
-      ISA.Branch f_branched f_jump_addr -> do
-        let branched = apply f_branched
-        when (ISA.unDone branched) $
+      Core.RType op rd _ _ ->
+        pure $ Core.alu op r1 r2
+      Core.IType iop rd _ imm ->
+        let op =
+              case iop of
+                Core.Arith op' -> op'
+                _ -> Core.ADD
+            alu_res = Core.alu op r1 (signExtend imm)
+         in case iop of
+              Core.Arith {} -> pure alu_res
+              Core.Load size sign -> pure $ bitCoerce alu_res
+              Core.Jump -> do
+                informJumpAddr $ bitCoerce $ alu_res
+                pure $ bitCoerce $ pc + 4
+              Core.Env Core.Break ->
+                pure $ alu_res
+              Core.Env Core.Call ->
+                pure alu_res
+      Core.SType size imm _ _ -> do
+        pure $ unpack (r1 + signExtend imm)
+      Core.BType cmp imm _ _ -> do
+        let branched = Core.branch cmp r1 r2
+        when branched $ do
+          modify $ \s -> s {stateMemBranch = True}
           informJumpAddr $
-            apply f_jump_addr
-        pure $ ISA.Branch branched dontCare
-      ISA.Break -> pure ISA.Break
-      ISA.Nop -> pure ISA.Nop
+            pc + bitCoerce (signExtend imm)
+        pure 0
+      Core.UType Core.Zero rd imm ->
+        pure $ imm ++# 0 `shiftL` 12
+      Core.UType Core.PC rd imm -> do
+        let imm' = imm ++# 0 `shiftL` 12
+        pure $ bitCoerce pc + imm'
+      Core.JType rd imm -> do
+        informJumpAddr $ pc + bitCoerce (signExtend imm)
+        pure $ bitCoerce $ pc + 4
 
-  modify $ \s -> s {stateMemInstr = instr'}
+  modify $ \s ->
+    s
+      { stateMemInstr = instr,
+        stateMemRes = res
+      }
   where
-    dontCare :: ISA.Done Address
-    dontCare = ISA.Done 0
-
-    informJumpAddr :: ISA.Done Address -> LeakM ()
+    informJumpAddr :: Address -> LeakM ()
     informJumpAddr jump_addr = do
       stallDecode
-      tell $ mempty {outJumpAddr = pure $ ISA.unDone jump_addr}
-      modify $ \s -> s {stateJumpAddr = pure $ ISA.unDone jump_addr}
+      tell $ mempty {outJumpAddr = pure jump_addr}
+      modify $ \s -> s {stateJumpAddr = pure jump_addr}
 
-    hazardRW :: (ISA.Instr ISA.Func -> Maybe RegIdx) -> ISA.Instr ISA.Func -> RegIdx -> Bool
+    hazardRW :: (Core.Instruction -> Maybe RegIdx) -> Core.Instruction -> RegIdx -> Bool
     hazardRW getR src rd = isJust $ do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
@@ -238,41 +281,39 @@ execute = do
 memory :: LeakM ()
 memory = do
   instr <- gets stateMemInstr
-
-  mres <-
-    case instr of
-      ISA.Reg _ (ISA.Done res) ->
-        pure $ Just res
-      ISA.Load {} -> do
-        stallFetch
-        pure Nothing
-      ISA.Jump _ (ISA.Done addr) _ -> do
-        stallDecode
-        pure $ Just $ bitCoerce addr
-      ISA.Store {} -> do
-        stallFetch
-        pure Nothing
-      ISA.Branch (ISA.Done branched) _ -> do
-        when branched $
-          stallDecode
-        pure Nothing
-      _ -> pure Nothing
+  res <- gets stateMemRes
 
   try $ do
-    rd <- MaybeT $ pure $ ISA.getRd instr
-    res <- MaybeT $ pure mres
+    rd <- MaybeT $ pure $ Core.getRd instr
     lift $ modify $ \s -> s {stateMeRegFwd = pure (rd, res)}
+
+  case instr of
+    Core.IType Core.Load {} _ _ _ -> do
+      modify $ \s -> s {stateMeRegFwd = Nothing}
+      stallFetch
+    Core.IType Core.Jump _ _ _ ->
+      stallDecode
+    Core.JType {} ->
+      stallDecode
+    Core.BType {} -> do
+      branched <- gets stateMemBranch
+      when branched $
+        stallDecode
+    Core.SType {} ->
+      stallFetch
+    _ -> pure ()
 
   modify $ \s ->
     s
-      { stateWbInstr =
-          -- No longer care about the branches (matters for state equivalence)
-          if isBranch instr
-            then ISA.Nop
-            else instr
+      { stateWbInstr = instr,
+        -- No longer care about the branches (matters for state equivalence)
+        -- if isBranch instr
+        --  then Core.nop
+        --  else instr,
+        stateWbRes = res
       }
   where
-    isBranch (ISA.Branch {}) = True
+    isBranch (Core.BType {}) = True
     isBranch _ = False
 
 writeback :: LeakM ()
@@ -280,43 +321,33 @@ writeback = do
   input <- asks Core.inputMem
   instr <- gets stateWbInstr
   stateHalted <- gets stateHalt
+  res <- gets stateWbRes
 
   when
     stateHalted
     outputNothing
 
-  case instr of
-    ISA.Load {} -> stallDecode
-    ISA.Store {} -> stallDecode
-    _ -> pure ()
-
-  mres <-
-    case instr of
-      ISA.Reg _ (ISA.Done res) ->
-        pure $ Just res
-      ISA.Load size sign _ _ -> do
-        stallDecode
-        pure $ Just $ Core.loadExtend size sign input
-      ISA.Jump _ (ISA.Done addr) _ ->
-        pure $ Just $ bitCoerce addr
-      ISA.Store {} -> do
-        stallDecode
-        pure Nothing
-      ISA.Break -> do
-        modify $ \s ->
-          s
-            { stateMemInstr = ISA.Nop,
-              stateExInstr = Core.nop,
-              stateHalt = True
-            }
-        outputNothing
-        pure Nothing
-      _ -> pure Nothing
+  when (Core.isBreak instr) $ do
+    modify $ \s ->
+      s
+        { stateMemInstr = Core.nop,
+          stateExInstr = Core.nop,
+          stateHalt = True
+        }
+    outputNothing
 
   try $ do
-    rd <- MaybeT $ pure $ ISA.getRd instr
-    res <- MaybeT $ pure mres
+    rd <- MaybeT $ pure $ Core.getRd instr
     lift $ modify $ \s -> s {stateWbRegFwd = pure (rd, res)}
+
+  case instr of
+    Core.IType (Core.Load size sign) rd _ _ -> do
+      stallDecode
+      let val = Core.loadExtend size sign input
+      modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
+    Core.SType {} ->
+      stallDecode
+    _ -> pure ()
 
 pipe :: LeakM ()
 pipe = do

@@ -85,8 +85,11 @@ proj (s, _) = (ts, ss)
           Leak.stateDePc = Core.stateDePc s,
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
-          Leak.stateMemInstr = toISADone (Core.stateMemInstr s) True,
-          Leak.stateWbInstr = killBranch $ toISADone (Core.stateWbInstr s) False,
+          Leak.stateMemInstr = Core.stateMemInstr s,
+          Leak.stateMemRes = Core.stateMemRes s,
+          Leak.stateMemBranch = Core.stateMemBranch s,
+          Leak.stateWbInstr = Core.stateWbInstr s,
+          Leak.stateWbRes = Core.stateWbRes s,
           Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
           Leak.stateStallDecode = toStallDecode $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
@@ -99,8 +102,8 @@ proj (s, _) = (ts, ss)
         { Sim.stateFePc = Core.stateFePc s,
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
-          Sim.stateExInstr = toLeakInstrFunc $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) True,
+          Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
+          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) (Core.stateMemBranch s),
           Sim.stateWbInstr = killJump $ toLeakInstrDone (Core.stateWbInstr s) False,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
@@ -112,52 +115,20 @@ proj (s, _) = (ts, ss)
     killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
     killJump i = i
 
-    killBranch :: ISA.Instr ISA.Done -> ISA.Instr ISA.Done
-    killBranch (ISA.Branch {}) = ISA.Nop
-    killBranch i = i
-
-    toLeakInstrFunc :: Instruction -> Leak.Instr
-    toLeakInstrFunc inst =
+    toLeakInstr :: Instruction -> Leak.Instr
+    toLeakInstr instr =
       Leak.Instr
-        (Leak.mkInstr $ toISAFunc inst)
-        (ISA.deps $ toISAFunc inst)
+        (Leak.mkInstr $ instr)
+        (Instruction.getRs1 instr, Instruction.getRs2 instr)
 
     toLeakInstrDone :: Instruction -> Bool -> Leak.Instr
-    toLeakInstrDone inst isMem = leak_inst
+    toLeakInstrDone inst branched = leak_inst
       where
         leak_inst =
-          case isa_inst of
-            ISA.Branch (ISA.Done branched) _
+          case inst of
+            Instruction.BType {}
               | not branched -> Leak.nop
-            _ -> Leak.Instr (Leak.mkInstr isa_inst) (ISA.deps $ toISAFunc inst)
-        isa_inst = toISADone inst isMem
-
-    toISAFunc :: Instruction -> ISA.Instr ISA.Func
-    toISAFunc i =
-      ISA.interp $
-        Input
-          { inputIsInstr = True,
-            inputMem = fromMaybe 0 $ Instruction.encode' i,
-            inputRs1 = 0,
-            inputRs2 = 0
-          }
-    toISADone :: Instruction -> Bool -> ISA.Instr ISA.Done
-    toISADone i isMem =
-      case li of
-        ISA.Reg rd _ -> ISA.Reg rd $ ISA.Done res
-        ISA.Load size sign rd _ -> ISA.Load size sign rd $ ISA.Done $ bitCoerce res
-        ISA.Jump rd _ _ -> ISA.Jump rd (ISA.Done $ bitCoerce res) dontCare
-        ISA.Store size _ r2 -> ISA.Store size (ISA.Done $ bitCoerce res) r2
-        ISA.Branch _ _ -> ISA.Branch (ISA.Done branched) dontCare
-        ISA.Nop -> ISA.Nop
-        ISA.Break -> ISA.Break
-      where
-        li = toISAFunc i
-        res
-          | isMem = Core.stateMemRes s
-          | otherwise = Core.stateWbRes s
-        branched = isMem && Core.stateMemBranch s
-        dontCare = ISA.Done 0
+            _ -> Leak.Instr (Leak.mkInstr inst) (Instruction.getRs1 inst, Instruction.getRs2 inst)
 
     toStallFetch :: Core.Control -> Bool
     toStallFetch ctrl =
