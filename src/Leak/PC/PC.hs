@@ -20,9 +20,8 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Monoid
-import qualified ISA
 import Instruction (Instruction)
 import qualified Instruction
 import qualified Leak.PC.Leak as Leak
@@ -38,14 +37,14 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- import UC (Spec (..))
 --
 -- {-# ANN
---   implementation
---   Spec
---     { observation' = 'obs,
---       leakage' = 'leak,
---       simulator' = 'sim,
---       projection' = 'proj
---     }
---   #-}
+--  implementation
+--  Spec
+--    { observation' = 'obs,
+--      leakage' = 'leak,
+--      simulator' = 'sim,
+--      projection' = 'proj
+--    }
+--  #-}
 implementation :: Core.State -> Input -> (Core.State, Output)
 implementation = Core.circuit
 

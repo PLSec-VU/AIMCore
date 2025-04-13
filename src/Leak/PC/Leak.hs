@@ -21,7 +21,6 @@ import Core (Input)
 import qualified Core
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
-import qualified ISA
 import qualified Instruction as Core
 import Types
 import Util
@@ -174,11 +173,11 @@ mkInstr :: Core.Instruction -> BaseInstr
 mkInstr instr =
   case instr of
     Core.RType {} -> Other
-    Core.IType iop rd r1 imm ->
+    Core.IType iop rd _ _ ->
       case iop of
         Core.Arith {} ->
           Other
-        Core.Load size sign ->
+        Core.Load {} ->
           Load rd
         Core.Jump ->
           Jump
@@ -186,15 +185,15 @@ mkInstr instr =
           Break
         Core.Env Core.Call ->
           Other
-    Core.SType size imm r1 r2 ->
+    Core.SType {} ->
       Store
-    Core.BType cmp imm r1 r2 ->
+    Core.BType {} ->
       Jump
-    Core.UType Core.Zero rd imm ->
+    Core.UType Core.Zero _ _ ->
       Other
-    Core.UType Core.PC rd imm -> do
+    Core.UType Core.PC _ _ -> do
       Other
-    Core.JType rd imm ->
+    Core.JType {} ->
       Jump
 
 execute :: LeakM ()
