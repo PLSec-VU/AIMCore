@@ -6,6 +6,7 @@ module Leak.PC.Leak
     isLoad,
     loadHazard,
     mkInstr,
+    mkDeps,
     Instr (..),
     BaseInstr (..),
     State (..),
@@ -40,14 +41,7 @@ data Instr = Instr
   { instrBase :: BaseInstr,
     instrDeps :: (Maybe RegIdx, Maybe RegIdx)
   }
-  deriving (Show)
-
-instance Eq Instr where
-  Instr i1 (ra1, rb1) == Instr i2 (ra2, rb2) =
-    i1 == i2 && ((noZero ra1, noZero rb1) == (noZero ra2, noZero rb2))
-    where
-      noZero (Just 0) = Nothing
-      noZero r = r
+  deriving (Show, Eq)
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
@@ -153,7 +147,7 @@ decode = do
           pure $
             Instr
               { instrBase = mkInstr instr,
-                instrDeps = (Core.getRs1 instr, Core.getRs2 instr)
+                instrDeps = mkDeps instr
               }
       }
 
@@ -168,6 +162,12 @@ decode = do
               stateExPc = stateDePc s
             }
     )
+
+mkDeps :: Core.Instruction -> (Maybe RegIdx, Maybe RegIdx)
+mkDeps instr = (noZero $ Core.getRs1 instr, noZero $ Core.getRs2 instr)
+  where
+    noZero (Just 0) = Nothing
+    noZero r = r
 
 mkInstr :: Core.Instruction -> BaseInstr
 mkInstr instr =

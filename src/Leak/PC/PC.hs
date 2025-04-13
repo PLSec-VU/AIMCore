@@ -117,8 +117,8 @@ proj (s, _) = (ts, ss)
     toLeakInstr :: Instruction -> Leak.Instr
     toLeakInstr instr =
       Leak.Instr
-        (Leak.mkInstr $ instr)
-        (Instruction.getRs1 instr, Instruction.getRs2 instr)
+        (Leak.mkInstr instr)
+        (Leak.mkDeps instr)
 
     toLeakInstrDone :: Instruction -> Bool -> Leak.Instr
     toLeakInstrDone inst branched = leak_inst
@@ -127,7 +127,7 @@ proj (s, _) = (ts, ss)
           case inst of
             Instruction.BType {}
               | not branched -> Leak.nop
-            _ -> Leak.Instr (Leak.mkInstr inst) (Instruction.getRs1 inst, Instruction.getRs2 inst)
+            _ -> Leak.Instr (Leak.mkInstr inst) (Leak.mkDeps inst)
 
     toStallFetch :: Core.Control -> Bool
     toStallFetch ctrl =
