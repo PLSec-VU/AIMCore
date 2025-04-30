@@ -101,10 +101,6 @@ data State = State
     stateExPc :: Address,
     -- | Instruction register execute stage
     stateExInstr :: Instruction,
-    -- | Regster 1
-    stateExRs1 :: Word,
-    -- | Register 2
-    stateExRs2 :: Word,
     -- | Instruction register memory stage
     stateMemInstr :: Instruction,
     -- | ALU result register memory stage
@@ -244,8 +240,6 @@ init =
       stateDePc = 0,
       stateExPc = 0,
       stateExInstr = nop,
-      stateExRs1 = 0,
-      stateExRs2 = 0,
       stateMemInstr = nop,
       stateMemRes = 0,
       stateMemVal = 0,
@@ -284,14 +278,15 @@ halt =
 fetch :: CPUM ()
 fetch = do
   ctrl <- gets stateCtrl
-  let stall = ctrlDecodeLoad ctrl
-        -- ^ Have to always stall incrementing the program counter on any load
-        -- instruction because we cannot tell early enough if there's actually a
-        -- load hazard since that occurs in the `decode` stage.
-           || ctrlMemOutputActive ctrl
-        -- ^ We stall on `ctrlMemOutputActive` because that means next cycle
-        -- the memory will be unavailable to read an instruction from, so we
-        -- shouldn't increment the program counter.
+  let stall =
+        ctrlDecodeLoad ctrl
+          -- \^ Have to always stall incrementing the program counter on any load
+          -- instruction because we cannot tell early enough if there's actually a
+          -- load hazard since that occurs in the `decode` stage.
+          || ctrlMemOutputActive ctrl
+  -- \^ We stall on `ctrlMemOutputActive` because that means next cycle
+  -- the memory will be unavailable to read an instruction from, so we
+  -- shouldn't increment the program counter.
 
   pc <- gets stateFePc
   -- Fetch the next instruction from memory.  Will only actually happen if no
@@ -330,19 +325,20 @@ decode = do
 
   ctrl <- gets stateCtrl
 
-  let stall = loadHazard ir ex_ir
-           || ctrlFirstCycle ctrl
-           -- ^ First cycle = gibberish from memory, so we stall.
-           || isJust (ctrlExBranch ctrl)
-           -- ^ This means that the branch was taken, so we have to stall and
-           -- wait until the next cycle to get the correct instruction.
-           || ctrlMemInputActive ctrl
-           -- ^ If the memory input is active (i.e., there's a load down the
-           -- pipe), stall.
-           || ctrlMemBranch ctrl
-           -- ^ Is there a branch instruction in the memory stage for which
-           -- we take the branch? Then the current instruction in the `decode`
-           -- stage is stale and we have to stall.
+  let stall =
+        loadHazard ir ex_ir
+          || ctrlFirstCycle ctrl
+          -- \^ First cycle = gibberish from memory, so we stall.
+          || isJust (ctrlExBranch ctrl)
+          -- \^ This means that the branch was taken, so we have to stall and
+          -- wait until the next cycle to get the correct instruction.
+          || ctrlMemInputActive ctrl
+          -- \^ If the memory input is active (i.e., there's a load down the
+          -- pipe), stall.
+          || ctrlMemBranch ctrl
+  -- \^ Is there a branch instruction in the memory stage for which
+  -- we take the branch? Then the current instruction in the `decode`
+  -- stage is stale and we have to stall.
 
   modify $ \s ->
     if stall

@@ -262,8 +262,6 @@ instance Arbitrary Core.State where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
 
 instance Arbitrary Input where
   arbitrary = do
