@@ -141,10 +141,7 @@ data Control = Control
     -- contains the new PC.
     ctrlExBranch :: Maybe Address,
     -- | Does the `execute` stage contain a load instruction?
-    ctrlExLoad :: Bool,
-    -- | The result of a branch computation. Set in the `execute` stage and
-    -- contains the new PC.
-    ctrlMemBranch :: Bool
+    ctrlExLoad :: Bool
   }
   -- \| Need propagate whether a branch instruction is in the `memory` stage
   -- so we can stall the decode stall another cycle.
@@ -259,8 +256,7 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
-      ctrlExLoad = False,
-      ctrlMemBranch = False
+      ctrlExLoad = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -286,9 +282,9 @@ fetch = do
   mBranchAddr <- gets $ ctrlExBranch . stateCtrl
 
   let stall =
-        -- -- Have to always stall incrementing the program counter on any load
-        -- -- instruction because we cannot tell early enough if there's actually a
-        -- -- load hazard since that occurs in the `decode` stage.
+        -- Have to always stall incrementing the program counter on any load
+        -- instruction because we cannot tell early enough if there's actually a
+        -- load hazard since that occurs in the `decode` stage.
         ctrlDecodeLoad ctrl
           ||
           -- We stall on `ctrlMemOutputActive` because that means next cycle
@@ -509,12 +505,6 @@ memory = do
             ctrlMemOutputActive = True
           }
       readRAM (unpack res) size
-    Instruction.IType Jump _ _ _ ->
-      setLines $ \c ->
-        c {ctrlMemBranch = True}
-    Instruction.JType {} ->
-      setLines $ \c ->
-        c {ctrlMemBranch = True}
     _ -> pure ()
 
   modify $ \s ->

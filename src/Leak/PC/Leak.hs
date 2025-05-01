@@ -153,7 +153,11 @@ decode = do
       }
 
   ifM
-    (or <$> sequence [pure $ Core.isLoad ex_ir, gets stateStallDecode, gets stateFirstCycle])
+    ( pure (\a b c -> a || b || c)
+        <*> pure (Core.isLoad ex_ir)
+        <*> gets stateStallDecode
+        <*> gets stateFirstCycle
+    )
     ( modify $ \s ->
         s
           { stateExInstr = Core.nop,
@@ -275,8 +279,6 @@ memory = do
     Core.IType Core.Load {} _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       stallFetch
-    Core.BType {} ->
-      pure ()
     Core.SType {} ->
       stallFetch
     _ -> pure ()

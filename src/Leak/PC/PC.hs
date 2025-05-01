@@ -102,7 +102,7 @@ proj (s, _) = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMemInstr s,
           Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
@@ -120,10 +120,6 @@ proj (s, _) = (ts, ss)
       Leak.Instr
         (Leak.mkInstr instr)
         (Leak.mkDeps instr)
-
-    -- toLeakInstrDone :: Instruction -> Leak.Instr
-    -- toLeakInstrDone inst = leak_inst
-    --        Leak.Instr (Leak.mkInstr inst) (Leak.mkDeps inst)
 
     toStallFetch :: Core.Control -> Bool
     toStallFetch ctrl =

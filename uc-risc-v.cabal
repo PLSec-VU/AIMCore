@@ -34,8 +34,8 @@ library
       Leak.PC.Leak
       Leak.PC.PC
       Leak.PC.Sim
+      Leak.PC.Test
       Leak.PCWithState.PCWithState
-      Pipeline
       Pretty
       RegFile
       Simulate

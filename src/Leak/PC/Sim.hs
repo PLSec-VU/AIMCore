@@ -9,7 +9,7 @@ where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified Leak.PC.Leak as Leak
 import Types
@@ -87,7 +87,11 @@ decode = do
   when (Leak.isLoad instr) $ do
     stallFetch
   ifM
-    (or <$> sequence [pure $ Leak.isLoad ex_ir, gets stateStallDecode, gets stateFirstCycle])
+    ( pure (\a b c -> a || b || c)
+        <*> pure (Leak.isLoad ex_ir)
+        <*> gets stateStallDecode
+        <*> gets stateFirstCycle
+    )
     ( modify $ \s ->
         s
           { stateExInstr = Leak.nop,
@@ -114,18 +118,16 @@ execute = do
 
   case Leak.instrBase instr of
     Leak.Jump -> do
-      case mjmpAddr of
-        Just {} -> do
-          stallFetch
-          stallDecode
-        Nothing ->
-          modify $ \s ->
-            s {stateMemInstr = Leak.nop}
+      modify $ \s -> s {stateMemInstr = Leak.nop}
+      when (isJust mjmpAddr) $ do
+        stallFetch
+        stallDecode
     _ -> pure ()
 
 memory :: SimM ()
 memory = do
   instr <- gets stateMemInstr
+  modify $ \s -> s {stateWbInstr = instr}
   case Leak.instrBase instr of
     Leak.Load {} -> do
       outputNothing
@@ -134,18 +136,6 @@ memory = do
       outputNothing
       stallFetch
     _ -> pure ()
-
-  modify $ \s ->
-    s
-      { stateWbInstr =
-          -- No longer care about the jumps (matters for state equivalence)
-          if isJump instr
-            then Leak.nop
-            else instr
-      }
-  where
-    isJump (Leak.Instr Leak.Jump {} _) = True
-    isJump _ = False
 
 writeback :: SimM ()
 writeback = do
