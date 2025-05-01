@@ -298,7 +298,6 @@ fetch = do
           -- the memory will be unavailable to read an instruction from, so we
           -- shouldn't increment the program counter.
           ctrlMemOutputActive ctrl
-  -- \|| isJust mBranchAddr
 
   if stall
     then modify $ \s -> s {stateFePc = fromMaybe pc mBranchAddr}
