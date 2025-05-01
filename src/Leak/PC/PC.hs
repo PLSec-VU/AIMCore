@@ -86,7 +86,6 @@ proj (s, _) = (ts, ss)
           Leak.stateExInstr = Core.stateExInstr s,
           Leak.stateMemInstr = Core.stateMemInstr s,
           Leak.stateMemRes = Core.stateMemRes s,
-          Leak.stateMemBranch = Core.stateMemBranch s,
           Leak.stateWbInstr = Core.stateWbInstr s,
           Leak.stateWbRes = Core.stateWbRes s,
           Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
