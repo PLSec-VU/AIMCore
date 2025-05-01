@@ -329,9 +329,8 @@ decode = do
 
   let stall =
         ctrlExLoad ctrl
-          ||
-          --  -- First cycle = gibberish from memory, so we stall.
-          ctrlFirstCycle ctrl
+          -- First cycle = gibberish from memory, so we stall.
+          || ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
           || isJust (ctrlExBranch ctrl)
