@@ -135,13 +135,13 @@ proj (s, _) = (ts, ss)
     toStallFetch ctrl =
       Core.ctrlDecodeLoad ctrl
         || Core.ctrlMemOutputActive ctrl
+        || isJust (Core.ctrlExBranch ctrl)
 
     toStallDecode :: Core.Control -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
         || Core.ctrlMemInputActive ctrl
-        || Core.ctrlMemBranch ctrl
 
 simulator ::
   forall m.

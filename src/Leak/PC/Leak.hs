@@ -64,7 +64,6 @@ data State = State
     stateExInstr :: Core.Instruction,
     stateMemInstr :: Core.Instruction,
     stateMemRes :: Word,
-    stateMemBranch :: Bool,
     stateWbInstr :: Core.Instruction,
     stateWbRes :: Word,
     stateStallFetch :: Bool,
@@ -86,7 +85,6 @@ init =
       stateExInstr = Core.nop,
       stateMemInstr = Core.nop,
       stateMemRes = 0,
-      stateMemBranch = False,
       stateWbInstr = Core.nop,
       stateWbRes = 0,
       stateHalt = False,
@@ -206,7 +204,6 @@ mkInstr instr =
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
-  modify $ \s -> s {stateMemBranch = False}
   let r1M :: LeakM Word
       r1M = regWithFwd Core.getRs1 =<< asks Core.inputRs1
 
@@ -237,7 +234,6 @@ execute = do
       case interp_res of
         Interp _ (Just addr) (Just branched)
           | branched -> do
-              modify $ \s -> s {stateMemBranch = True}
               informJumpAddr addr
         _ -> pure ()
     Core.JType {} ->
@@ -255,8 +251,8 @@ execute = do
   where
     informJumpAddr :: Address -> LeakM ()
     informJumpAddr jump_addr = do
+      stallFetch
       stallDecode
-      -- stallFetch
       tell $ mempty {outJumpAddr = pure jump_addr}
       modify $ \s -> s {stateJumpAddr = pure jump_addr}
 
@@ -278,14 +274,8 @@ memory = do
     Core.IType Core.Load {} _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       stallFetch
-    Core.IType Core.Jump _ _ _ ->
-      stallDecode
-    Core.JType {} ->
-      stallDecode
-    Core.BType {} -> do
-      branched <- gets stateMemBranch
-      when branched $
-        stallDecode
+    Core.BType {} ->
+      pure ()
     Core.SType {} ->
       stallFetch
     _ -> pure ()

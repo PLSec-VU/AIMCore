@@ -115,8 +115,8 @@ execute = do
   case Leak.instrBase instr of
     Leak.Jump -> do
       case mjmpAddr of
-        Just {} ->
-          -- stallFetch
+        Just {} -> do
+          stallFetch
           stallDecode
         Nothing ->
           modify $ \s ->
@@ -133,8 +133,6 @@ memory = do
     Leak.Store -> do
       outputNothing
       stallFetch
-    Leak.Jump ->
-      stallDecode
     _ -> pure ()
 
   modify $ \s ->
@@ -190,7 +188,7 @@ pipe = withCtrlReset $ do
             stateJumpAddr = Nothing,
             stateFirstCycle = firstCycle
           }
-      m
+      void m
       modify $ \s -> s {stateFirstCycle = False}
 
 circuit :: State -> Leak.Out -> (State, Maybe Address)

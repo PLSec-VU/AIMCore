@@ -298,6 +298,7 @@ fetch = do
           -- the memory will be unavailable to read an instruction from, so we
           -- shouldn't increment the program counter.
           ctrlMemOutputActive ctrl
+          || isJust mBranchAddr
 
   if stall
     then modify $ \s -> s {stateFePc = fromMaybe pc mBranchAddr}
@@ -340,10 +341,6 @@ decode = do
           -- If the memory input is active (i.e., there's a load down the
           -- pipe), stall.
           || ctrlMemInputActive ctrl
-          -- Is there a branch instruction in the memory stage for which
-          -- we take the branch? Then the current instruction in the `decode`
-          -- stage is stale and we have to stall.
-          || ctrlMemBranch ctrl
 
   modify $ \s ->
     if stall
@@ -519,11 +516,6 @@ memory = do
             ctrlMemOutputActive = True
           }
       readRAM (unpack res) size
-    Instruction.BType {} -> do
-      branched <- gets stateMemBranch
-      when branched $
-        setLines $ \c ->
-          c {ctrlMemBranch = True}
     Instruction.IType Jump _ _ _ ->
       setLines $ \c ->
         c {ctrlMemBranch = True}
