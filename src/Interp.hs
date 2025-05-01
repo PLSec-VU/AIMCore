@@ -26,9 +26,9 @@ interp instr r1 r2 pc =
           alu_res = alu True op r1 (signExtend imm)
        in case iop of
             Arith {} -> Interp alu_res Nothing Nothing
-            Load size sign -> Interp (bitCoerce alu_res) Nothing Nothing
+            Load size sign -> Interp (unpack alu_res) Nothing Nothing
             Jump ->
-              Interp (bitCoerce $ pc + 4) (Just $ bitCoerce alu_res) Nothing
+              Interp (pack $ pc + 4) (Just $ unpack alu_res) Nothing
             Env Break ->
               Interp alu_res Nothing Nothing
             Env Call ->
@@ -37,11 +37,11 @@ interp instr r1 r2 pc =
       Interp (unpack (r1 + signExtend imm)) Nothing Nothing
     BType cmp imm _ _ ->
       let branched = branch cmp r1 r2
-       in Interp 0 (if branched then Just $ pc + bitCoerce (signExtend imm) else Nothing) (Just branched)
+       in Interp 0 (if branched then Just $ pc + unpack (signExtend imm) else Nothing) (Just branched)
     UType Zero rd imm ->
       Interp (imm ++# 0 `shiftL` 12) Nothing Nothing
     UType PC rd imm ->
       let imm' = imm ++# 0 `shiftL` 12
-       in Interp (bitCoerce pc + imm') Nothing Nothing
+       in Interp (pack pc + imm') Nothing Nothing
     JType rd imm ->
-      Interp (bitCoerce $ pc + 4) (Just $ pc + bitCoerce (signExtend imm)) Nothing
+      Interp (pack $ pc + 4) (Just $ pc + unpack (signExtend imm)) Nothing

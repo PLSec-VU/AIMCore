@@ -107,8 +107,6 @@ data State = State
     stateMemRes :: Word,
     -- | Memory value to write for stores (`stateMemRes` only contains the address).
     stateMemVal :: Word,
-    -- | Did we branch in the `execute` stage on this instruction?
-    stateMemBranch :: Bool,
     -- | Instruction register writeback stage
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
@@ -244,7 +242,6 @@ init =
       stateMemInstr = nop,
       stateMemRes = 0,
       stateMemVal = 0,
-      stateMemBranch = False,
       stateWbInstr = nop,
       stateWbRes = 0,
       stateCtrl = initCtrl,
@@ -366,7 +363,7 @@ decode = do
 execute :: CPUM ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s {stateMemBranch = False}
+  modify $ \s -> s {stateMemInstr = ir}
 
   -- Fetch alu operands
   aluInputs <- runMaybeT $
@@ -406,10 +403,10 @@ execute = do
         r2 <- rs2
         pc <- gets $ pack . stateExPc
         let doBranch = branch cmp r1 r2
-        when doBranch $ do
-          modify $ \s -> s {stateMemBranch = True}
-          setLines $
+        if doBranch
+          then setLines $
             \c -> c {ctrlExBranch = Just $ unpack $ alu False ADD pc (signExtend imm)}
+          else modify $ \s -> s {stateMemInstr = nop}
         empty
       Instruction.UType base _ imm -> do
         base' <- case base of
@@ -427,10 +424,7 @@ execute = do
     let aluNOP = (ADD, 0, 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu (isIType ir) op lhs rhs
-     in s
-          { stateMemRes = res,
-            stateMemInstr = ir
-          }
+     in s {stateMemRes = res}
   where
     isIType :: Instruction -> Bool
     isIType (Instruction.IType {}) = True

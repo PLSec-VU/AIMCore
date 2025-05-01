@@ -102,8 +102,8 @@ proj (s, _) = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstrDone (Core.stateMemInstr s) (Core.stateMemBranch s),
-          Sim.stateWbInstr = killJump $ toLeakInstrDone (Core.stateWbInstr s) False,
+          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
           Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
@@ -121,14 +121,9 @@ proj (s, _) = (ts, ss)
         (Leak.mkInstr instr)
         (Leak.mkDeps instr)
 
-    toLeakInstrDone :: Instruction -> Bool -> Leak.Instr
-    toLeakInstrDone inst branched = leak_inst
-      where
-        leak_inst =
-          case inst of
-            Instruction.BType {}
-              | not branched -> Leak.nop
-            _ -> Leak.Instr (Leak.mkInstr inst) (Leak.mkDeps inst)
+    -- toLeakInstrDone :: Instruction -> Leak.Instr
+    -- toLeakInstrDone inst = leak_inst
+    --        Leak.Instr (Leak.mkInstr inst) (Leak.mkDeps inst)
 
     toStallFetch :: Core.Control -> Bool
     toStallFetch ctrl =

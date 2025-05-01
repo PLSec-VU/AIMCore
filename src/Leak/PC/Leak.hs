@@ -224,6 +224,8 @@ execute = do
 
   interp_res <- interp instr <$> r1M <*> r2M <*> gets stateExPc
 
+  modify $ \s -> s {stateMemInstr = instr}
+
   case instr of
     Core.IType Core.Jump _ _ _ ->
       case interp_res of
@@ -233,8 +235,11 @@ execute = do
     Core.BType {} ->
       case interp_res of
         Interp _ (Just addr) (Just branched)
-          | branched -> do
+          | branched ->
               informJumpAddr addr
+        Interp _ _ (Just branched)
+          | not branched ->
+              modify $ \s -> s {stateMemInstr = Core.nop}
         _ -> pure ()
     Core.JType {} ->
       case interp_res of
@@ -243,11 +248,7 @@ execute = do
         _ -> pure ()
     _ -> pure ()
 
-  modify $ \s ->
-    s
-      { stateMemInstr = instr,
-        stateMemRes = interpRes interp_res
-      }
+  modify $ \s -> s {stateMemRes = interpRes interp_res}
   where
     informJumpAddr :: Address -> LeakM ()
     informJumpAddr jump_addr = do
@@ -283,10 +284,6 @@ memory = do
   modify $ \s ->
     s
       { stateWbInstr = instr,
-        -- No longer care about the branches (matters for state equivalence)
-        -- if isBranch instr
-        --  then Core.nop
-        --  else instr,
         stateWbRes = res
       }
 
