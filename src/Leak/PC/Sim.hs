@@ -26,7 +26,8 @@ data State = State
     stateJumpAddr :: Maybe Address,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
-    stateHalt :: Bool
+    stateHalt :: Bool,
+    stateFirstCycle :: Bool
   }
   deriving (Show, Eq)
 
@@ -42,7 +43,8 @@ init =
       stateHalt = False,
       stateStallFetch = False,
       stateStallDecode = False,
-      stateJumpAddr = Nothing
+      stateJumpAddr = Nothing,
+      stateFirstCycle = True
     }
 
 type SimM = RWS Leak.Out (First (Maybe Address)) State
@@ -62,7 +64,6 @@ outputNothing = tell $ pure Nothing
 
 fetch :: SimM ()
 fetch = do
-  outputPc =<< gets stateFePc
   ifM
     (gets stateStallFetch)
     ( modify $ \s ->
@@ -70,11 +71,13 @@ fetch = do
           { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
           }
     )
-    ( modify $ \s ->
-        s
-          { stateFePc = fromMaybe (stateFePc s + 4) (stateJumpAddr s),
-            stateDePc = stateFePc s
-          }
+    ( do
+        outputPc =<< gets stateFePc
+        modify $ \s ->
+          s
+            { stateFePc = fromMaybe (stateFePc s + 4) (stateJumpAddr s),
+              stateDePc = stateFePc s
+            }
     )
 
 decode :: SimM ()
@@ -84,8 +87,13 @@ decode = do
   when (Leak.isLoad instr) $ do
     stallFetch
   ifM
-    ((Leak.loadHazard instr ex_ir ||) <$> gets stateStallDecode)
-    (modify $ \s -> s {stateExInstr = Leak.nop})
+    (or <$> sequence [pure $ Leak.isLoad ex_ir, gets stateStallDecode, gets stateFirstCycle])
+    ( modify $ \s ->
+        s
+          { stateExInstr = Leak.nop,
+            stateExPc = stateDePc s
+          }
+    )
     ( modify $ \s ->
         s
           { stateExInstr = instr,
@@ -97,6 +105,7 @@ execute :: SimM ()
 execute = do
   instr <- gets stateExInstr
   mjmpAddr <- getFirst <$> asks Leak.outJumpAddr
+
   modify $ \s ->
     s
       { stateJumpAddr = mjmpAddr,
@@ -106,17 +115,12 @@ execute = do
   case Leak.instrBase instr of
     Leak.Jump -> do
       case mjmpAddr of
-        Just {} -> do
+        Just {} ->
+          -- stallFetch
           stallDecode
-          modify $ \s ->
-            s
-              { stateMemInstr = instr {Leak.instrBase = Leak.Jump}
-              }
         Nothing ->
           modify $ \s ->
-            s
-              { stateMemInstr = Leak.nop
-              }
+            s {stateMemInstr = Leak.nop}
     _ -> pure ()
 
 memory :: SimM ()
@@ -170,22 +174,24 @@ writeback = do
     _ -> pure ()
 
 pipe :: SimM ()
-pipe = do
-  resetCtrl
+pipe = withCtrlReset $ do
   writeback
   memory
   execute
   decode
   fetch
   where
-    resetCtrl :: SimM ()
-    resetCtrl =
+    withCtrlReset m = do
+      firstCycle <- gets stateFirstCycle
       modify $ \s ->
         s
           { stateStallFetch = False,
             stateStallDecode = False,
-            stateJumpAddr = Nothing
+            stateJumpAddr = Nothing,
+            stateFirstCycle = firstCycle
           }
+      m
+      modify $ \s -> s {stateFirstCycle = False}
 
 circuit :: State -> Leak.Out -> (State, Maybe Address)
 circuit s i = fromMaybe Nothing . getFirst <$> execRWS pipe i s

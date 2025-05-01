@@ -246,6 +246,7 @@ instance Arbitrary Control where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
 
 instance Arbitrary Core.State where
   arbitrary =

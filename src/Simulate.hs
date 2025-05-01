@@ -17,22 +17,22 @@ import Control.Monad.State
 import Core hiding (State)
 import qualified Core
 import Data.Monoid
-import Regfile
+import RegFile
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 
 data Mem n = Mem
   { memRAM :: Vec n Byte,
-    memRf :: Regfile
+    memRF :: RegFile
   }
   deriving (Eq, Show, Generic, NFDataX)
 
 instance (Monad m, MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
   getRAM = gets memRAM
   putRAM ram = modify $ \s -> s {memRAM = ram}
-  getRegfile = gets memRf
-  putRegfile rf = modify $ \s -> s {memRf = rf}
+  getRegFile = gets memRF
+  putRegFile rf = modify $ \s -> s {memRF = rf}
 
 simulator :: forall m. (MonadState (Mem MEM_SIZE_BYTES) m) => CircuitSim m Input Core.State Output
 simulator =
@@ -52,15 +52,12 @@ simulator =
         simCore = flip $ runRWS simCoreM
           where
             simCoreM :: CPUM Control
-            simCoreM = do
+            simCoreM = withCtrlReset $ do
               writeback
               memory
               execute
               decode
               fetch
-              ctrl <- gets stateCtrl
-              resetCtrl
-              pure ctrl
 
     next :: Output -> m (Maybe Input)
     next (Output mem rs1 rs2 rd hlt)

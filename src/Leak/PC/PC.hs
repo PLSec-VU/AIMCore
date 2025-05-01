@@ -26,7 +26,7 @@ import Instruction (Instruction)
 import qualified Instruction
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
-import Regfile
+import RegFile
 import qualified Simulate
 import Types
 import UC
@@ -36,15 +36,15 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- Uncomment this to check the leakage.
 -- import UC (Spec (..))
 --
-{-# ANN
-  implementation
-  Spec
-    { observation' = 'obs,
-      leakage' = 'leak,
-      simulator' = 'sim,
-      projection' = 'proj
-    }
-  #-}
+-- {-# ANN
+--   implementation
+--   Spec
+--     { observation' = 'obs,
+--       leakage' = 'leak,
+--       simulator' = 'sim,
+--       projection' = 'proj
+--     }
+--   #-}
 implementation :: Core.State -> Input -> (Core.State, Output)
 implementation = Core.circuit
 
@@ -94,7 +94,8 @@ proj (s, _) = (ts, ss)
           Leak.stateHalt = Core.stateHalt s,
           Leak.stateMeRegFwd = Core.ctrlMeRegFwd $ Core.stateCtrl s,
           Leak.stateWbRegFwd = Core.ctrlWbRegFwd $ Core.stateCtrl s,
-          Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
+          Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
+          Leak.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
     ss =
       Sim.State
@@ -107,7 +108,8 @@ proj (s, _) = (ts, ss)
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
           Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
-          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
+          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
+          Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
 
     killJump :: Leak.Instr -> Leak.Instr

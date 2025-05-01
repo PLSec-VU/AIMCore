@@ -17,7 +17,7 @@ import Data.Monoid
 import qualified Debug.Trace as DB
 import qualified GHC.TypeNats
 import Instruction hiding (decode)
-import Regfile
+import RegFile
 import qualified Simulate
 import Text.Read (readMaybe)
 import Types
@@ -42,7 +42,7 @@ system prog = cpuOut
     cpuInput :: Signal dom Input
     cpuInput = register initInput input
     cpuOut = cpu cpuInput
-    regfile = mkRegfile $ mkRegAccess <$> cpuOut
+    regfile = mkRegFile $ mkRegAccess <$> cpuOut
     ram = mkRAM prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
     input =
       ( \o mread (rs1, rs2) ->
@@ -70,8 +70,8 @@ data RegAccess = RegAccess
   }
   deriving (Show, Generic, NFDataX)
 
-mkRegfile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
-mkRegfile input = mkOutput <$> reg_update <*> input
+mkRegFile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
+mkRegFile input = mkOutput <$> reg_update <*> input
   where
     reg_output = register initRF reg_update
     reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output

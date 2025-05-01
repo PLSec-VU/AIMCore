@@ -2,7 +2,7 @@ module Core
   ( initInput,
     init,
     initCtrl,
-    resetCtrl,
+    withCtrlReset,
     circuit,
     Input (..),
     Output (..),
@@ -142,6 +142,8 @@ data Control = Control
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
     ctrlExBranch :: Maybe Address,
+    -- | Does the `execute` stage contain a load instruction?
+    ctrlExLoad :: Bool,
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
     ctrlMemBranch :: Bool
@@ -216,8 +218,7 @@ circuit = flip $ execRWS pipe
 
 -- | The CPU.
 pipe :: CPUM ()
-pipe = do
-  resetCtrl
+pipe = void $ withCtrlReset $ do
   writeback
   memory
   execute
@@ -261,13 +262,19 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
+      ctrlExLoad = False,
       ctrlMemBranch = False
     }
 
 -- | The control lines need to be reset every tick.
-resetCtrl :: CPUM ()
-resetCtrl =
-  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = False}}
+withCtrlReset :: CPUM () -> CPUM Control
+withCtrlReset m = do
+  firstCycle <- gets $ ctrlFirstCycle . stateCtrl
+  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = firstCycle}}
+  m
+  ctrl <- gets stateCtrl
+  modify $ \s -> s {stateCtrl = (stateCtrl s) {ctrlFirstCycle = False}}
+  pure ctrl
 
 -- | Stop the CPU.
 halt :: CPUM ()
@@ -278,29 +285,28 @@ halt =
 fetch :: CPUM ()
 fetch = do
   ctrl <- gets stateCtrl
-  let stall =
-        ctrlDecodeLoad ctrl
-          -- \^ Have to always stall incrementing the program counter on any load
-          -- instruction because we cannot tell early enough if there's actually a
-          -- load hazard since that occurs in the `decode` stage.
-          || ctrlMemOutputActive ctrl
-  -- \^ We stall on `ctrlMemOutputActive` because that means next cycle
-  -- the memory will be unavailable to read an instruction from, so we
-  -- shouldn't increment the program counter.
-
   pc <- gets stateFePc
-  -- Fetch the next instruction from memory.  Will only actually happen if no
-  -- other reads/writes occur in subsequent stages.
-  readPC pc
-
   mBranchAddr <- gets $ ctrlExBranch . stateCtrl
-  modify $ \s ->
-    if stall
-      then
-        s
-          { stateFePc = fromMaybe pc mBranchAddr
-          }
-      else
+
+  let stall =
+        -- -- Have to always stall incrementing the program counter on any load
+        -- -- instruction because we cannot tell early enough if there's actually a
+        -- -- load hazard since that occurs in the `decode` stage.
+        ctrlDecodeLoad ctrl
+          ||
+          -- We stall on `ctrlMemOutputActive` because that means next cycle
+          -- the memory will be unavailable to read an instruction from, so we
+          -- shouldn't increment the program counter.
+          ctrlMemOutputActive ctrl
+  -- \|| isJust mBranchAddr
+
+  if stall
+    then modify $ \s -> s {stateFePc = fromMaybe pc mBranchAddr}
+    else do
+      -- Fetch the next instruction from memory.  Will only actually happen if no
+      -- other reads/writes occur in subsequent stages.
+      readPC pc
+      modify $ \s ->
         s
           { -- Increment program counter for next fetch.
             stateFePc = fromMaybe (pc + 4) mBranchAddr,
@@ -316,8 +322,7 @@ decode = do
         | inputIsInstr input =
             Instruction.decode' $ inputMem input
         | otherwise = Instruction.nop
-  ex_ir <- gets stateExInstr
-  readRf ir
+  readRF ir
 
   when (isLoad ir) $
     setLines $
@@ -326,30 +331,35 @@ decode = do
   ctrl <- gets stateCtrl
 
   let stall =
-        loadHazard ir ex_ir
-          || ctrlFirstCycle ctrl
-          -- \^ First cycle = gibberish from memory, so we stall.
-          || isJust (ctrlExBranch ctrl)
-          -- \^ This means that the branch was taken, so we have to stall and
+        ctrlExLoad ctrl
+          ||
+          --  -- First cycle = gibberish from memory, so we stall.
+          ctrlFirstCycle ctrl
+          -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
-          || ctrlMemInputActive ctrl
-          -- \^ If the memory input is active (i.e., there's a load down the
+          || isJust (ctrlExBranch ctrl)
+          -- If the memory input is active (i.e., there's a load down the
           -- pipe), stall.
+          || ctrlMemInputActive ctrl
+          -- Is there a branch instruction in the memory stage for which
+          -- we take the branch? Then the current instruction in the `decode`
+          -- stage is stale and we have to stall.
           || ctrlMemBranch ctrl
-  -- \^ Is there a branch instruction in the memory stage for which
-  -- we take the branch? Then the current instruction in the `decode`
-  -- stage is stale and we have to stall.
 
   modify $ \s ->
     if stall
-      then s {stateExInstr = nop}
+      then
+        s
+          { stateExInstr = nop,
+            stateExPc = stateDePc s
+          }
       else
         s
           { stateExInstr = ir,
             stateExPc = stateDePc s
           }
   where
-    readRf ir =
+    readRF ir =
       tell $
         mempty
           { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
@@ -365,6 +375,7 @@ execute = do
   -- Fetch alu operands
   aluInputs <- runMaybeT $
     case ir of
+      Instruction.IType Env {} _ _ _ -> empty
       Instruction.RType op _ _ _ -> do
         r1 <- rs1
         r2 <- rs2
@@ -373,9 +384,14 @@ execute = do
         pc <- gets $ pack . stateExPc
         r1 <- rs1
         setLines $
-          \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD r1 (signExtend imm)}
+          \c -> c {ctrlExBranch = Just $ unpack $ alu True ADD r1 (signExtend imm)}
         pure (ADD, pc, 4)
       Instruction.IType op _ _ imm -> do
+        let loadOp Load {} = True
+            loadOp _ = False
+        when (loadOp op) $
+          setLines $
+            \c -> c {ctrlExLoad = True}
         -- Do addition for non arithmetic operations.
         let op' = case op of
               Arith arith -> arith
@@ -397,7 +413,7 @@ execute = do
         when doBranch $ do
           modify $ \s -> s {stateMemBranch = True}
           setLines $
-            \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+            \c -> c {ctrlExBranch = Just $ unpack $ alu False ADD pc (signExtend imm)}
         empty
       Instruction.UType base _ imm -> do
         base' <- case base of
@@ -408,18 +424,22 @@ execute = do
       Instruction.JType _ imm -> do
         pc <- gets $ pack . stateExPc
         setLines $
-          \c -> c {ctrlExBranch = Just $ bitCoerce $ alu ADD pc (signExtend imm)}
+          \c -> c {ctrlExBranch = Just $ unpack $ alu False ADD pc (signExtend imm)}
         pure (ADD, pc, 4)
 
   modify $ \s ->
     let aluNOP = (ADD, 0, 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
-        res = alu op lhs rhs
+        res = alu (isIType ir) op lhs rhs
      in s
           { stateMemRes = res,
             stateMemInstr = ir
           }
   where
+    isIType :: Instruction -> Bool
+    isIType (Instruction.IType {}) = True
+    isIType _ = False
+
     rs1 :: MaybeT CPUM Word
     rs1 = lift $ regWithFwd getRs1 =<< asks inputRs1
 
@@ -443,8 +463,8 @@ execute = do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
 
-alu :: Arith -> Word -> Word -> Word
-alu op lhs rhs = case op of
+alu :: Bool -> Arith -> Word -> Word -> Word
+alu itype op lhs rhs = case op of
   ADD -> lhs + rhs
   SUB -> lhs - rhs
   XOR -> lhs .^. rhs
@@ -456,7 +476,11 @@ alu op lhs rhs = case op of
   SLT -> set $ sign lhs > sign rhs
   SLTU -> set $ lhs > rhs
   where
-    shiftBits s = fromIntegral $ slice d4 d0 s
+    shiftBits s
+      | itype =
+          fromIntegral $ slice d4 d0 s
+      | otherwise =
+          fromIntegral s
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 
@@ -485,7 +509,7 @@ memory = do
   case instr of
     Instruction.SType size _ _ _ -> do
       r2 <- gets stateMemVal
-      writeRAM (unpack res) size (unpack r2)
+      writeRAM (unpack res) size r2
       setLines $ \c ->
         c {ctrlMemOutputActive = True}
     Instruction.IType (Load size _) _ _ _ -> do
@@ -609,11 +633,6 @@ writeRAM addr size val =
                 memVal = Just val
               }
       }
-
--- checkLines :: (MonadState State m) => [Control -> Bool] -> m Bool
--- checkLines ls = do
---   ctrl <- gets stateCtrl
---   pure $ or [test ctrl | test <- ls]
 
 setLines :: (MonadState State m) => (Control -> Control) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}

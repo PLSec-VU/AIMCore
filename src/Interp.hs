@@ -17,13 +17,13 @@ interp :: Instruction -> Word -> Word -> Address -> Interp
 interp instr r1 r2 pc =
   case instr of
     RType op rd _ _ ->
-      Interp (alu op r1 r2) Nothing Nothing
+      Interp (alu False op r1 r2) Nothing Nothing
     IType iop rd _ imm ->
       let op =
             case iop of
               Arith op' -> op'
               _ -> ADD
-          alu_res = alu op r1 (signExtend imm)
+          alu_res = alu True op r1 (signExtend imm)
        in case iop of
             Arith {} -> Interp alu_res Nothing Nothing
             Load size sign -> Interp (bitCoerce alu_res) Nothing Nothing

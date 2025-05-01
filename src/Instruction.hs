@@ -161,9 +161,9 @@ decode' word =
                 0x4 -> instr XOR
                 0x6 -> instr OR
                 0x7 -> instr AND
-                0x1 | funct7 == 0x00 -> instr SLL
-                0x5 | funct7 == 0x00 -> instr SRL
-                0x5 | funct7 == 0x20 -> instr SRA
+                0x1 | slice d11 d5 immI == 0x00 -> instr SLL
+                0x5 | slice d11 d5 immI == 0x00 -> instr SRL
+                0x5 | slice d11 d5 immI == 0x20 -> instr SRA
                 0x2 -> instr SLT
                 0x3 -> instr SLTU
                 _ -> nop

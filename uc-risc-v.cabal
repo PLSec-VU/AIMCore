@@ -28,14 +28,16 @@ library
       Core
       HardwareSim
       Instruction
+      Interp
       ISA
       Leak.Arch.Arch
       Leak.PC.Leak
       Leak.PC.PC
       Leak.PC.Sim
       Leak.PCWithState.PCWithState
+      Pipeline
       Pretty
-      Regfile
+      RegFile
       Simulate
       Types
       Util

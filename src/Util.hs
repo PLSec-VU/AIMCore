@@ -33,7 +33,7 @@ import Control.Monad.Trans.Maybe
 import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
 import Instruction
-import Regfile
+import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat, replicate, take, undefined, (!!), (&&), (++), (||))
 
@@ -87,8 +87,8 @@ pageIO = mapM_ $ \a -> do
 class (Monad m) => MonadMemory m where
   getRAM :: m (Vec MEM_SIZE_BYTES Byte)
   putRAM :: Vec MEM_SIZE_BYTES Byte -> m ()
-  getRegfile :: m Regfile
-  putRegfile :: Regfile -> m ()
+  getRegFile :: m RegFile
+  putRegFile :: RegFile -> m ()
 
 ramRead :: (MonadMemory m) => Address -> m Word
 ramRead addr = readWord addr <$> getRAM
@@ -99,12 +99,12 @@ ramWrite addr size w = do
   putRAM $ write size addr w ram
 
 regRead :: (MonadMemory m) => RegIdx -> m Word
-regRead idx = lookupRF idx <$> getRegfile
+regRead idx = lookupRF idx <$> getRegFile
 
 regWrite :: (MonadMemory m) => RegIdx -> Word -> m ()
 regWrite idx val = do
-  regfile <- getRegfile
-  putRegfile $ modifyRF idx val regfile
+  regfile <- getRegFile
+  putRegFile $ modifyRF idx val regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =

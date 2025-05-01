@@ -72,7 +72,8 @@ data State = State
     stateHalt :: Bool,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
-    stateJumpAddr :: Maybe Address
+    stateJumpAddr :: Maybe Address,
+    stateFirstCycle :: Bool
   }
   deriving (Show, Eq)
 
@@ -93,7 +94,8 @@ init =
       stateStallDecode = False,
       stateMeRegFwd = Nothing,
       stateWbRegFwd = Nothing,
-      stateJumpAddr = Nothing
+      stateJumpAddr = Nothing,
+      stateFirstCycle = True
     }
 
 data Out = Out
@@ -153,8 +155,12 @@ decode = do
       }
 
   ifM
-    ((Core.loadHazard instr ex_ir ||) <$> gets stateStallDecode)
-    ( modify $ \s -> s {stateExInstr = Core.nop}
+    (or <$> sequence [pure $ Core.isLoad ex_ir, gets stateStallDecode, gets stateFirstCycle])
+    ( modify $ \s ->
+        s
+          { stateExInstr = Core.nop,
+            stateExPc = stateDePc s
+          }
     )
     ( do
         modify $ \s ->
@@ -250,6 +256,7 @@ execute = do
     informJumpAddr :: Address -> LeakM ()
     informJumpAddr jump_addr = do
       stallDecode
+      -- stallFetch
       tell $ mempty {outJumpAddr = pure jump_addr}
       modify $ \s -> s {stateJumpAddr = pure jump_addr}
 
@@ -292,9 +299,6 @@ memory = do
         --  else instr,
         stateWbRes = res
       }
-  where
-    isBranch (Core.BType {}) = True
-    isBranch _ = False
 
 writeback :: LeakM ()
 writeback = do
@@ -330,24 +334,26 @@ writeback = do
     _ -> pure ()
 
 pipe :: LeakM ()
-pipe = do
-  resetCtrl
+pipe = withCtrlReset $ do
   writeback
   memory
   execute
   decode
   fetch
   where
-    resetCtrl :: LeakM ()
-    resetCtrl =
+    withCtrlReset m = do
+      firstCycle <- gets stateFirstCycle
       modify $ \s ->
         s
           { stateStallFetch = False,
             stateStallDecode = False,
             stateMeRegFwd = Nothing,
             stateWbRegFwd = Nothing,
-            stateJumpAddr = Nothing
+            stateJumpAddr = Nothing,
+            stateFirstCycle = firstCycle
           }
+      void m
+      modify $ \s -> s {stateFirstCycle = False}
 
 circuit :: State -> Input -> (State, Out)
 circuit = flip $ execRWS pipe
