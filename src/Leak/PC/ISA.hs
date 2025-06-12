@@ -62,14 +62,3 @@ runSimulator ::
 runSimulator f prog = evalState (f Leak.PC.ISA.simulator) s
   where
     s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
-
-prog1 :: Vec PROG_SIZE Word
-prog1 =
-  mkProg $
-    -- r2 := r0 + 5
-    Core.IType (Core.Arith Core.ADD) 2 0 5
-      :>
-      -- mem[0 + r0] := r2
-      Core.SType Word 0 0 2
-      :> Core.break
-      :> Nil
