@@ -29,7 +29,6 @@ import qualified Leak.PC.Sim as Sim
 import RegFile
 import qualified Simulate
 import Types
-import UC
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 

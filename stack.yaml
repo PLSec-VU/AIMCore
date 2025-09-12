@@ -4,6 +4,3 @@ packages:
 - .
 
 extra-deps:
-- ../uc-plugin
-# - git: git@github.com:PLSec-VU/uc-plugin.git
-#   commit: 79a714e74e491aa6c8fd5c733a193e49e9435c65
