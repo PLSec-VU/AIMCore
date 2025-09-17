@@ -53,9 +53,11 @@ simulator =
           where
             simCoreM :: CPUM Control
             simCoreM = withCtrlReset $ do
+              commit
               writeback
-              memory
               execute
+              issue
+              dispatch
               decode
               fetch
 
@@ -74,11 +76,11 @@ simulator =
                   inputRs2 = rs2'
                 }
       where
-        doRegFile :: m (Word, Word)
+        doRegFile :: m (RegEntry, RegEntry)
         doRegFile = do
           maybe (pure ()) (uncurry regWrite) $ getFirst rd
-          rs1' <- maybe (pure 0) regRead $ getFirst rs1
-          rs2' <- maybe (pure 0) regRead $ getFirst rs2
+          rs1' <- maybe (pure (Ready 0)) regRead $ getFirst rs1
+          rs2' <- maybe (pure (Ready 0)) regRead $ getFirst rs2
           pure (rs1', rs2')
 
         doMemory :: m (Word, Bool)

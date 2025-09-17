@@ -1,5 +1,5 @@
 module RegFile
-  ( RegFile,
+  ( RegFile (..),
     initRF,
     lookupRF,
     modifyRF,
@@ -52,11 +52,11 @@ reserveRF idx stationId (RegFile rf) = case idx of
 
 -- | Release a register reservation and set its value
 releaseRF :: RegIdx -> Word -> RegFile -> RegFile
-releaseRF = modifyRF
+releaseRF idx val rf = modifyRF idx (Ready val) rf
 
 -- | Modify a register in the register file.
-modifyRF :: RegIdx -> Word -> RegFile -> RegFile
+modifyRF :: RegIdx -> RegEntry -> RegFile -> RegFile
 modifyRF idx val (RegFile rf) = case idx of
   0 -> RegFile rf
-  _ -> RegFile $ replace (idx - 1) (Ready val) rf
+  _ -> RegFile $ replace (idx - 1) val rf
 

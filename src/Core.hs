@@ -36,6 +36,7 @@ import Instruction hiding (decode)
 import Types
 import Util
 import Prelude hiding (map, (!!), Ordering (..), Word, init, lines, not, undefined, (&&), (||), repeat, zip)
+import RegFile (RegEntry (..), RegFile (..))
 
 topEntity ::
   Clock System ->
@@ -48,8 +49,8 @@ topEntity = exposeClockResetEnable $ mealy circuit init
 data Input = Input
   { inputIsInstr :: Bool,
     inputMem :: Word,
-    inputRs1 :: Word,
-    inputRs2 :: Word
+    inputRs1 :: RegEntry,
+    inputRs2 :: RegEntry
   }
   deriving (Show, Generic, NFDataX)
 
@@ -102,12 +103,6 @@ data ROBEntry = ROBEntry
 newtype ReorderBuffer = ReorderBuffer (Vec 16 ROBEntry)
   deriving (Show, Generic, NFDataX)
 
-data RegFileEntry = Ready Word | Pending StationId
-  deriving (Show, Generic, NFDataX)
-
-newtype RegFile = RegFile (Vec 32 RegFileEntry)
-  deriving (Show, Generic, NFDataX)
-
 type StationId = BitVector 4
 
 data State = State
@@ -154,8 +149,8 @@ initInput =
   Input
     { inputIsInstr = False,
       inputMem = 0,
-      inputRs1 = 0,
-      inputRs2 = 0
+      inputRs1 = Ready 0,
+      inputRs2 = Ready 0
     }
 
 init :: State
@@ -189,7 +184,7 @@ initCtrl =
     }
 
 initRF :: RegFile
-initRF = RegFile $ replace 0 (Ready 0) $ repeat (Ready 0)
+initRF = RegFile (repeat (Ready 0))
 
 withCtrlReset :: CPUM () -> CPUM Control
 withCtrlReset m = do
@@ -410,7 +405,7 @@ getSourceStation regFile idx = case lookupRF idx regFile of
   Pending sid -> Just sid
   Ready _ -> Nothing
 
-lookupRF :: RegIdx -> RegFile -> RegFileEntry
+lookupRF :: RegIdx -> RegFile -> RegEntry
 lookupRF idx (RegFile rf) = rf !! idx
 
 reserveRF :: RegIdx -> StationId -> RegFile -> RegFile

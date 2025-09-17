@@ -70,11 +70,11 @@ data RegAccess = RegAccess
   }
   deriving (Show, Generic, NFDataX)
 
-mkRegFile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
+mkRegFile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (RegEntry, RegEntry)
 mkRegFile input = mkOutput <$> reg_update <*> input
   where
     reg_output = register initRF reg_update
-    reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output
+    reg_update = ((uncurry releaseRF . regRd) <$> input) <*> reg_output
     mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
 
 mkRAM ::

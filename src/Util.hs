@@ -98,13 +98,13 @@ ramWrite addr size w = do
   ram <- getRAM
   putRAM $ write size addr w ram
 
-regRead :: (MonadMemory m) => RegIdx -> m Word
+regRead :: (MonadMemory m) => RegIdx -> m RegEntry
 regRead idx = lookupRF idx <$> getRegFile
 
 regWrite :: (MonadMemory m) => RegIdx -> Word -> m ()
 regWrite idx val = do
   regfile <- getRegFile
-  putRegFile $ modifyRF idx val regfile
+  putRegFile $ modifyRF idx (Ready val) regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =
