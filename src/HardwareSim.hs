@@ -44,7 +44,7 @@ system prog = cpuOut
         <$> cpuOut
         <*> ram
         <*> regfile
-    mkRegAccess (Output _ mr1 mr2 mrd _) =
+    mkRegAccess (Output _ mr1 mr2 mrd _ _) =
       RegAccess
         { regRs1 = fromMaybe 0 $ getFirst mr1,
           regRs2 = fromMaybe 0 $ getFirst mr2,

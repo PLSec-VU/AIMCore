@@ -21,6 +21,7 @@ import RegFile
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
+import Control.Monad (guard)
 
 data Mem n = Mem
   { memRAM :: Vec n Byte,
@@ -33,6 +34,11 @@ instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory n m where
   putRAM ram = modify $ \s -> s {memRAM = ram}
   getRegFile = gets memRF
   putRegFile rf = modify $ \s -> s {memRF = rf}
+
+data Syscall
+  = SysExit
+  | SysUnknown Word
+  deriving (Eq, Show)
 
 simulator :: forall m n. (KnownNat n, MonadState (Mem n) m) => CircuitSim m Input Core.State Output
 simulator =
@@ -60,19 +66,24 @@ simulator =
               fetch
 
     next :: Output -> m (Maybe Input)
-    next (Output mem rs1 rs2 rd hlt)
+    next (Output mem rs1 rs2 rd syscall hlt)
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
           (rs1', rs2') <- doRegFile
           (mem_in, mem_instr) <- doMemory
-          pure $
-            pure $
-              Input
-                { inputIsInstr = mem_instr,
-                  inputMem = mem_in,
-                  inputRs1 = rs1',
-                  inputRs2 = rs2'
-                }
+          _syscall <- case getFirst syscall of
+            Just True -> Just <$> doSyscall
+            _ -> pure Nothing
+          case _syscall of
+            Just SysExit -> pure Nothing
+            _ -> pure $
+              Just $
+                Input
+                  { inputIsInstr = mem_instr,
+                    inputMem = mem_in,
+                    inputRs1 = rs1',
+                    inputRs2 = rs2'
+                  }
       where
         doRegFile :: m (Word, Word)
         doRegFile = do
@@ -90,6 +101,15 @@ simulator =
                   ramWrite addr size val
                   pure (0, isInstr)
           | otherwise = pure (0, False)
+
+        doSyscall :: m Syscall
+        doSyscall = do
+          a7 <- regRead 17
+          case a7 of
+            93 -> pure SysExit
+            -- Implement other syscalls as needed
+            n -> pure $ SysUnknown n
+        
 
 runSimulator :: forall ramSize progSize a. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
   ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) Input Core.State Output ->

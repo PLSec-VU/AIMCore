@@ -15,6 +15,7 @@ module Instruction
     getRs1,
     getRs2,
     isBreak,
+    isCall,
     break,
     loadHazard,
     isLoad,
@@ -493,6 +494,10 @@ getRs2 = \case
 isBreak :: Instruction -> Bool
 isBreak (IType (Env Break) _ _ _) = True
 isBreak _ = False
+
+isCall :: Instruction -> Bool
+isCall (IType (Env Call) _ _ _) = True
+isCall _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0

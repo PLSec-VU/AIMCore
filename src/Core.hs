@@ -79,17 +79,19 @@ data Output = Output
     outRs2 :: First RegIdx,
     -- | A write to the register file.
     outRd :: First (RegIdx, Word),
+    -- | A syscall request.
+    outSyscall :: First Bool,
     -- | Are we done?
     outHalt :: First Bool
   }
   deriving (Show, Generic, NFDataX)
 
 instance Semigroup Output where
-  Output mem rs1 rs2 rd hlt <> Output mem' rs1' rs2' rd' hlt' =
-    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (hlt <> hlt')
+  Output mem rs1 rs2 rd syscall hlt <> Output mem' rs1' rs2' rd' syscall' hlt' =
+    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (syscall <> syscall') (hlt <> hlt')
 
 instance Monoid Output where
-  mempty = Output mempty mempty mempty mempty mempty
+  mempty = Output mempty mempty mempty mempty mempty  mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
 data State = State
@@ -536,6 +538,10 @@ writeback = do
         }
     readRAM 0 Word
     halt
+
+  when (isCall ir) $ do
+    tell $
+      mempty {outSyscall = pure True}
 
   try $ do
     rd <- getRd ir
