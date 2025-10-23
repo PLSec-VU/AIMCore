@@ -1,2 +1,3 @@
 build-riscv/
 install-riscv/
+*.core

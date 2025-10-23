@@ -14,39 +14,50 @@ import qualified Prelude as P
 import Data.Elf
 import Data.Elf.Headers
 import Data.Word (Word32)
+import Data.ByteString (ByteString)
+import Clash.Sized.Vector (unsafeFromList)
+import qualified GHC.TypeLits as TL
+import Data.Data (Proxy (Proxy))
+import Control.Monad (when)
+import Simulate (simResult, Mem (..), simulator)
+import RegFile (initRF)
+import Util (result, CircuitSim (circuitState))
+import Control.Monad.State (evalState, State)
+import qualified Core as Core
+import Clash.Class.BitPack (bitCoerce)
+import System.Timeout (timeout)
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
-  { benchmarkName :: String,
-    benchmarkBinary :: String,
-    benchmarkEntrypoint :: Word
+  { benchmarkPath :: String
   }
   deriving (Show, Eq)
 
--- | Get the entrypoint address from a benchmark binary
--- This function should extract the entrypoint from the ELF header
-getBenchmarkEntrypoint :: String -> IO Word32
-getBenchmarkEntrypoint _binaryPath = do
-  i <- BSL.readFile _binaryPath
-  Elf SELFCLASS32 elf <- parseElf i
-  header <- elfFindHeader elf
-  return $ ehEntry header
+type SPACE_SIZE = 4194304 -- 4MB
 
 -- | Create a test case for a benchmark binary
 mkBenchmarkTest :: String -> BenchmarkTest -> TestTree
 mkBenchmarkTest testName _benchmark =
   testCase testName $ do
-    entrypoint <- getBenchmarkEntrypoint (benchmarkBinary _benchmark)
-    assertBool "Entry" True
-
--- | Available benchmark binaries
-benchmarkBinaries :: [BenchmarkTest]
-benchmarkBinaries =
-  [ BenchmarkTest "ChaCha20" "benchmark/bench_chacha20" 0x10184,
-    BenchmarkTest "X25519" "benchmark/bench_x25519" 0x10184,
-    BenchmarkTest "SHA-256" "benchmark/bench_sha256" 0x10184,
-    BenchmarkTest "BLAKE2b" "benchmark/bench_blake2b" 0x10184
-  ]
+    prog <- BSL.readFile (benchmarkPath _benchmark)
+    when (BSL.length prog >= fromIntegral (natVal (Proxy :: Proxy SPACE_SIZE))) $
+      error "Benchmark binary too large"
+    Elf SELFCLASS32 elf <- parseElf prog
+    header <- elfFindHeader elf
+    let mem :: Mem SPACE_SIZE = Mem {
+      memRAM = bitCoerce <$> unsafeFromList $ BSL.unpack prog P.++ P.repeat 0,
+      memRF = initRF
+    }
+    let resultRam = evalState (result simulator {
+      circuitState = Core.init {
+        Core.stateFePc = fromIntegral $ ehEntry header
+      }
+    }) mem
+    ok <- timeout 10000000
+      $ BSL.writeFile (benchmarkPath _benchmark P.++ ".core")
+      $ BSL.pack
+      $ bitCoerce <$> toList resultRam
+    assertBool "Benchmark did not complete in time" (isJust ok)
 
 -- | Main benchmark test group
 benchmarkTests :: TestTree
@@ -55,9 +66,17 @@ benchmarkTests =
     "Libsodium Benchmark Tests"
     [ testGroup
         "Benchmark Execution"
-        [ mkBenchmarkTest "ChaCha20 execution" (benchmarkBinaries P.!! 0),
-          mkBenchmarkTest "X25519 execution" (benchmarkBinaries P.!! 1),
-          mkBenchmarkTest "SHA-256 execution" (benchmarkBinaries P.!! 2),
-          mkBenchmarkTest "BLAKE2b execution" (benchmarkBinaries P.!! 3)
+        [ mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_chacha20"
+            },
+          mkBenchmarkTest "X25519 execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_x25519"
+            },
+          mkBenchmarkTest "SHA-256 execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_sha256"
+            },
+          mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_blake2b"
+            }
         ]
     ]
