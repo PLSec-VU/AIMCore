@@ -62,12 +62,15 @@ library
       TypeOperators
       DeriveAnyClass
       DeriveGeneric
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise
   build-depends:
       base >=4.7 && <5
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , ghc-typelits-natnormalise
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -99,12 +102,15 @@ executable uc-risc-v-exe
       TypeOperators
       DeriveAnyClass
       DeriveGeneric
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -threaded -rtsopts -with-rtsopts=-N
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , ghc-typelits-natnormalise
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -139,13 +145,16 @@ test-suite uc-risc-v-test
       TypeOperators
       DeriveAnyClass
       DeriveGeneric
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -threaded -rtsopts -with-rtsopts=-N
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , bytestring
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , ghc-typelits-natnormalise
     , melf
     , mtl >=2.2.2
     , pretty

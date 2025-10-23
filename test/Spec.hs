@@ -31,7 +31,7 @@ data CPUTest = CPUTest
 mkPureTest :: String -> CPUTest -> TestTree
 mkPureTest s (CPUTest prog expected) =
   testCase s $
-    let ram = simResult prog
+    let ram = simResult @RAM_SIZE_BYTES prog
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
 

@@ -19,6 +19,7 @@ module Util
     PROG_SIZE,
     MEM_SIZE,
     MEM_SIZE_BYTES,
+    MemSizeFrom,
     initPc,
     mkProg,
     mkRAM,
@@ -59,7 +60,7 @@ watch c = do
       rest <- watch $ c {circuitInput = i', circuitState = s'}
       pure $ (s', o, mi') : rest
 
-result :: (MonadMemory m) => CircuitSim m i s o -> m (Vec MEM_SIZE_BYTES Byte)
+result :: (MonadMemory n m) => CircuitSim m i s o -> m (Vec n Byte)
 result c = watch c *> getRAM
 
 cmpIO :: (Show a, Show b) => [(a, b)] -> IO ()
@@ -84,27 +85,27 @@ pageIO = mapM_ $ \a -> do
   putStrLn "------------------------"
   void getLine
 
-class (Monad m) => MonadMemory m where
-  getRAM :: m (Vec MEM_SIZE_BYTES Byte)
-  putRAM :: Vec MEM_SIZE_BYTES Byte -> m ()
+class (KnownNat n, Monad m) => MonadMemory n m where
+  getRAM :: m (Vec n Byte)
+  putRAM :: Vec n Byte -> m ()
   getRegFile :: m RegFile
   putRegFile :: RegFile -> m ()
 
-ramRead :: (MonadMemory m) => Address -> m Word
-ramRead addr = readWord addr <$> getRAM
+ramRead :: forall n m. (MonadMemory n m) => Address -> m Word
+ramRead addr = readWord addr <$> getRAM @n
 
-ramWrite :: (MonadMemory m) => Address -> Size -> Word -> m ()
+ramWrite :: forall n m. (MonadMemory n m) => Address -> Size -> Word -> m ()
 ramWrite addr size w = do
-  ram <- getRAM
+  ram <- getRAM @n
   putRAM $ write size addr w ram
 
-regRead :: (MonadMemory m) => RegIdx -> m Word
-regRead idx = lookupRF idx <$> getRegFile
+regRead :: forall n m. (MonadMemory n m) => RegIdx -> m Word
+regRead idx = lookupRF idx <$> getRegFile @n
 
-regWrite :: (MonadMemory m) => RegIdx -> Word -> m ()
+regWrite :: forall n m. (MonadMemory n m) => RegIdx -> Word -> m ()
 regWrite idx val = do
-  regfile <- getRegFile
-  putRegFile $ modifyRF idx val regfile
+  regfile <- getRegFile @n
+  putRegFile @n $ modifyRF idx val regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =
@@ -143,20 +144,23 @@ initPc :: Address
 initPc = fromIntegral $ natVal (Proxy @RAM_SIZE_BYTES)
 
 mkProg ::
-  forall size.
-  ( KnownNat (PROG_SIZE - size),
-    PROG_SIZE ~ (size + (PROG_SIZE - size))
+  forall progSize size.
+  ( KnownNat (progSize - size),
+    progSize ~ (size + (progSize - size))
   ) =>
   Vec size Instruction ->
-  Vec PROG_SIZE Word
+  Vec progSize Word
 mkProg prog =
-  prog' ++ (repeat 0 :: Vec (PROG_SIZE - size) Word)
+  prog' ++ (repeat 0 :: Vec (progSize - size) Word)
   where
     prog' = map encode prog
 
-mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
+type MemSizeFrom progSize ramSizeBytes =
+  ramSizeBytes + ((GHC.TypeNats.*) progSize 4)
+
+mkRAM :: forall progSize ramSize. (KnownNat ramSize) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
 mkRAM prog =
-  (repeat 0 :: Vec RAM_SIZE_BYTES Byte) ++ vecWordToByte prog
+  (repeat 0 :: Vec ramSize Byte) ++ vecWordToByte prog
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure

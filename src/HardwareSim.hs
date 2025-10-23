@@ -3,28 +3,16 @@
 module HardwareSim (topEntity) where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Clash.Sized.Vector (unsafeFromList)
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.RWS
-import Control.Monad.State
-import Control.Monad.Writer
 import Core hiding (topEntity)
-import Data.Bifunctor
-import Data.Either
 import Data.Maybe (fromMaybe)
 import Data.Monoid
-import qualified Debug.Trace as DB
 import qualified GHC.TypeNats
 import Instruction hiding (decode)
 import RegFile
-import qualified Simulate
-import Text.Read (readMaybe)
 import Types
-import Util (PROG_SIZE)
+import Util (PROG_SIZE, MemSizeFrom, RAM_SIZE)
 import qualified Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
-import qualified Prelude
 
 topEntity ::
   Clock System ->
@@ -43,7 +31,7 @@ system prog = cpuOut
     cpuInput = register initInput input
     cpuOut = cpu cpuInput
     regfile = mkRegFile $ mkRegAccess <$> cpuOut
-    ram = mkRAM prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
+    ram = mkRAM @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
     input =
       ( \o mread (rs1, rs2) ->
           Input
@@ -77,9 +65,9 @@ mkRegFile input = mkOutput <$> reg_update <*> input
     reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output
     mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
 
-mkRAM ::
-  (HiddenClockResetEnable dom) =>
-  Vec PROG_SIZE Word ->
+mkRAM :: forall progSize ramSize dom. 
+  (HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
+  Vec progSize Word ->
   Signal dom MemAccess ->
   Signal dom Word
 mkRAM prog memAccessM =
@@ -98,11 +86,12 @@ mkRAM prog memAccessM =
     extractByte 3 w = slice d31 d24 w
     extractByte _ _ = error "Invalid byte index"
 
-    vecRam = Util.mkRAM prog
+    vecRam :: Vec (((GHC.TypeNats.*) (progSize + ramSize) 4)) Byte
+    vecRam = Util.mkRAM @progSize @((GHC.TypeNats.*) ramSize 4) prog
 
     every4th ::
       forall n offset a.
-      (KnownNat n, KnownNat offset, KnownNat ((GHC.TypeNats.*) n 4)) =>
+      (KnownNat n, KnownNat ((GHC.TypeNats.*) n 4)) =>
       SNat offset ->
       Vec ((GHC.TypeNats.*) n 4) a ->
       Vec n a

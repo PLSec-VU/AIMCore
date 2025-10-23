@@ -34,6 +34,8 @@ default-extensions:
 - TypeOperators
 - DeriveAnyClass
 - DeriveGeneric
+- MultiParamTypeClasses
+- AllowAmbiguousTypes
 
 dependencies:
 - base >= 4.7 && < 5
@@ -58,9 +60,12 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 - -fexpose-all-unfoldings
+- -fplugin GHC.TypeLits.Normalise
 
 library:
   source-dirs: src
+  dependencies:
+  - ghc-typelits-natnormalise
 
 executables:
   uc-risc-v-exe:
@@ -72,6 +77,8 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
+    - ghc-typelits-natnormalise
+
 
 tests:
   uc-risc-v-test:
@@ -85,3 +92,5 @@ tests:
     - uc-risc-v
     - melf
     - bytestring
+    - ghc-typelits-natnormalise
+

@@ -28,13 +28,13 @@ data Mem n = Mem
   }
   deriving (Eq, Show, Generic, NFDataX)
 
-instance (Monad m, MonadState (Mem MEM_SIZE_BYTES) m) => MonadMemory m where
+instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory n m where
   getRAM = gets memRAM
   putRAM ram = modify $ \s -> s {memRAM = ram}
   getRegFile = gets memRF
   putRegFile rf = modify $ \s -> s {memRF = rf}
 
-simulator :: forall m. (MonadState (Mem MEM_SIZE_BYTES) m) => CircuitSim m Input Core.State Output
+simulator :: forall m n. (KnownNat n, MonadState (Mem n) m) => CircuitSim m Input Core.State Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -91,16 +91,16 @@ simulator =
                   pure (0, isInstr)
           | otherwise = pure (0, False)
 
-runSimulator ::
-  ( CircuitSim (State (Mem MEM_SIZE_BYTES)) Input Core.State Output ->
-    State (Mem MEM_SIZE_BYTES) a
+runSimulator :: forall ramSize progSize a. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
+  ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) Input Core.State Output ->
+    State (Mem (MemSizeFrom progSize ramSize)) a
   ) ->
-  Vec PROG_SIZE Word ->
+  Vec progSize Word ->
   a
 runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
 
-watchSim :: Vec PROG_SIZE Word -> [(Core.State, Output, Maybe Input)]
-watchSim = runSimulator watch
+watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State, Output, Maybe Input)]
+watchSim = runSimulator @ramSize @progSize watch
 
-simResult :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
+simResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
 simResult = runSimulator result
