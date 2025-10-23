@@ -15,8 +15,8 @@ AR = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-ar
 RANLIB = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-ranlib
 STRIP = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-strip
 
-# Build flags
-CFLAGS ?= -O2 -g
+# Build flags (32-bit RISC-V)
+CFLAGS ?= -march=rv32i -mabi=ilp32 -O2 -g
 CPPFLAGS ?=
 LDFLAGS ?=
 

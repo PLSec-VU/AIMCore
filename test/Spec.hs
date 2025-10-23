@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -50,49 +51,53 @@ mkPCLeakTest s prog =
 tests :: TestTree
 tests =
   testGroup
-    "Haskell simulation tests"
+    "All Tests"
     [ testGroup
-        "Basic programs"
-        [ mkPureTest
-            "test 1"
-            CPUTest
-              { testProg = mkProg prog1,
-                testExpected = [(0, 5)]
-              },
-          mkPureTest
-            "test 2"
-            CPUTest
-              { testProg = mkProg prog2,
-                testExpected = [(0, 5), (4, 5)]
-              },
-          mkPureTest
-            "test 3"
-            CPUTest
-              { testProg = mkProg prog3,
-                testExpected = [(0, 0), (4, 3)]
-              },
-          mkPureTest
-            "sumTo 10"
-            CPUTest
-              { testProg = mkProg $ sumTo 10,
-                testExpected = [(0, sum [0 .. 10])]
-              }
+        "Haskell simulation tests"
+        [ testGroup
+            "Basic programs"
+            [ mkPureTest
+                "test 1"
+                CPUTest
+                  { testProg = mkProg prog1,
+                    testExpected = [(0, 5)]
+                  },
+              mkPureTest
+                "test 2"
+                CPUTest
+                  { testProg = mkProg prog2,
+                    testExpected = [(0, 5), (4, 5)]
+                  },
+              mkPureTest
+                "test 3"
+                CPUTest
+                  { testProg = mkProg prog3,
+                    testExpected = [(0, 0), (4, 3)]
+                  },
+              mkPureTest
+                "sumTo 10"
+                CPUTest
+                  { testProg = mkProg $ sumTo 10,
+                    testExpected = [(0, sum [0 .. 10])]
+                  }
+            ],
+          testGroup
+            "PC leak"
+            [ mkPCLeakTest "test 1" $ mkProg prog1,
+              mkPCLeakTest "test 2" $ mkProg prog1,
+              mkPCLeakTest "test 3" $ mkProg prog1,
+              mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+              -- testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
+            ]
+            -- testGroup
+            --  "Pure and clash simulations should agree."
+            --  [ mkCmpTest "test 1" prog1,
+            --    mkCmpTest "test 2" prog2,
+            --    mkCmpTest "test 3" prog3,
+            --    mkCmpTest "sumTo 10" $ sumTo 10
+            --  ]
         ],
-      testGroup
-        "PC leak"
-        [ mkPCLeakTest "test 1" $ mkProg prog1,
-          mkPCLeakTest "test 2" $ mkProg prog1,
-          mkPCLeakTest "test 3" $ mkProg prog1,
-          mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-          testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
-        ]
-        -- testGroup
-        --  "Pure and clash simulations should agree."
-        --  [ mkCmpTest "test 1" prog1,
-        --    mkCmpTest "test 2" prog2,
-        --    mkCmpTest "test 3" prog3,
-        --    mkCmpTest "sumTo 10" $ sumTo 10
-        --  ]
+      benchmarkTests
     ]
 
 prog1 :: Vec 3 Instruction

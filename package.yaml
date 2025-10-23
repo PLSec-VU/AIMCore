@@ -83,3 +83,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
+    - melf
+    - bytestring

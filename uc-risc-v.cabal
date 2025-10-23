@@ -118,6 +118,7 @@ test-suite uc-risc-v-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      BenchmarkSpec
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v
@@ -141,9 +142,11 @@ test-suite uc-risc-v-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bytestring
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , melf
     , mtl >=2.2.2
     , pretty
     , tasty

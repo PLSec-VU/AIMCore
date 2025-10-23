@@ -1,6 +1,6 @@
 # RISC-V Libsodium Benchmarks Makefile
 
-# RISC-V toolchain configuration
+# RISC-V toolchain configuration (32-bit using 64-bit toolchain)
 RISCV_PREFIX = riscv64-unknown-elf
 CC = $(RISCV_PREFIX)-gcc
 OBJDUMP = $(RISCV_PREFIX)-objdump
@@ -10,9 +10,9 @@ INSTALL_PREFIX = $(PWD)/install-riscv
 INCLUDE_DIR = $(INSTALL_PREFIX)/include
 LIB_DIR = $(INSTALL_PREFIX)/lib
 
-# Compiler flags
-CFLAGS = -O2 -g -I$(INCLUDE_DIR)
-LDFLAGS = -L$(LIB_DIR) -lsodium
+# Compiler flags (32-bit RISC-V)
+CFLAGS = -march=rv32i -mabi=ilp32 -O2 -g -I$(INCLUDE_DIR)
+LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
 # Benchmark sources and targets
 BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b
