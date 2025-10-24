@@ -1,9 +1,11 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Simulate
   ( Mem (..),
+    result,
     simulator,
     runSimulator,
     watchSim,
@@ -21,7 +23,6 @@ import RegFile
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
-import Control.Monad (guard)
 
 data Mem n = Mem
   { memRAM :: Vec n Byte,
@@ -30,17 +31,22 @@ data Mem n = Mem
   deriving (Eq, Show, Generic, NFDataX)
 
 instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory n m where
-  getRAM = gets memRAM
-  putRAM ram = modify $ \s -> s {memRAM = ram}
   getRegFile = gets memRF
   putRegFile rf = modify $ \s -> s {memRF = rf}
+  ramRead addr = readWord addr <$> gets memRAM
+  ramWrite addr size w = do
+    ram <- gets memRAM
+    modify $ \s -> s {memRAM = write size addr w ram}
+
+result :: (MonadState (Mem n) m) => CircuitSim m i s o -> m (Vec n Byte)
+result c = watch c *> gets memRAM
 
 data Syscall
   = SysExit
   | SysUnknown Word
   deriving (Eq, Show)
 
-simulator :: forall m n. (KnownNat n, MonadState (Mem n) m) => CircuitSim m Input Core.State Output
+simulator :: forall m n. (MonadMemory n m) => CircuitSim m Input Core.State Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -87,24 +93,24 @@ simulator =
       where
         doRegFile :: m (Word, Word)
         doRegFile = do
-          maybe (pure ()) (uncurry regWrite) $ getFirst rd
-          rs1' <- maybe (pure 0) regRead $ getFirst rs1
-          rs2' <- maybe (pure 0) regRead $ getFirst rs2
+          maybe (pure ()) (uncurry (regWrite @n)) $ getFirst rd
+          rs1' <- maybe (pure 0) (regRead @n) $ getFirst rs1
+          rs2' <- maybe (pure 0) (regRead @n) $ getFirst rs2
           pure (rs1', rs2')
 
         doMemory :: m (Word, Bool)
         doMemory
           | Just (MemAccess isInstr addr size mval) <- getFirst mem =
               case mval of
-                Nothing -> (,isInstr) <$> ramRead addr
+                Nothing -> (,isInstr) <$> ramRead @n addr
                 Just val -> do
-                  ramWrite addr size val
+                  ramWrite @n addr size val
                   pure (0, isInstr)
           | otherwise = pure (0, False)
 
         doSyscall :: m Syscall
         doSyscall = do
-          a7 <- regRead 17
+          a7 <- regRead @n 17
           case a7 of
             93 -> pure SysExit
             -- Implement other syscalls as needed

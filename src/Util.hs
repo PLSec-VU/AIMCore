@@ -4,7 +4,6 @@ module Util
   ( CircuitSim (..),
     run1,
     watch,
-    result,
     cmpIO,
     pageIO,
     MonadMemory (..),
@@ -60,9 +59,6 @@ watch c = do
       rest <- watch $ c {circuitInput = i', circuitState = s'}
       pure $ (s', o, mi') : rest
 
-result :: (MonadMemory n m) => CircuitSim m i s o -> m (Vec n Byte)
-result c = watch c *> getRAM
-
 cmpIO :: (Show a, Show b) => [(a, b)] -> IO ()
 cmpIO = mapM_ $ \(a, b) -> do
   print a
@@ -86,18 +82,18 @@ pageIO = mapM_ $ \a -> do
   void getLine
 
 class (KnownNat n, Monad m) => MonadMemory n m where
-  getRAM :: m (Vec n Byte)
-  putRAM :: Vec n Byte -> m ()
   getRegFile :: m RegFile
   putRegFile :: RegFile -> m ()
+  ramRead :: Address -> m Word
+  ramWrite :: Address -> Size -> Word -> m ()
 
-ramRead :: forall n m. (MonadMemory n m) => Address -> m Word
-ramRead addr = readWord addr <$> getRAM @n
+  -- ramRead :: (MonadMemory n m) => Address -> m Word
+  -- ramRead addr = readWord addr <$> getRAM @n
 
-ramWrite :: forall n m. (MonadMemory n m) => Address -> Size -> Word -> m ()
-ramWrite addr size w = do
-  ram <- getRAM @n
-  putRAM $ write size addr w ram
+  -- ramWrite :: (MonadMemory n m) => Address -> Size -> Word -> m ()
+  -- ramWrite addr size w = do
+  --   ram <- getRAM @n
+  --   putRAM $ write size addr w ram
 
 regRead :: forall n m. (MonadMemory n m) => RegIdx -> m Word
 regRead idx = lookupRF idx <$> getRegFile @n

@@ -48,6 +48,8 @@ dependencies:
 - tasty-hunit
 - tasty-quickcheck
 - containers
+- ghc-typelits-natnormalise
+- array
 
 ghc-options:
 - -Wall
@@ -64,8 +66,6 @@ ghc-options:
 
 library:
   source-dirs: src
-  dependencies:
-  - ghc-typelits-natnormalise
 
 executables:
   uc-risc-v-exe:
@@ -77,7 +77,6 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
-    - ghc-typelits-natnormalise
 
 
 tests:
@@ -92,5 +91,4 @@ tests:
     - uc-risc-v
     - melf
     - bytestring
-    - ghc-typelits-natnormalise
 
