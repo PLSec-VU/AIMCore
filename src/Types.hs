@@ -2,6 +2,8 @@ module Types
   ( RegIdx,
     Imm,
     UImm,
+    JImm,
+    BImm,
     Word,
     Address,
     Byte,
@@ -19,6 +21,12 @@ type RegIdx = Unsigned 5
 
 -- | Immediate value.
 type Imm = BitVector 12
+
+-- | J-type immediate value.
+type JImm = BitVector 21
+
+-- | B-type immediate value.
+type BImm = BitVector 13
 
 -- | Upper immediate value.
 type UImm = BitVector 20

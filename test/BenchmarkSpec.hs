@@ -101,7 +101,7 @@ watch' c = watchWithStep (0 :: Int) c
       --when (step `mod` 1000 == 0) $
       --  liftIO $ print s'
       case mi' of
-        Just i' | step < 100 -> do
+        Just i' -> do
           rest <- watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
           pure $ (s', o, mi') : rest
         _ -> pure [(s', o, mi')]

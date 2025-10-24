@@ -104,11 +104,11 @@ data Instruction
   | -- | SType size imm rs1 rs2
     SType Size Imm RegIdx RegIdx
   | -- | BType cmp imm rs1 rs2
-    BType Comparison Imm RegIdx RegIdx
+    BType Comparison BImm RegIdx RegIdx
   | -- | UType base rd imm
     UType UBase RegIdx UImm
   | -- | JType rd imm
-    JType RegIdx UImm
+    JType RegIdx JImm
   deriving (Eq, Show, Generic, NFDataX)
 
 {-# INLINE decode' #-}
@@ -140,12 +140,14 @@ decode word = do
           ++# slice d7 d7 word
           ++# slice d30 d25 word
           ++# slice d11 d8 word
+          ++# (0 :: BitVector 1)
   let immU = slice d31 d12 word
   let immJ =
         slice d31 d31 word
           ++# slice d19 d12 word
           ++# slice d20 d20 word
           ++# slice d30 d21 word
+          ++# (0 :: BitVector 1)
 
   case opcode of
     -- R-Type
@@ -325,12 +327,13 @@ encode' instruction =
             LTU -> 0x6
             GEU -> 0x7
 
-      -- Note: The first bit of the imm is always 0, which is not stored
-      -- directly. This is why the slices are all indexed at (-1) offset.
-      let imm4to1 = slice d3 d0 imm
-      let imm10to5 = slice d9 d4 imm
-      let imm11 = slice d10 d10 imm
-      let imm12 = slice d11 d11 imm
+      -- Note: The first bit of the imm is always 0, so we right-shift by 1
+      -- to remove it before storing in the instruction
+      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let imm4to1 = slice d3 d0 immShifted
+      let imm10to5 = slice d9 d4 immShifted
+      let imm11 = slice d10 d10 immShifted
+      let imm12 = slice d11 d11 immShifted
 
       let rs1' = pack rs1
       let rs2' = pack rs2
@@ -344,17 +347,13 @@ encode' instruction =
     JType rd imm -> do
       let opcode :: BitVector 7 = 0b110_1111
 
-      -- Note: The first bit of the imm is always 0, which is not stored
-      -- directly. This is why the slices are all indexed at (-1) offset.
-      -- let imm10to1 = slice d9 d0 imm
-      -- let imm11 = slice d10 d10 imm
-      -- let imm19to12 = slice d18 d11 imm
-      -- let imm20 = slice d19 d19 imm
-
-      let imm10to1 = slice d9 d0 imm
-      let imm11 = slice d10 d10 imm
-      let imm19to12 = slice d18 d11 imm
-      let imm20 = slice d19 d19 imm
+      -- Note: The first bit of the imm is always 0, so we right-shift by 1
+      -- to remove it before storing in the instruction
+      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let imm10to1 = slice d9 d0 immShifted
+      let imm11 = slice d10 d10 immShifted
+      let imm19to12 = slice d18 d11 immShifted
+      let imm20 = slice d19 d19 immShifted
 
       let rd' = pack rd
       pure $ imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode

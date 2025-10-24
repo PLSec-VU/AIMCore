@@ -4,6 +4,7 @@
 module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
+import InstructionSpec (instructionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -52,7 +53,8 @@ tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [ testGroup
+    [ instructionTests,
+      testGroup
         "Haskell simulation tests"
         [ testGroup
             "Basic programs"
@@ -231,14 +233,16 @@ instance Arbitrary Instruction where
                            _ -> True
                        ),
           SType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
-          BType <$> arbitrary <*> immGen <*> regIdxGen <*> regIdxGen,
+          BType <$> arbitrary <*> bImmGen <*> regIdxGen <*> regIdxGen,
           UType <$> arbitrary <*> regIdxGen <*> uImmGen,
-          JType <$> regIdxGen <*> uImmGen
+          JType <$> regIdxGen <*> jImmGen
         ]
     where
       regIdxGen = chooseBoundedIntegral (0, 31)
       immGen = chooseBoundedIntegral (0, 5)
       uImmGen = chooseBoundedIntegral (0, 5)
+      bImmGen = chooseBoundedIntegral (0, 5)
+      jImmGen = chooseBoundedIntegral (0, 5)
 
 instance Arbitrary Control where
   arbitrary =

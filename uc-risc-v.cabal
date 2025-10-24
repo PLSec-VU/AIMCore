@@ -127,6 +127,7 @@ test-suite uc-risc-v-test
   main-is: Spec.hs
   other-modules:
       BenchmarkSpec
+      InstructionSpec
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v
