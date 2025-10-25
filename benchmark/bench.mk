@@ -11,7 +11,7 @@ INCLUDE_DIR = $(INSTALL_PREFIX)/include
 LIB_DIR = $(INSTALL_PREFIX)/lib
 
 # Compiler flags (32-bit RISC-V)
-CFLAGS = -march=rv32i -mabi=ilp32 -O2 -g -I$(INCLUDE_DIR)
+CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -fPIC
 LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
 # Benchmark sources and targets
@@ -46,6 +46,7 @@ objdump-%: %
 # Clean targets
 clean:
 	rm -f $(BENCHMARKS) $(OBJECTS)
+	rm -f *.core
 
 # Show configuration
 show-config:

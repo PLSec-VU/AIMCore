@@ -10,10 +10,17 @@ import Clash.Prelude hiding (Word, zip)
 import Pretty
 import Types
 import Prelude hiding (Word, repeat, undefined, (!!), (++))
+import Numeric (showHex)
+import Data.List (intercalate)
 
 -- | Register file used in this core.
 newtype RegFile = RegFile (Vec ((2 ^ 5) - 1) Word)
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Generic, NFDataX)
+
+instance Show RegFile where
+  show (RegFile rf) = intercalate ", " $
+    Prelude.zipWith (\i x -> "%r" <> show @Int i <> "=" <> x)
+      [0..] (flip showHex "" <$> toList rf)
 
 instance Pretty RegFile where
   pretty (RegFile rf) = vcat $ uncurry line <$> zip [0 :: Int ..] rf'

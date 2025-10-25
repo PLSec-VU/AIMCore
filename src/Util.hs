@@ -81,7 +81,7 @@ pageIO = mapM_ $ \a -> do
   putStrLn "------------------------"
   void getLine
 
-class (KnownNat n, Monad m) => MonadMemory n m where
+class Monad m => MonadMemory m where
   getRegFile :: m RegFile
   putRegFile :: RegFile -> m ()
   ramRead :: Address -> m Word
@@ -95,13 +95,13 @@ class (KnownNat n, Monad m) => MonadMemory n m where
   --   ram <- getRAM @n
   --   putRAM $ write size addr w ram
 
-regRead :: forall n m. (MonadMemory n m) => RegIdx -> m Word
-regRead idx = lookupRF idx <$> getRegFile @n
+regRead :: forall m. (MonadMemory m) => RegIdx -> m Word
+regRead idx = lookupRF idx <$> getRegFile
 
-regWrite :: forall n m. (MonadMemory n m) => RegIdx -> Word -> m ()
+regWrite :: forall m. (MonadMemory m) => RegIdx -> Word -> m ()
 regWrite idx val = do
-  regfile <- getRegFile @n
-  putRegFile @n $ modifyRF idx val regfile
+  regfile <- getRegFile
+  putRegFile $ modifyRF idx val regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =

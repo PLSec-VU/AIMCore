@@ -30,7 +30,7 @@ data Mem n = Mem
   }
   deriving (Eq, Show, Generic, NFDataX)
 
-instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory n m where
+instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
   getRegFile = gets memRF
   putRegFile rf = modify $ \s -> s {memRF = rf}
   ramRead addr = readWord addr <$> gets memRAM
@@ -46,7 +46,7 @@ data Syscall
   | SysUnknown Word
   deriving (Eq, Show)
 
-simulator :: forall m n. (MonadMemory n m) => CircuitSim m Input Core.State Output
+simulator :: forall m. (MonadMemory m) => CircuitSim m Input Core.State Output
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -93,24 +93,24 @@ simulator =
       where
         doRegFile :: m (Word, Word)
         doRegFile = do
-          maybe (pure ()) (uncurry (regWrite @n)) $ getFirst rd
-          rs1' <- maybe (pure 0) (regRead @n) $ getFirst rs1
-          rs2' <- maybe (pure 0) (regRead @n) $ getFirst rs2
+          maybe (pure ()) (uncurry regWrite) $ getFirst rd
+          rs1' <- maybe (pure 0) regRead $ getFirst rs1
+          rs2' <- maybe (pure 0) regRead $ getFirst rs2
           pure (rs1', rs2')
 
         doMemory :: m (Word, Bool)
         doMemory
           | Just (MemAccess isInstr addr size mval) <- getFirst mem =
               case mval of
-                Nothing -> (,isInstr) <$> ramRead @n addr
+                Nothing -> (,isInstr) <$> ramRead addr
                 Just val -> do
-                  ramWrite @n addr size val
+                  ramWrite addr size val
                   pure (0, isInstr)
           | otherwise = pure (0, False)
 
         doSyscall :: m Syscall
         doSyscall = do
-          a7 <- regRead @n 17
+          a7 <- regRead 17
           case a7 of
             93 -> pure SysExit
             -- Implement other syscalls as needed
