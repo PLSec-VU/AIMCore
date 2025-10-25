@@ -15,7 +15,7 @@ CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -fPIC
 LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
 # Benchmark sources and targets
-BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b
+BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_strcmp
 SOURCES = $(addsuffix .c, $(BENCHMARKS))
 OBJECTS = $(addsuffix .o, $(BENCHMARKS))
 
@@ -34,6 +34,9 @@ bench_sha256: bench_sha256.c
 
 bench_blake2b: bench_blake2b.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+bench_vuln_strcmp: bench_vuln_strcmp.c
+	$(CC) $(CFLAGS) -o $@ $< -march=rv32i -mabi=ilp32
 
 # Generic rule for all benchmarks
 %: %.c

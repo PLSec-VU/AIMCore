@@ -19,8 +19,8 @@ import qualified Core as Core
 import Control.Monad.Reader
 import ElfLoader
 import Memory
-import Types (Size(Byte))
 import GHC.Base (when)
+import Data.Monoid (First(getFirst))
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
@@ -28,19 +28,27 @@ data BenchmarkTest = BenchmarkTest
   }
   deriving (Show, Eq)
 
-watch' :: (MonadIO m) => CircuitSim m i Core.State o -> m [(Core.State, o, Maybe i)]
+watch' :: forall m. (MonadMemory m, MonadIO m) => CircuitSim m Core.Input Core.State Core.Output -> m ()
 watch' c = watchWithStep (0 :: Int) c
   where
     watchWithStep step sim = do
       (s', o, mi') <- run1 sim
-      let pc = Core.stateExPc s'
-      when (step `mod` 100000 == 0) $ do
-        liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
+      -- let pc = Core.stateExPc s'
+      -- liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
+      cont <- case getFirst $ Core.outSyscall o of
+          Just True -> handleSyscall
+          _ -> pure True
       case mi' of
-        Just i' -> do
-          rest <- watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
-          pure $ (s', o, mi') : rest
-        _ -> pure [(s', o, mi')]
+        Just i' | cont -> do
+          watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
+        _ -> pure ()
+    handleSyscall :: m Bool
+    handleSyscall = regRead 17 >>= \case
+      93 -> do -- exit
+        pure False
+      n -> do
+        liftIO $ putStrLn $ "Syscall: Unknown " P.++ show (toInteger n)
+        pure True
 
 -- | Create a test case for a benchmark binary
 mkBenchmarkTest :: String -> BenchmarkTest -> TestTree
@@ -68,9 +76,12 @@ benchmarkTests =
     "Libsodium Benchmark Tests"
     [ testGroup
         "Benchmark Execution"
-        [ mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
-            { benchmarkPath = "benchmark/bench_chacha20"
+        [ mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_vuln_strcmp"
             }
+        ---   mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
+        ---   { benchmarkPath = "benchmark/bench_chacha20"
+        ---   },
         --   mkBenchmarkTest "X25519 execution" BenchmarkTest
         --     { benchmarkPath = "benchmark/bench_x25519"
         --     },
