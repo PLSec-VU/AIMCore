@@ -48,12 +48,7 @@ mkBenchmarkTest testName _benchmark =
   testCase testName $ do
     elf <- readElf (benchmarkPath _benchmark)
     entryOffset <- startAddr elf
-    ioMem <- newIOMem 0x1f000000
-      [ (0, 0x400000) -- Code and data segment
-      , (0xb000000, 0xc000000) -- idk
-      , (0x10000000, 0x20000000) -- stack
-      , (0x30000000, 0x40000000) -- bss stuff?
-      ]
+    ioMem <- newIOMem 0x7000000 0x8000000
 
     -- Run the simulator with IOMem and MonadMemory interface
     _ <- runIOMemT ioMem $ do
