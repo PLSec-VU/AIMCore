@@ -36,6 +36,8 @@ default-extensions:
 - DeriveGeneric
 - MultiParamTypeClasses
 - AllowAmbiguousTypes
+- PackageImports
+- RecordWildCards
 
 dependencies:
 - base >= 4.7 && < 5
@@ -91,4 +93,5 @@ tests:
     - uc-risc-v
     - melf
     - bytestring
+    - exceptions
 

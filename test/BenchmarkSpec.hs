@@ -6,37 +6,27 @@
 module BenchmarkSpec (benchmarkTests) where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
-import Data.Maybe (isJust)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase)
+import Test.Tasty.HUnit
 import "uc-risc-v" Types
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Data.ByteString.Lazy as BSL
 import qualified Prelude as P
-import Data.Elf
-import Data.Elf.Headers
-import Data.Word (Word32, Word8)
-import Data.ByteString (ByteString)
+import Data.Word (Word8)
 import Clash.Sized.Vector (unsafeFromList)
-import qualified GHC.TypeLits as TL
 import Data.Data (Proxy (Proxy))
-import Control.Monad (when, forM_)
+import Control.Monad (forM_)
 import Numeric (showHex)
-import Simulate (simResult, Mem (..), simulator, result)
+import Simulate
 import RegFile (initRF, RegFile)
 import Util
-import Control.Monad.State (evalState, State)
 import qualified Core as Core
-import Clash.Class.BitPack (bitCoerce)
-import System.Timeout (timeout)
-import Data.IORef (IORef)
 import Data.Array.IO (IOUArray, hPutArray, newArray, readArray, writeArray)
 import Control.Monad.Reader
 import GHC.IORef
 import Data.Traversable (forM)
 import System.IO (withBinaryFile, IOMode(..))
-import Core (circuit)
-import Util (CircuitSim(circuitState))
+import ElfLoader
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
@@ -75,7 +65,7 @@ instance {-# OVERLAPPING #-} MonadMemory SPACE_SIZE (IOMemT IO) where
       w8 <- lift $ readArray ramArray (fromIntegral addr + i)
       pure $ bitCoerce w8
     let word = readWord @4 0 $ unsafeFromList bytes
-    liftIO $ putStrLn $ "ramRead addr=0x" P.++ showHex addr "" P.++ " => " P.++ show (flip showHex "" <$> bytes)
+    -- liftIO $ putStrLn $ "ramRead addr=0x" P.++ showHex addr "" P.++ " => " P.++ show (flip showHex "" <$> bytes)
     pure word
   ramWrite addr size w = do
     IOMem ramArray _ <- ask
@@ -106,24 +96,20 @@ watch' c = watchWithStep (0 :: Int) c
           pure $ (s', o, mi') : rest
         _ -> pure [(s', o, mi')]
 
-
-
 -- | Create a test case for a benchmark binary
 mkBenchmarkTest :: String -> BenchmarkTest -> TestTree
 mkBenchmarkTest testName _benchmark =
   testCase testName $ do
-    prog <- BSL.readFile (benchmarkPath _benchmark)
-    when (BSL.length prog >= fromIntegral (natVal (Proxy :: Proxy SPACE_SIZE))) $
-      error "Benchmark binary too large"
-    Elf SELFCLASS32 elf <- parseElf prog
-    header <- elfFindHeader elf
-    let entryOffset = ehEntry header - 0x10000 -- hardcoded for now
+    elf <- readElf (benchmarkPath _benchmark)
 
     -- Create IOMem with IOArray and IORef
     ramArray <- newArray (0, fromIntegral (natVal (Proxy :: Proxy SPACE_SIZE)) - 1) 0
-    let progBytes = BSL.unpack prog
-    forM_ (P.zip [0..] progBytes) $ \(i, byte) ->
-      writeArray ramArray i (bitCoerce byte)
+    loadElf elf $ \addr body ->
+      forM_ (P.zip [fromIntegral addr..] (BSL.unpack body)) $ \(i, byte) ->
+        writeArray ramArray i (bitCoerce byte)
+
+    entryOffset <- startAddr elf
+
     rfRef <- newIORef initRF
     let ioMem = IOMem ramArray rfRef
 

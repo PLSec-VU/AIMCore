@@ -64,6 +64,8 @@ library
       DeriveGeneric
       MultiParamTypeClasses
       AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise
   build-depends:
       array
@@ -105,6 +107,8 @@ executable uc-risc-v-exe
       DeriveGeneric
       MultiParamTypeClasses
       AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array
@@ -127,6 +131,7 @@ test-suite uc-risc-v-test
   main-is: Spec.hs
   other-modules:
       BenchmarkSpec
+      ElfLoader
       InstructionSpec
       Paths_uc_risc_v
   autogen-modules:
@@ -150,6 +155,8 @@ test-suite uc-risc-v-test
       DeriveGeneric
       MultiParamTypeClasses
       AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array
@@ -158,6 +165,7 @@ test-suite uc-risc-v-test
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , exceptions
     , ghc-typelits-natnormalise
     , melf
     , mtl >=2.2.2

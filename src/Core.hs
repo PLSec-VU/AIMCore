@@ -28,6 +28,7 @@ import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
+import qualified Instruction as Instruction
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
@@ -313,10 +314,15 @@ fetch = do
 decode :: CPUM ()
 decode = do
   input <- ask
-  let ir
-        | inputIsInstr input =
-            Instruction.decode' $ inputMem input
-        | otherwise = Instruction.nop
+  ir <- if inputIsInstr input
+    then case Instruction.decode (inputMem input) of
+      Just instr -> pure instr
+      Nothing -> do
+        tell $ mempty { outHalt = pure True }
+        -- impossible instruction; halt the CPU
+        pure (IType (Env Break) (-1) (-1) (-1))
+    else pure nop
+
   readRF ir
 
   when (isLoad ir) $
