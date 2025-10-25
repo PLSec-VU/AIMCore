@@ -21,12 +21,21 @@ import ElfLoader
 import Memory
 import GHC.Base (when)
 import Data.Monoid (First(getFirst))
+import Data.Char (chr)
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
   { benchmarkPath :: String
   }
   deriving (Show, Eq)
+
+-- | Read a string from memory starting at the given address for count bytes
+readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m String
+readStringFromMemory addr count = do
+  bytes <- mapM (\i -> do
+    byte <- ramRead (addr + i)
+    pure $ fromIntegral (byte .&. 0xFF)) [0..count-1]
+  pure $ P.map chr bytes
 
 watch' :: forall m. (MonadMemory m, MonadIO m) => CircuitSim m Core.Input Core.State Core.Output -> m ()
 watch' c = watchWithStep (0 :: Int) c
@@ -44,8 +53,24 @@ watch' c = watchWithStep (0 :: Int) c
         _ -> pure ()
     handleSyscall :: m Bool
     handleSyscall = regRead 17 >>= \case
+      64 -> do -- write syscall
+        fd <- regRead 10    -- a0: file descriptor
+        buf <- regRead 11   -- a1: buffer pointer
+        count <- regRead 12 -- a2: number of bytes
+        when (fd == 1 || fd == 2) $ do -- stdout or stderr
+          str <- readStringFromMemory (fromIntegral buf) (fromIntegral count)
+          liftIO $ putStr str
+        regWrite 10 count
+        pure True
       93 -> do -- exit
         pure False
+      80 -> do -- newfstat
+        pure True
+      57 -> do -- close
+        pure True
+      214 -> do -- brk
+        regWrite 10 (-1)
+        pure True
       n -> do
         liftIO $ putStrLn $ "Syscall: Unknown " P.++ show (toInteger n)
         pure True
