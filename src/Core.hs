@@ -460,8 +460,8 @@ alu itype op lhs rhs = case op of
   SLL -> lhs `shiftL` shiftBits rhs
   SRL -> lhs `shiftR` shiftBits rhs
   SRA -> pack $ sign lhs `shiftR` shiftBits rhs
-  SLT -> set $ sign lhs > sign rhs
-  SLTU -> set $ lhs > rhs
+  SLT -> set $ sign lhs < sign rhs
+  SLTU -> set $ lhs < rhs
   where
     shiftBits s
       | itype =

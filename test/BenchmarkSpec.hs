@@ -45,7 +45,7 @@ watch' c = watchWithStep (0 :: Int) c
   where
     watchWithStep step sim = do
       (s', o, mi') <- run1 sim
-      -- when (step .&. 0xFFFF == 0) $ do
+      -- when True $ do
       --   let pc = Core.stateExPc s'
       --   liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
       cont <- case getFirst $ Core.outSyscall o of
@@ -117,11 +117,10 @@ benchmarkTests =
             },
           mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
             { benchmarkPath = "benchmark/bench_blake2b"
+            },
+          mkBenchmarkTest "SHA-256 execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_sha256"
             }
-          -- these tests are stuck, infinite loop?
-          -- mkBenchmarkTest "SHA-256 execution" BenchmarkTest
-          --   { benchmarkPath = "benchmark/bench_sha256"
-          --   },
           -- mkBenchmarkTest "X25519 execution" BenchmarkTest
           --   { benchmarkPath = "benchmark/bench_x25519"
           --   }
