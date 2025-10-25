@@ -11,21 +11,16 @@ import Test.Tasty.HUnit
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Data.ByteString.Lazy as BSL
 import qualified Prelude as P
-import Data.Data (Proxy (Proxy))
 import Control.Monad (forM_)
 import Numeric (showHex)
 import Simulate
-import RegFile (initRF, RegFile)
 import Util
 import qualified Core as Core
-import Data.Array.IO (IOUArray, hPutArray, newArray, readArray, writeArray)
 import Control.Monad.Reader
-import GHC.IORef
-import Data.Traversable (forM)
-import System.IO (withBinaryFile, IOMode(..))
 import ElfLoader
 import Memory
 import Types (Size(Byte))
+import GHC.Base (when)
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
@@ -38,10 +33,9 @@ watch' c = watchWithStep (0 :: Int) c
   where
     watchWithStep step sim = do
       (s', o, mi') <- run1 sim
-      liftIO $ print $ "stateExPc=0x" P.++ showHex (Core.stateExPc s') "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s') 
-
-      --when (step `mod` 1000 == 0) $
-      --  liftIO $ print s'
+      let pc = Core.stateExPc s'
+      when (step `mod` 100000 == 0) $ do
+        liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
       case mi' of
         Just i' -> do
           rest <- watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
@@ -54,15 +48,16 @@ mkBenchmarkTest testName _benchmark =
   testCase testName $ do
     elf <- readElf (benchmarkPath _benchmark)
     entryOffset <- startAddr elf
-    ioMem <- newIOMem
+    ioMem <- newIOMem 0x1f000000
       [ (0, 0x400000) -- Code and data segment
+      , (0xb000000, 0xc000000) -- idk
+      , (0x10000000, 0x20000000) -- stack
+      , (0x30000000, 0x40000000) -- bss stuff?
       ]
 
     -- Run the simulator with IOMem and MonadMemory interface
     _ <- runIOMemT ioMem $ do
-      loadElf elf $ \addr body ->
-        forM_ (P.zip [addr..] (BSL.unpack body)) $ \(i, byte) ->
-          ramWrite i Byte (fromIntegral byte)
+      loadProgram elf
       watch' (simulator @(IOMemT IO)) {
         circuitState = Core.init {
           Core.stateFePc = fromIntegral entryOffset

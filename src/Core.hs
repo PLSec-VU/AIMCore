@@ -409,7 +409,7 @@ execute = do
         base' <- case base of
           Zero -> pure 0
           PC -> gets $ pack . stateExPc
-        let imm' = imm ++# 0 `shiftL` 12
+        let imm' = imm ++# (0 :: BitVector 12)
         pure (ADD, base', imm')
       Instruction.JType _ imm -> do
         pc <- gets $ pack . stateExPc

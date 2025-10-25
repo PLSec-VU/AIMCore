@@ -11,7 +11,7 @@ import Data.Word (Word8)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad (forM_, filterM)
 import Numeric (showHex)
-import RegFile (initRF, RegFile)
+import RegFile (initRF, RegFile, modifyRF)
 import Util
 import Control.Monad.Reader
 import GHC.IORef
@@ -19,6 +19,9 @@ import Data.Traversable (forM)
 import Data.Array.IO
 import Control.Exception.Base (throwIO)
 import Data.Maybe (listToMaybe)
+import Data.Elf (Elf)
+import ElfLoader
+import qualified Data.ByteString.Lazy as BSL
 
 -- | IO-based memory implementation for testing.
 data IOMem = IOMem
@@ -38,9 +41,9 @@ instance MonadTrans IOMemT where
 runIOMemT :: IOMem -> IOMemT m a -> m a
 runIOMemT iomem (IOMemT m) = runReaderT m iomem
 
-newIOMem :: MonadIO m => [(Int, Int)] -> m IOMem
-newIOMem bounds = do
-  rfRef <- liftIO $ newIORef initRF
+newIOMem :: MonadIO m => Int -> [(Int, Int)] -> m IOMem
+newIOMem sp bounds = do
+  rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF
   ramArrays <- forM bounds $ \(low, high) -> liftIO $ newArray (low, high) 0
   pure $ IOMem rfRef ramArrays
 
@@ -54,7 +57,15 @@ findBackingArray addr = do
     inBounds address arr = do
       (low, high) <- liftIO $ getBounds arr
       let addrInt = fromIntegral address
-      pure $ addrInt >= low && addrInt <= high
+      pure $ addrInt >= low && addrInt < high
+
+loadProgram :: (MonadIO m, MonadReader IOMem m) => Elf -> m ()
+loadProgram elf = do
+  loadElf elf $ \addr body ->
+    forM_ (P.zip [addr..] (BSL.unpack body)) $ \(i, byte) ->
+      findBackingArray i >>= \case
+        Nothing -> liftIO $ throwIO $ userError $ "loadProgram: writing to unmapped address 0x" P.++ showHex addr ""
+        Just ramArray -> liftIO $ writeArray ramArray (fromIntegral i) byte
 
 instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
   getRegFile = do
@@ -62,10 +73,9 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
   putRegFile rf = do
     rfRef <- asks ioMemRF
     lift $ writeIORef rfRef rf
-    -- print
-    liftIO $ putStrLn $ "putRegFile: " P.++ show rf
+    -- liftIO $ putStrLn $ "putRegFile: " P.++ show rf
   ramRead addr = findBackingArray addr >>= \case
-    Nothing -> pure 0
+    Nothing -> liftIO $ throwIO $ userError $ "ramRead: reading from unmapped address 0x" P.++ showHex addr ""
     Just ramArray -> do
       bytes <- forM [0 .. 3] $ \i -> do
         w8 <- lift $ readArray ramArray (fromIntegral addr + i)
@@ -76,7 +86,7 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
   ramWrite addr size w = do
     -- liftIO $ putStrLn $ "ramWrite addr=0x" P.++ showHex addr "" P.++ " size=" P.++ show size P.++ " w=0x" P.++ showHex w ""
     findBackingArray addr >>= \case
-      Nothing -> liftIO $ throwIO $ userError $ "ramWrite: address 0x" P.++ showHex addr "" P.++ " out of bounds"
+      Nothing -> liftIO $ throwIO $ userError $ "ramWrite: writing to unmapped address 0x" P.++ showHex addr ""
       Just ramArray -> do
         let b0 = slice d7 d0 w      -- Extract bits 7-0 (least significant byte)
             b1 = slice d15 d8 w     -- Extract bits 15-8
