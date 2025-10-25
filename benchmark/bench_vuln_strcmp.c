@@ -1,7 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 
-void main() {
+int main() {
     char a[] = "secret_password_123";
     char b[] = "secret_password_456";
 
@@ -10,4 +10,6 @@ void main() {
     } else {
         printf("Strings are the same\n");
     }
+
+    return 0;
 }

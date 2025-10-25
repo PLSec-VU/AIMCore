@@ -12,7 +12,7 @@ import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Prelude as P
 import Control.Monad (forM_)
-import Numeric (showHex)
+import Data.Bits
 import Simulate
 import Util
 import qualified Core as Core
@@ -22,6 +22,9 @@ import Memory
 import GHC.Base (when)
 import Data.Monoid (First(getFirst))
 import Data.Char (chr)
+import Numeric (showHex)
+import Data.Int (Int32)
+import Control.Exception (throwIO)
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
@@ -42,8 +45,9 @@ watch' c = watchWithStep (0 :: Int) c
   where
     watchWithStep step sim = do
       (s', o, mi') <- run1 sim
-      -- let pc = Core.stateExPc s'
-      -- liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
+      -- when (step .&. 0xFFFF == 0) $ do
+      --   let pc = Core.stateExPc s'
+      --   liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
       cont <- case getFirst $ Core.outSyscall o of
           Just True -> handleSyscall
           _ -> pure True
@@ -63,6 +67,10 @@ watch' c = watchWithStep (0 :: Int) c
         regWrite 10 count
         pure True
       93 -> do -- exit
+        code <- regRead 10
+        if code /= 0
+          then liftIO $ throwIO $ userError $ "Program exited with code " P.++ show (bitCoerce code :: Int32)
+          else pure ()
         pure False
       80 -> do -- newfstat
         pure True
@@ -103,18 +111,19 @@ benchmarkTests =
         "Benchmark Execution"
         [ mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
             { benchmarkPath = "benchmark/bench_vuln_strcmp"
+            },
+          mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_chacha20"
+            },
+          mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
+            { benchmarkPath = "benchmark/bench_blake2b"
             }
-        ---   mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
-        ---   { benchmarkPath = "benchmark/bench_chacha20"
-        ---   },
-        --   mkBenchmarkTest "X25519 execution" BenchmarkTest
-        --     { benchmarkPath = "benchmark/bench_x25519"
-        --     },
-        --   mkBenchmarkTest "SHA-256 execution" BenchmarkTest
-        --     { benchmarkPath = "benchmark/bench_sha256"
-        --     },
-        --   mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
-        --     { benchmarkPath = "benchmark/bench_blake2b"
-        --     }
+          -- these tests are stuck, infinite loop?
+          -- mkBenchmarkTest "SHA-256 execution" BenchmarkTest
+          --   { benchmarkPath = "benchmark/bench_sha256"
+          --   },
+          -- mkBenchmarkTest "X25519 execution" BenchmarkTest
+          --   { benchmarkPath = "benchmark/bench_x25519"
+          --   }
         ]
     ]

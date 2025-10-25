@@ -1,6 +1,6 @@
 #include <sodium.h>
 
-#define MSG_LEN 1024
+#define MSG_LEN 128
 
 int main() {
     unsigned char msg[MSG_LEN];
