@@ -46,25 +46,25 @@ topEntity = exposeClockResetEnable $ mealy circuit init
 
 data Access a
   = Public {fromPublic_ :: a}
-  | Private {fromPrivate_ :: a}
+  | Secret {fromSecret_ :: a}
 
 unAccess :: Access a -> a
 unAccess (Public a) = a
-unAccess (Private a) = a
+unAccess (Secret a) = a
 
 fromPublic :: Access a -> Maybe a
 fromPublic (Public a) = pure a
 fromPublic _ = empty
 
-fromPrivate :: Access a -> Maybe a
-fromPrivate (Private a) = pure a
-fromPrivate _ = empty
+fromSecret :: Access a -> Maybe a
+fromSecret (Secret a) = pure a
+fromSecret _ = empty
 
 isPublic :: Access a -> Bool
 isPublic = isJust . fromPublic
 
-isPrivate :: Access a -> Bool
-isPrivate = isJust . fromPrivate
+isSecret :: Access a -> Bool
+isSecret = isJust . fromSecret
 
 deriving instance (Show a) => Show (Access a)
 
@@ -73,7 +73,7 @@ deriving instance Functor Access
 instance Applicative Access where
   pure = Public
   f <*> x
-    | isPrivate f || isPrivate x = Private $ unAccess f $ unAccess x
+    | isSecret f || isSecret x = Secret $ unAccess f $ unAccess x
     | otherwise = Public $ unAccess f $ unAccess x
 
 deriving instance (Eq a) => Eq (Access a)
@@ -81,12 +81,6 @@ deriving instance (Eq a) => Eq (Access a)
 deriving instance (Generic a) => Generic (Access a)
 
 deriving instance (Generic a, NFDataX a) => NFDataX (Access a)
-
--- accMap ::
--- accMap f = bimap f f
-
--- bimap2' :: (Bifunctor p) => (a -> b -> c) -> p a a -> p b b -> p c c
--- bimap2' f = biliftA2 f
 
 type Word = Access Types.Word
 
@@ -326,6 +320,14 @@ halt :: CPUM ()
 halt =
   modify $ \s -> s {stateHalt = True}
 
+-- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
+-- private, die.
+noSecrets :: Word -> (Types.Word -> CPUM a) -> CPUM a
+noSecrets w m =
+  maybe die m $ fromPublic w
+  where
+    die = error "die" -- This needs to actually be a graceful interrupt.
+
 -- | The fetch stage.
 fetch :: CPUM ()
 fetch = do
@@ -544,19 +546,21 @@ memory = do
     lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, me_res)}
 
   case instr of
-    Instruction.SType size _ _ _ -> do
-      r2 <- gets stateMemVal
-      writeRAM (unpack res) size r2
-      setLines $ \c ->
-        c {ctrlMemOutputActive = True}
-    Instruction.IType (Load size _) _ _ _ -> do
-      setLines $ \c ->
-        c
-          { -- Don't forward loads that haven't happened yet
-            ctrlMeRegFwd = Nothing,
-            ctrlMemOutputActive = True
-          }
-      readRAM (unpack res) size
+    Instruction.SType size _ _ _ ->
+      noSecrets res $ \res' -> do
+        r2 <- gets stateMemVal
+        writeRAM (unpack res') size r2
+        setLines $ \c ->
+          c {ctrlMemOutputActive = True}
+    Instruction.IType (Load size _) _ _ _ ->
+      noSecrets res $ \res' -> do
+        setLines $ \c ->
+          c
+            { -- Don't forward loads that haven't happened yet
+              ctrlMeRegFwd = Nothing,
+              ctrlMemOutputActive = True
+            }
+        readRAM (unpack res') size
     _ -> pure ()
 
   modify $ \s ->
@@ -577,7 +581,7 @@ writeback = do
   when halted $ do
     tell $
       mempty {outHalt = pure True}
-    readRAM 0 Word
+    readRAM 0 Types.Word
 
   when (isBreak ir) $ do
     -- Flush the pipeline
@@ -586,7 +590,7 @@ writeback = do
         { stateMemInstr = nop,
           stateExInstr = nop
         }
-    readRAM 0 Word
+    readRAM 0 Types.Word
     halt
 
   when (isCall ir) $ do
@@ -603,7 +607,7 @@ writeback = do
     Instruction.IType (Arith _) rd _ _ -> writeRF rd res
     Instruction.UType _ rd _ -> writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
-      let val = loadExtend size sign input
+      let val = loadExtend size sign <$> input
       setLines $ \c ->
         c
           { ctrlWbRegFwd = pure (rd, val),
@@ -631,7 +635,7 @@ readPC addr =
             MemAccess
               { memIsInstr = True,
                 memAddress = addr,
-                memSize = Word,
+                memSize = Types.Word,
                 memVal = Nothing
               }
       }
