@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Core
   ( initInput,
@@ -15,7 +16,7 @@ module Core
     execute,
     memory,
     writeback,
-    CPUM,
+    CPUM (..),
     MemAccess (..),
     Control (..),
     alu,
@@ -24,6 +25,7 @@ module Core
   )
 where
 
+import Access
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
@@ -31,90 +33,61 @@ import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
-import Types hiding (Word)
+import Types
 import qualified Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 topEntity ::
+  (Access f, Generic (f Word), NFDataX (f Word)) =>
   Clock System ->
   Reset System ->
   Enable System ->
-  Signal System Input ->
-  Signal System Output
+  Signal System (Input f) ->
+  Signal System (Output f)
 topEntity = exposeClockResetEnable $ mealy circuit init
 
-data Access a
-  = Public {fromPublic_ :: a}
-  | Secret {fromSecret_ :: a}
-
-unAccess :: Access a -> a
-unAccess (Public a) = a
-unAccess (Secret a) = a
-
-fromPublic :: Access a -> Maybe a
-fromPublic (Public a) = pure a
-fromPublic _ = empty
-
-fromSecret :: Access a -> Maybe a
-fromSecret (Secret a) = pure a
-fromSecret _ = empty
-
-isPublic :: Access a -> Bool
-isPublic = isJust . fromPublic
-
-isSecret :: Access a -> Bool
-isSecret = isJust . fromSecret
-
-deriving instance (Show a) => Show (Access a)
-
-deriving instance Functor Access
-
-instance Applicative Access where
-  pure = Public
-  f <*> x
-    | isSecret f || isSecret x = Secret $ unAccess f $ unAccess x
-    | otherwise = Public $ unAccess f $ unAccess x
-
-deriving instance (Eq a) => Eq (Access a)
-
-deriving instance (Generic a) => Generic (Access a)
-
-deriving instance (Generic a, NFDataX a) => NFDataX (Access a)
-
-type Word = Access Types.Word
-
 -- | The input to the CPU.
-data Input = Input
+data Input f = Input
   { -- | Is this an instruction read?
     inputIsInstr :: Bool,
     -- | Reads from memory.
-    inputMem :: Word,
+    inputMem :: f Word,
     -- | Read from the register file (corresponding to the index requested in
     -- the `Output`'s `outRs1` field).
-    inputRs1 :: Word,
+    inputRs1 :: f Word,
     -- | Read from the register file (corresponding to the index requested in
     -- the `Output`'s `outRs2` field).
-    inputRs2 :: Word
+    inputRs2 :: f Word
   }
-  deriving (Show, Generic, NFDataX)
+
+deriving instance (Show (f Word)) => Show (Input f)
+
+deriving instance (Generic (f Word)) => Generic (Input f)
+
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
 
 -- | A memory access
-data MemAccess = MemAccess
+data MemAccess f = MemAccess
   { -- | Is this an instruction read?
     memIsInstr :: Bool,
     memAddress :: Address,
     memSize :: Size,
     -- | The word to be written, if there is one. If set to `Nothing`, then the
     -- `MemAccess` is a read. Otherwise, it's a write.
-    memVal :: Maybe Word
+    memVal :: Maybe (f Word)
   }
-  deriving (Show, Generic, NFDataX)
+
+deriving instance (Show (f Word)) => Show (MemAccess f)
+
+deriving instance (Generic (f Word)) => Generic (MemAccess f)
+
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 
 -- | The output of the CPU.
-data Output = Output
+data Output f = Output
   { -- | A memory access.
-    outMem :: First MemAccess,
+    outMem :: First (MemAccess f),
     -- | A read request from the register file; stores it in the `inputRs1`
     -- field of `Input` on the next tick.
     outRs1 :: First RegIdx,
@@ -122,23 +95,28 @@ data Output = Output
     -- field of `Input` on the next tick.
     outRs2 :: First RegIdx,
     -- | A write to the register file.
-    outRd :: First (RegIdx, Word),
+    outRd :: First (RegIdx, f Word),
     -- | A syscall request.
     outSyscall :: First Bool,
     -- | Are we done?
     outHalt :: First Bool
   }
-  deriving (Show, Generic, NFDataX)
 
-instance Semigroup Output where
+deriving instance (Show (f Word)) => Show (Output f)
+
+deriving instance (Generic (f Word)) => Generic (Output f)
+
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
+
+instance Semigroup (Output f) where
   Output mem rs1 rs2 rd syscall hlt <> Output mem' rs1' rs2' rd' syscall' hlt' =
     Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (syscall <> syscall') (hlt <> hlt')
 
-instance Monoid Output where
+instance Monoid (Output f) where
   mempty = Output mempty mempty mempty mempty mempty mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
-data State = State
+data State f = State
   { -- | Program counter fetch stage
     stateFePc :: Address,
     -- | Program counter decode stage
@@ -150,22 +128,27 @@ data State = State
     -- | Instruction register memory stage
     stateMemInstr :: Instruction,
     -- | ALU result register memory stage
-    stateMemRes :: Word,
+    stateMemRes :: f Word,
     -- | Memory value to write for stores (`stateMemRes` only contains the address).
-    stateMemVal :: Word,
+    stateMemVal :: f Word,
     -- | Instruction register writeback stage
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
-    stateWbRes :: Word,
+    stateWbRes :: f Word,
     -- | Control/forwarding lines.
-    stateCtrl :: Control,
+    stateCtrl :: Control f,
     -- | Are we done?
     stateHalt :: Bool
   }
-  deriving (Show, Generic, NFDataX)
+
+deriving instance (Show (f Word)) => Show (State f)
+
+deriving instance (Generic (f Word)) => Generic (State f)
+
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
-data Control = Control
+data Control f = Control
   { -- | `True` during the first step of execution.
     ctrlFirstCycle :: Bool,
     -- | `True` when the instruction in the `decode` stage is a load.
@@ -179,27 +162,44 @@ data Control = Control
     -- register is for the instruction in the `memory` stage: it's too late to
     -- check this in the `execute` stage because it will already have been
     -- overwritten with the instruction for the next cycle.
-    ctrlMeRegFwd :: Maybe (RegIdx, Word),
+    ctrlMeRegFwd :: Maybe (RegIdx, f Word),
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
-    ctrlWbRegFwd :: Maybe (RegIdx, Word),
+    ctrlWbRegFwd :: Maybe (RegIdx, f Word),
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
     ctrlExBranch :: Maybe Address,
     -- | Does the `execute` stage contain a load instruction?
     ctrlExLoad :: Bool
   }
-  -- \| Need propagate whether a branch instruction is in the `memory` stage
-  -- so we can stall the decode stall another cycle.
 
-  deriving (Show, Eq, Generic, NFDataX)
+-- \| Need propagate whether a branch instruction is in the `memory` stage
+-- so we can stall the decode stall another cycle.
+
+deriving instance (Show (f Word)) => Show (Control f)
+
+deriving instance (Eq (f Word)) => Eq (Control f)
+
+deriving instance (Generic (f Word)) => Generic (Control f)
+
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
 
 -- | The CPU monad.
-type CPUM = RWS Input Output State
+newtype CPUM f a = CPUM {runCPUM :: RWS (Input f) (Output f) (State f) a}
+  deriving
+    ( Functor,
+      Applicative,
+      Monad,
+      MonadReader (Input f),
+      MonadWriter (Output f),
+      MonadState (State f)
+    )
+
+instance MonadFail (CPUM f) -- todo
 
 -- | Run the CPU for one step.
-circuit :: State -> Input -> (State, Output)
-circuit = flip $ execRWS pipe
+circuit :: (Access f) => State f -> Input f -> (State f, Output f)
+circuit = flip $ execRWS $ runCPUM pipe
 
 -- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
 -- is sequential. That is, it works like so:
@@ -258,7 +258,7 @@ circuit = flip $ execRWS pipe
 -- pipeline via data dependencies.
 
 -- | The CPU.
-pipe :: CPUM ()
+pipe :: (Access f) => CPUM f ()
 pipe = void $ withCtrlReset $ do
   writeback
   memory
@@ -266,16 +266,16 @@ pipe = void $ withCtrlReset $ do
   decode
   fetch
 
-initInput :: Input
+initInput :: (Access f) => Input f
 initInput =
   Input
     { inputIsInstr = False,
-      inputMem = 0,
-      inputRs1 = 0,
-      inputRs2 = 0
+      inputMem = pure 0,
+      inputRs1 = pure 0,
+      inputRs2 = pure 0
     }
 
-init :: State
+init :: (Access f) => State f
 init =
   State
     { stateFePc = initPc,
@@ -283,16 +283,16 @@ init =
       stateExPc = 0,
       stateExInstr = nop,
       stateMemInstr = nop,
-      stateMemRes = 0,
-      stateMemVal = 0,
+      stateMemRes = pure 0,
+      stateMemVal = pure 0,
       stateWbInstr = nop,
-      stateWbRes = 0,
+      stateWbRes = pure 0,
       stateCtrl = initCtrl,
       stateHalt = False
     }
 
 -- | Initial control lines.
-initCtrl :: Control
+initCtrl :: (Access f) => Control f
 initCtrl =
   Control
     { ctrlFirstCycle = True,
@@ -306,7 +306,7 @@ initCtrl =
     }
 
 -- | The control lines need to be reset every tick.
-withCtrlReset :: CPUM () -> CPUM Control
+withCtrlReset :: (Access f) => CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
   firstCycle <- gets $ ctrlFirstCycle . stateCtrl
   modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = firstCycle}}
@@ -316,20 +316,12 @@ withCtrlReset m = do
   pure ctrl
 
 -- | Stop the CPU.
-halt :: CPUM ()
+halt :: (Access f) => CPUM f ()
 halt =
   modify $ \s -> s {stateHalt = True}
 
--- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
--- private, die.
-noSecrets :: Word -> (Types.Word -> CPUM a) -> CPUM a
-noSecrets w m =
-  maybe die m $ fromPublic w
-  where
-    die = error "die" -- This needs to actually be a graceful interrupt.
-
 -- | The fetch stage.
-fetch :: CPUM ()
+fetch :: (Access f) => CPUM f ()
 fetch = do
   ctrl <- gets stateCtrl
   pc <- gets stateFePc
@@ -362,12 +354,12 @@ fetch = do
           }
 
 -- | Decode stage.
-decode :: CPUM ()
+decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
   let ir
         | inputIsInstr input =
-            Instruction.decode' $ fromPublic_ $ inputMem input
+            Instruction.decode' $ unAccess $ inputMem input
         | otherwise = Instruction.nop
   readRF ir
 
@@ -409,83 +401,97 @@ decode = do
           }
 
 -- | Execute stage.
-execute :: CPUM ()
+execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
   modify $ \s -> s {stateMemInstr = ir}
 
   -- Fetch alu operands
-  aluInputs <- runMaybeT $
-    case ir of
-      Instruction.IType Env {} _ _ _ -> empty
-      Instruction.RType op _ _ _ -> do
-        r1 <- rs1
-        r2 <- rs2
-        pure (op, r1, r2)
-      Instruction.IType Jump _ _ imm -> do
-        pc <- gets $ Public . pack . stateExPc
-        r1 <- rs1
-        setLines $
-          \c -> c {ctrlExBranch = Just $ unpack $ alu True ADD r1 (signExtend imm)}
-        pure (ADD, pc, 4)
-      Instruction.IType op _ _ imm -> do
-        let loadOp Load {} = True
-            loadOp _ = False
-        when (loadOp op) $
-          setLines $
-            \c -> c {ctrlExLoad = True}
-        -- Do addition for non arithmetic operations.
-        let op' = case op of
-              Arith arith -> arith
-              _ -> ADD
-        r1 <- rs1
-        let imm' = signExtend imm
-        pure (op', r1, imm')
-      Instruction.SType _ imm _ _ -> do
-        r1 <- rs1
-        r2 <- rs2
-        let imm' = signExtend imm
-        modify $ \s -> s {stateMemVal = r2}
-        pure (ADD, r1, imm')
-      Instruction.BType cmp imm _ _ -> do
-        r1 <- rs1
-        r2 <- rs2
-        pc <- gets $ pack . stateExPc
-        let doBranch = branch cmp r1 r2
-        if doBranch
-          then setLines $
-            \c -> c {ctrlExBranch = Just $ unpack $ alu False ADD pc (signExtend imm)}
-          else modify $ \s -> s {stateMemInstr = nop}
-        empty
-      Instruction.UType base _ imm -> do
-        base' <- case base of
-          Zero -> pure 0
-          PC -> gets $ pack . stateExPc
-        let imm' = imm ++# (0 :: BitVector 12)
-        pure (ADD, base', imm')
-      Instruction.JType _ imm -> do
-        pc <- gets $ pack . stateExPc
-        setLines $
-          \c -> c {ctrlExBranch = Just $ unpack $ alu False ADD pc (signExtend imm)}
-        pure (ADD, pc, 4)
+  aluInputs <- runMaybeT $ fetchALUOperands ir
 
   modify $ \s ->
-    let aluNOP = (ADD, 0, 0)
+    let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu (isIType ir) op lhs rhs
      in s {stateMemRes = res}
   where
+    fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
+    fetchALUOperands ir =
+      case ir of
+        Instruction.IType Env {} _ _ _ -> empty
+        Instruction.RType op _ _ _ -> do
+          r1 <- rs1
+          r2 <- rs2
+          pure (op, r1, r2)
+        Instruction.IType Jump _ _ imm -> do
+          pc <- gets $ pure . pack . stateExPc
+          r1 <- rs1
+          let branchAddr = unpack <$> alu True ADD r1 (pure $ signExtend imm)
+          lift $
+            noSecrets branchAddr $ \branchAddr' ->
+              setLines $
+                \c -> c {ctrlExBranch = Just branchAddr'}
+          pure
+            (ADD, pc, pure 4)
+        Instruction.IType op _ _ imm -> do
+          let loadOp Load {} = True
+              loadOp _ = False
+          when (loadOp op) $
+            setLines $
+              \c -> c {ctrlExLoad = True}
+          -- Do addition for non arithmetic operations.
+          let op' = case op of
+                Arith arith -> arith
+                _ -> ADD
+          r1 <- rs1
+          let imm' = signExtend imm
+          pure (op', r1, pure imm')
+        Instruction.SType _ imm _ _ -> do
+          r1 <- rs1
+          r2 <- rs2
+          let imm' = signExtend imm
+          modify $ \s -> s {stateMemVal = r2}
+          pure (ADD, r1, pure imm')
+        Instruction.BType cmp imm _ _ -> do
+          r1 <- rs1
+          r2 <- rs2
+          pc <- gets $ pack . stateExPc
+          let doBranch = branch cmp r1 r2
+              branchAddr :: f Address
+              branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
+          lift $ noSecrets doBranch $ \doBranch' ->
+            noSecrets branchAddr $ \branchAddr' ->
+              if doBranch'
+                then setLines $
+                  \c -> c {ctrlExBranch = Just branchAddr'}
+                else modify $ \s -> s {stateMemInstr = nop}
+          empty
+        Instruction.UType base _ imm -> do
+          base' <- case base of
+            Zero -> pure 0
+            PC -> gets $ pack . stateExPc
+          let imm' = imm ++# (0 :: BitVector 12)
+          pure (ADD, pure base', pure imm')
+        Instruction.JType _ imm -> do
+          pc <- gets $ pack . stateExPc
+          let branchAddr :: f Address
+              branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
+          lift $ noSecrets branchAddr $ \branchAddr' -> do
+            setLines $
+              \c -> c {ctrlExBranch = Just branchAddr'}
+            pure (ADD, pure pc, pure 4)
+
     isIType :: Instruction -> Bool
     isIType (Instruction.IType {}) = True
     isIType _ = False
 
-    rs1 :: MaybeT CPUM Word
+    rs1 :: MaybeT (CPUM f) (f Word)
     rs1 = lift $ regWithFwd getRs1 =<< asks inputRs1
 
-    rs2 :: MaybeT CPUM Word
+    rs2 :: MaybeT (CPUM f) (f Word)
     rs2 = lift $ regWithFwd getRs2 =<< asks inputRs2
 
-    regWithFwd :: (Instruction -> Maybe RegIdx) -> Word -> CPUM Word
+    regWithFwd :: (Instruction -> Maybe RegIdx) -> f Word -> CPUM f (f Word)
     regWithFwd getR def = do
       ir <- gets stateExInstr
       let checkForFwd line = do
@@ -502,7 +508,7 @@ execute = do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
 
-alu :: Bool -> Arith -> Word -> Word -> Word
+alu :: (Access f) => Bool -> Arith -> f Word -> f Word -> f Word
 alu itype op lhs rhs = case op of
   ADD -> (+) <$> lhs <*> rhs
   SUB -> (-) <$> lhs <*> rhs
@@ -523,7 +529,7 @@ alu itype op lhs rhs = case op of
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 
-branch :: Comparison -> Word -> Word -> Access Bool
+branch :: (Access f) => Comparison -> f Word -> f Word -> f Bool
 branch op lhs rhs = case op of
   EQ -> (==) <$> lhs <*> rhs
   NE -> (/=) <$> lhs <*> rhs
@@ -534,7 +540,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
-memory :: CPUM ()
+memory :: (Access f) => CPUM f ()
 memory = do
   res <- gets stateMemRes
   instr <- gets stateMemInstr
@@ -570,7 +576,7 @@ memory = do
       }
 
 -- | Commit computations to the register file.
-writeback :: CPUM ()
+writeback :: (Access f) => CPUM f ()
 writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
@@ -626,7 +632,7 @@ writeback = do
     writeRF idx val =
       tell $ mempty {outRd = pure (idx, val)}
 
-readPC :: (MonadWriter Output m) => Address -> m ()
+readPC :: (Access f, MonadWriter (Output f) m) => Address -> m ()
 readPC addr =
   tell $
     mempty
@@ -640,7 +646,7 @@ readPC addr =
               }
       }
 
-readRAM :: (MonadWriter Output m) => Address -> Size -> m ()
+readRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> m ()
 readRAM addr size =
   tell $
     mempty
@@ -654,7 +660,7 @@ readRAM addr size =
               }
       }
 
-writeRAM :: (MonadWriter Output m) => Address -> Size -> Word -> m ()
+writeRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> f Word -> m ()
 writeRAM addr size val =
   tell $
     mempty
@@ -668,5 +674,5 @@ writeRAM addr size val =
               }
       }
 
-setLines :: (MonadState State m) => (Control -> Control) -> m ()
+setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}

@@ -27,6 +27,7 @@ module Util
   )
 where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.Trans.Maybe
@@ -81,38 +82,46 @@ pageIO = mapM_ $ \a -> do
   putStrLn "------------------------"
   void getLine
 
-class Monad m => MonadMemory m where
-  getRegFile :: m RegFile
-  putRegFile :: RegFile -> m ()
-  ramRead :: Address -> m Word
-  ramWrite :: Address -> Size -> Word -> m ()
+class (Access f, Monad m) => MonadMemory f m where
+  getRegFile :: m (RegFile f)
+  putRegFile :: RegFile f -> m ()
+  ramRead :: Address -> m (f Word)
+  ramWrite :: Address -> Size -> f Word -> m ()
 
-  -- ramRead :: (MonadMemory n m) => Address -> m Word
-  -- ramRead addr = readWord addr <$> getRAM @n
+-- ramRead :: (MonadMemory n m) => Address -> m Word
+-- ramRead addr = readWord addr <$> getRAM @n
 
-  -- ramWrite :: (MonadMemory n m) => Address -> Size -> Word -> m ()
-  -- ramWrite addr size w = do
-  --   ram <- getRAM @n
-  --   putRAM $ write size addr w ram
+-- ramWrite :: (MonadMemory n m) => Address -> Size -> Word -> m ()
+-- ramWrite addr size w = do
+--   ram <- getRAM @n
+--   putRAM $ write size addr w ram
 
-regRead :: forall m. (MonadMemory m) => RegIdx -> m Word
+regRead :: forall f m. (Access f) => (MonadMemory f m) => RegIdx -> m (f Word)
 regRead idx = lookupRF idx <$> getRegFile
 
-regWrite :: forall m. (MonadMemory m) => RegIdx -> Word -> m ()
+regWrite :: forall f m. (MonadMemory f m) => RegIdx -> f Word -> m ()
 regWrite idx val = do
   regfile <- getRegFile
   putRegFile $ modifyRF idx val regfile
 
-readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
+readWord :: (Access f) => (KnownNat n) => Address -> Vec n (f Byte) -> f Word
 readWord addr m =
-  (m !! (addr + 3)) ++# (m !! (addr + 2)) ++# (m !! (addr + 1)) ++# (m !! addr)
+  (++#)
+    <$> ( (++#)
+            <$> ( (++#)
+                    <$> (m !! (addr + 3))
+                    <*> (m !! (addr + 2))
+                )
+            <*> (m !! (addr + 1))
+        )
+    <*> (m !! addr)
 
-write :: (KnownNat n) => Size -> Address -> Word -> Vec n Byte -> Vec n Byte
+write :: (Access f, KnownNat n) => Size -> Address -> f Word -> Vec n (f Byte) -> Vec n (f Byte)
 write size addr w mem =
-  let b0 = slice d7 d0 w
-      b1 = slice d15 d8 w
-      b2 = slice d23 d16 w
-      b3 = slice d31 d24 w
+  let b0 = slice d7 d0 <$> w
+      b1 = slice d15 d8 <$> w
+      b2 = slice d23 d16 <$> w
+      b3 = slice d31 d24 <$> w
       writeByte =
         replace addr b0
       writeHalf =
@@ -154,9 +163,13 @@ mkProg prog =
 type MemSizeFrom progSize ramSizeBytes =
   ramSizeBytes + ((GHC.TypeNats.*) progSize 4)
 
-mkRAM :: forall progSize ramSize. (KnownNat ramSize) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
+mkRAM ::
+  forall f progSize ramSize.
+  (Access f, KnownNat ramSize) =>
+  Vec progSize (f Word) ->
+  Vec (MemSizeFrom progSize ramSize) (f Byte)
 mkRAM prog =
-  (repeat 0 :: Vec ramSize Byte) ++ vecWordToByte prog
+  (repeat (pure 0) :: Vec ramSize (f Byte)) ++ vecWordToByte prog
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure
