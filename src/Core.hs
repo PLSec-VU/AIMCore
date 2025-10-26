@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module Core
   ( initInput,
     init,
@@ -28,7 +31,8 @@ import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
-import Types
+import Types hiding (Word)
+import qualified Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
@@ -39,6 +43,52 @@ topEntity ::
   Signal System Input ->
   Signal System Output
 topEntity = exposeClockResetEnable $ mealy circuit init
+
+data Access a
+  = Public {fromPublic_ :: a}
+  | Private {fromPrivate_ :: a}
+
+unAccess :: Access a -> a
+unAccess (Public a) = a
+unAccess (Private a) = a
+
+fromPublic :: Access a -> Maybe a
+fromPublic (Public a) = pure a
+fromPublic _ = empty
+
+fromPrivate :: Access a -> Maybe a
+fromPrivate (Private a) = pure a
+fromPrivate _ = empty
+
+isPublic :: Access a -> Bool
+isPublic = isJust . fromPublic
+
+isPrivate :: Access a -> Bool
+isPrivate = isJust . fromPrivate
+
+deriving instance (Show a) => Show (Access a)
+
+deriving instance Functor Access
+
+instance Applicative Access where
+  pure = Public
+  f <*> x
+    | isPrivate f || isPrivate x = Private $ unAccess f $ unAccess x
+    | otherwise = Public $ unAccess f $ unAccess x
+
+deriving instance (Eq a) => Eq (Access a)
+
+deriving instance (Generic a) => Generic (Access a)
+
+deriving instance (Generic a, NFDataX a) => NFDataX (Access a)
+
+-- accMap ::
+-- accMap f = bimap f f
+
+-- bimap2' :: (Bifunctor p) => (a -> b -> c) -> p a a -> p b b -> p c c
+-- bimap2' f = biliftA2 f
+
+type Word = Access Types.Word
 
 -- | The input to the CPU.
 data Input = Input
@@ -91,7 +141,7 @@ instance Semigroup Output where
     Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (syscall <> syscall') (hlt <> hlt')
 
 instance Monoid Output where
-  mempty = Output mempty mempty mempty mempty mempty  mempty
+  mempty = Output mempty mempty mempty mempty mempty mempty
 
 -- | The internal state of the CPU; essentially the pipeline registers.
 data State = State
@@ -315,7 +365,7 @@ decode = do
   input <- ask
   let ir
         | inputIsInstr input =
-            Instruction.decode' $ inputMem input
+            Instruction.decode' $ fromPublic_ $ inputMem input
         | otherwise = Instruction.nop
   readRF ir
 
@@ -371,7 +421,7 @@ execute = do
         r2 <- rs2
         pure (op, r1, r2)
       Instruction.IType Jump _ _ imm -> do
-        pc <- gets $ pack . stateExPc
+        pc <- gets $ Public . pack . stateExPc
         r1 <- rs1
         setLines $
           \c -> c {ctrlExBranch = Just $ unpack $ alu True ADD r1 (signExtend imm)}
@@ -452,16 +502,16 @@ execute = do
 
 alu :: Bool -> Arith -> Word -> Word -> Word
 alu itype op lhs rhs = case op of
-  ADD -> lhs + rhs
-  SUB -> lhs - rhs
-  XOR -> lhs .^. rhs
-  OR -> lhs .|. rhs
-  AND -> lhs .&. rhs
-  SLL -> lhs `shiftL` shiftBits rhs
-  SRL -> lhs `shiftR` shiftBits rhs
-  SRA -> pack $ sign lhs `shiftR` shiftBits rhs
-  SLT -> set $ sign lhs < sign rhs
-  SLTU -> set $ lhs < rhs
+  ADD -> (+) <$> lhs <*> rhs
+  SUB -> (-) <$> lhs <*> rhs
+  XOR -> (.^.) <$> lhs <*> rhs
+  OR -> (.|.) <$> lhs <*> rhs
+  AND -> (.&.) <$> lhs <*> rhs
+  SLL -> shiftL <$> lhs <*> (shiftBits <$> rhs)
+  SRL -> shiftR <$> lhs <*> (shiftBits <$> rhs)
+  SRA -> pack <$> (shiftR <$> (sign <$> lhs) <*> (shiftBits <$> rhs))
+  SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
+  SLTU -> set <$> ((<) <$> lhs <*> rhs)
   where
     shiftBits s
       | itype =
@@ -471,14 +521,14 @@ alu itype op lhs rhs = case op of
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 
-branch :: Comparison -> Word -> Word -> Bool
+branch :: Comparison -> Word -> Word -> Access Bool
 branch op lhs rhs = case op of
-  EQ -> lhs == rhs
-  NE -> lhs /= rhs
-  LT -> sign lhs < sign rhs
-  GE -> sign lhs >= sign rhs
-  LTU -> lhs < rhs
-  GEU -> lhs >= rhs
+  EQ -> (==) <$> lhs <*> rhs
+  NE -> (/=) <$> lhs <*> rhs
+  LT -> (<) <$> (sign <$> lhs) <*> (sign <$> rhs)
+  GE -> (>=) <$> (sign <$> lhs) <*> (sign <$> rhs)
+  LTU -> (<) <$> lhs <*> rhs
+  GEU -> (>=) <$> lhs <*> rhs
   where
     sign = unpack @(Signed 32)
 
