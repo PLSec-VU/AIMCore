@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Leak.PC.Leak
   ( pipe,
     circuit,
@@ -14,6 +18,7 @@ module Leak.PC.Leak
   )
 where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
@@ -28,7 +33,17 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-type LeakM = RWS Input Out State
+newtype LeakM f a = LeakM {runLeakM :: RWS (Input f) Out (State f) a}
+  deriving
+    ( Functor,
+      Applicative,
+      Monad,
+      MonadReader (Input f),
+      MonadWriter Out,
+      MonadState (State f)
+    )
+
+instance MonadFail (LeakM f) -- todo
 
 data BaseInstr
   = Jump
@@ -57,26 +72,29 @@ loadHazard _ _ = False
 nop :: Instr
 nop = Instr Other (Nothing, Nothing)
 
-data State = State
+data State f = State
   { stateFePc :: Address,
     stateDePc :: Address,
     stateExPc :: Address,
     stateExInstr :: Core.Instruction,
     stateMemInstr :: Core.Instruction,
-    stateMemRes :: Word,
+    stateMemRes :: f Word,
     stateWbInstr :: Core.Instruction,
-    stateWbRes :: Word,
+    stateWbRes :: f Word,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
     stateHalt :: Bool,
-    stateMeRegFwd :: Maybe (RegIdx, Word),
-    stateWbRegFwd :: Maybe (RegIdx, Word),
+    stateMeRegFwd :: Maybe (RegIdx, f Word),
+    stateWbRegFwd :: Maybe (RegIdx, f Word),
     stateJumpAddr :: Maybe Address,
     stateFirstCycle :: Bool
   }
-  deriving (Show, Eq)
 
-init :: State
+deriving instance (Show (f Word)) => Show (State f)
+
+deriving instance (Eq (f Word)) => Eq (State f)
+
+init :: (Access f) => State f
 init =
   State
     { stateFePc = initPc,
@@ -84,9 +102,9 @@ init =
       stateExPc = 0,
       stateExInstr = Core.nop,
       stateMemInstr = Core.nop,
-      stateMemRes = 0,
+      stateMemRes = pure 0,
       stateWbInstr = Core.nop,
-      stateWbRes = 0,
+      stateWbRes = pure 0,
       stateHalt = False,
       stateStallFetch = False,
       stateStallDecode = False,
@@ -113,16 +131,16 @@ instance Semigroup Out where
 instance Monoid Out where
   mempty = Out mempty mempty
 
-stallDecode :: LeakM ()
+stallDecode :: (Access f) => LeakM f ()
 stallDecode = modify $ \s -> s {stateStallDecode = True}
 
-stallFetch :: LeakM ()
+stallFetch :: (Access f) => LeakM f ()
 stallFetch = modify $ \s -> s {stateStallFetch = True}
 
-outputNothing :: LeakM ()
+outputNothing :: (Access f) => LeakM f ()
 outputNothing = tell mempty
 
-fetch :: LeakM ()
+fetch :: (Access f) => LeakM f ()
 fetch = do
   ifM
     (gets stateStallFetch)
@@ -138,12 +156,12 @@ fetch = do
           }
     )
 
-decode :: LeakM ()
+decode :: (Access f) => LeakM f ()
 decode = do
   input <- ask
   let instr
         | Core.inputIsInstr input =
-            Core.decode' $ Core.inputMem input
+            Core.decode' $ unAccess $ Core.inputMem input
         | otherwise = Core.nop
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
@@ -211,16 +229,16 @@ mkInstr instr =
     Core.JType {} ->
       Jump
 
-execute :: LeakM ()
+execute :: forall f. (Access f) => LeakM f ()
 execute = do
   instr <- gets stateExInstr
-  let r1M :: LeakM Word
+  let r1M :: LeakM f (f Word)
       r1M = regWithFwd Core.getRs1 =<< asks Core.inputRs1
 
-      r2M :: LeakM Word
+      r2M :: LeakM f (f Word)
       r2M = regWithFwd Core.getRs2 =<< asks Core.inputRs2
 
-      regWithFwd :: (Core.Instruction -> Maybe RegIdx) -> Word -> LeakM Word
+      regWithFwd :: (Core.Instruction -> Maybe RegIdx) -> f Word -> LeakM f (f Word)
       regWithFwd getR def = do
         ir <- gets stateExInstr
         let checkForFwd line = do
@@ -239,28 +257,36 @@ execute = do
   case instr of
     Core.IType Core.Jump _ _ _ ->
       case interp_res of
-        Interp _ (Just addr) _ ->
-          informJumpAddr addr
+        Interp _ maddr _ ->
+          noSecrets maddr $ \maddr' ->
+            case maddr' of
+              Just addr -> informJumpAddr addr
+              Nothing -> pure ()
         _ -> pure ()
     Core.BType {} ->
       case interp_res of
-        Interp _ (Just addr) (Just branched)
-          | branched ->
-              informJumpAddr addr
-        Interp _ _ (Just branched)
-          | not branched ->
-              modify $ \s -> s {stateMemInstr = Core.nop}
-        _ -> pure ()
+        Interp _ maddr mbranched ->
+          noSecrets mbranched $ \mbranched' ->
+            noSecrets maddr $ \maddr' ->
+              case (maddr', mbranched') of
+                (Just addr, Just branched)
+                  | branched -> informJumpAddr addr
+                (Nothing, Just branched)
+                  | not branched ->
+                      modify $ \s -> s {stateMemInstr = Core.nop}
+                _ -> pure ()
     Core.JType {} ->
       case interp_res of
-        Interp _ (Just addr) _ ->
-          informJumpAddr addr
-        _ -> pure ()
+        Interp _ maddr _ ->
+          noSecrets maddr $ \maddr' ->
+            case maddr' of
+              Just addr -> informJumpAddr addr
+              Nothing -> pure ()
     _ -> pure ()
 
   modify $ \s -> s {stateMemRes = interpRes interp_res}
   where
-    informJumpAddr :: Address -> LeakM ()
+    informJumpAddr :: Address -> LeakM f ()
     informJumpAddr jump_addr = do
       stallFetch
       stallDecode
@@ -272,7 +298,7 @@ execute = do
       rs <- getR src
       guard $ rd /= 0 && rs == rd
 
-memory :: LeakM ()
+memory :: (Access f) => LeakM f ()
 memory = do
   instr <- gets stateMemInstr
   res <- gets stateMemRes
@@ -295,7 +321,7 @@ memory = do
         stateWbRes = res
       }
 
-writeback :: LeakM ()
+writeback :: (Access f) => LeakM f ()
 writeback = do
   input <- asks Core.inputMem
   instr <- gets stateWbInstr
@@ -322,13 +348,13 @@ writeback = do
   case instr of
     Core.IType (Core.Load size sign) rd _ _ -> do
       stallDecode
-      let val = Core.loadExtend size sign input
+      let val = Core.loadExtend size sign <$> input
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
     Core.SType {} ->
       stallDecode
     _ -> pure ()
 
-pipe :: LeakM ()
+pipe :: (Access f) => LeakM f ()
 pipe = withCtrlReset $ do
   writeback
   memory
@@ -350,5 +376,5 @@ pipe = withCtrlReset $ do
       void m
       modify $ \s -> s {stateFirstCycle = False}
 
-circuit :: State -> Input -> (State, Out)
-circuit = flip $ execRWS pipe
+circuit :: (Access f) => State f -> Input f -> (State f, Out)
+circuit = flip $ execRWS $ runLeakM pipe

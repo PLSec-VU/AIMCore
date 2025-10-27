@@ -14,6 +14,7 @@ module Leak.PC.PC
   )
 where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
@@ -23,7 +24,6 @@ import qualified Core
 import Data.Maybe (isJust)
 import Data.Monoid
 import Instruction (Instruction)
-import qualified Instruction
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
 import RegFile
@@ -44,37 +44,38 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 --       projection' = 'proj
 --     }
 --   #-}
-implementation :: Core.State -> Input -> (Core.State, Output)
+implementation :: (Access f) => Core.State f -> Input f -> (Core.State f, Output f)
 implementation = Core.circuit
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
 
-obs :: () -> Output -> ((), Maybe Address)
+obs :: () -> Output f -> ((), Maybe Address)
 obs = stateless obs'
 
-obs' :: Output -> Maybe Address
+obs' :: Output f -> Maybe Address
 obs' o_sim = do
   mem <- getFirst $ outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
 
-leak :: Leak.State -> Input -> (Leak.State, Leak.Out)
+leak :: (Access f) => Leak.State f -> Input f -> (Leak.State f, Leak.Out)
 leak = Leak.circuit
 
 sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
 sim = Sim.circuit
 
 circuit ::
-  (Leak.State, Sim.State) ->
-  Input ->
-  ((Leak.State, Sim.State), Maybe Address)
+  (Access f) =>
+  (Leak.State f, Sim.State) ->
+  Input f ->
+  ((Leak.State f, Sim.State), Maybe Address)
 circuit (ts, ss) input = ((ts', ss'), addr)
   where
     (ts', o_leak) = leak ts input
     (ss', addr) = sim ss o_leak
 
-proj :: (Core.State, ()) -> (Leak.State, Sim.State)
+proj :: (Core.State f, ()) -> (Leak.State f, Sim.State)
 proj (s, _) = (ts, ss)
   where
     ts =
@@ -120,23 +121,24 @@ proj (s, _) = (ts, ss)
         (Leak.mkInstr instr)
         (Leak.mkDeps instr)
 
-    toStallFetch :: Core.Control -> Bool
+    toStallFetch :: Core.Control f -> Bool
     toStallFetch ctrl =
       Core.ctrlDecodeLoad ctrl
         || Core.ctrlMemOutputActive ctrl
         || isJust (Core.ctrlExBranch ctrl)
 
-    toStallDecode :: Core.Control -> Bool
+    toStallDecode :: Core.Control f -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
         || Core.ctrlMemInputActive ctrl
 
 simulator ::
-  forall m.
-  ( MonadState ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) m
+  forall m f.
+  ( Access f,
+    MonadState ((Core.State f, Output f), Simulate.Mem f MEM_SIZE_BYTES) m
   ) =>
-  CircuitSim m Input (Leak.State, Sim.State) (Maybe Address, Maybe Address)
+  CircuitSim m (Input f) (Leak.State f, Sim.State) (Maybe Address, Maybe Address)
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -146,9 +148,9 @@ simulator =
     }
   where
     step ::
-      Input ->
-      (Leak.State, Sim.State) ->
-      m ((Leak.State, Sim.State), (Maybe Address, Maybe Address))
+      Input f ->
+      (Leak.State f, Sim.State) ->
+      m ((Leak.State f, Sim.State), (Maybe Address, Maybe Address))
     step i s = do
       ((s_sim, _), mem) <- get
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
@@ -156,7 +158,7 @@ simulator =
       let (s', o) = circuit s i
       pure (s', (o, obs' o_sim))
 
-    next :: (Maybe Address, Maybe Address) -> m (Maybe Input)
+    next :: (Maybe Address, Maybe Address) -> m (Maybe (Input f))
     next (_o, _addr_sim) = do
       ((_, o_sim), mem) <- get
       let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
@@ -164,25 +166,27 @@ simulator =
       pure mi
 
 runSimulator ::
+  (Access f) =>
   ( CircuitSim
-      (State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES))
-      Input
-      (Leak.State, Sim.State)
+      (State ((Core.State f, Output f), Simulate.Mem f MEM_SIZE_BYTES))
+      (Input f)
+      (Leak.State f, Sim.State)
       (Maybe Address, Maybe Address) ->
-    State ((Core.State, Output), Simulate.Mem MEM_SIZE_BYTES) a
+    State ((Core.State f, Output f), Simulate.Mem f MEM_SIZE_BYTES) a
   ) ->
-  Vec PROG_SIZE Word ->
+  Vec PROG_SIZE (f Word) ->
   a
 runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
     s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
 
 watchSim ::
-  Vec PROG_SIZE Word ->
-  [((Leak.State, Sim.State), (Maybe Address, Maybe Address), Maybe Input)]
+  (Access f) =>
+  Vec PROG_SIZE (f Word) ->
+  [((Leak.State f, Sim.State), (Maybe Address, Maybe Address), Maybe (Input f))]
 watchSim = runSimulator watch
 
-pcsEqual :: Vec PROG_SIZE Word -> Bool
+pcsEqual :: (Access f) => Vec PROG_SIZE (f Word) -> Bool
 pcsEqual = all check . watchSim
   where
     check (_, (o, o'), _) = o == o'

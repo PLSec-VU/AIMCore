@@ -1,5 +1,6 @@
 module Leak.PC.ISA (leak) where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
@@ -18,14 +19,15 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-leak :: Vec PROG_SIZE Word -> [Leak.Out]
+leak :: (Access f) => Vec PROG_SIZE (f Word) -> [Leak.Out]
 leak = Prelude.map (\(_, o, _) -> o) . runSimulator watch
 
 simulator ::
-  forall m.
-  ( MonadState ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES) m
+  forall m f.
+  ( Access f,
+    MonadState ((Core.State f, Core.Output f), Simulate.Mem f MEM_SIZE_BYTES) m
   ) =>
-  CircuitSim m Input Leak.State Leak.Out
+  CircuitSim m (Input f) (Leak.State f) Leak.Out
 simulator =
   CircuitSim
     { circuitInput = Core.initInput,
@@ -34,7 +36,7 @@ simulator =
       circuitNext = next
     }
   where
-    step :: Input -> Leak.State -> m (Leak.State, Leak.Out)
+    step :: Input f -> Leak.State f -> m (Leak.State f, Leak.Out)
     step i s = do
       ((s_sim, _), mem) <- get
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
@@ -42,7 +44,7 @@ simulator =
       let (s', leakInstr) = Leak.circuit s i
       pure (s', leakInstr)
 
-    next :: Leak.Out -> m (Maybe Input)
+    next :: Leak.Out -> m (Maybe (Input f))
     next _out = do
       ((_, o_sim), mem) <- get
       let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
@@ -50,14 +52,15 @@ simulator =
       pure mi
 
 runSimulator ::
+  (Access f) =>
   ( CircuitSim
-      (State ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES))
-      Input
-      Leak.State
+      (State ((Core.State f, Core.Output f), Simulate.Mem f MEM_SIZE_BYTES))
+      (Input f)
+      (Leak.State f)
       Leak.Out ->
-    State ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES) a
+    State ((Core.State f, Core.Output f), Simulate.Mem f MEM_SIZE_BYTES) a
   ) ->
-  Vec PROG_SIZE Word ->
+  Vec PROG_SIZE (f Word) ->
   a
 runSimulator f prog = evalState (f Leak.PC.ISA.simulator) s
   where
