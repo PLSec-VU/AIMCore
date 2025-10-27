@@ -41,10 +41,13 @@ instance MonadTrans IOMemT where
 runIOMemT :: IOMem -> IOMemT m a -> m a
 runIOMemT iomem (IOMemT m) = runReaderT m iomem
 
-newIOMem :: MonadIO m => Int -> Int -> m IOMem
-newIOMem sp memSize = do
+newIOMem :: MonadIO m => Elf -> m IOMem
+newIOMem elf = do
+  let memSize = 0x4000000
+  base <- liftIO $ fromIntegral <$> baseAddr elf
+  let sp = base + memSize - 4
   rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF
-  ramArray <- liftIO $ newArray (0, memSize) 0
+  ramArray <- liftIO $ newArray (base, base+memSize) 0
   pure $ IOMem rfRef ramArray
 
 loadProgram :: (MonadIO m, MonadReader IOMem m) => Elf -> m ()

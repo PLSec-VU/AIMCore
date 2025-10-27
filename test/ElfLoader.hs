@@ -1,4 +1,4 @@
-module ElfLoader (loadElf, readElf, startAddr, Instrument, runElf, readStringFromMemory) where
+module ElfLoader (loadElf, readElf, startAddr, baseAddr, Instrument, runElf, readStringFromMemory) where
 
 import qualified Data.ByteString.Lazy as BSL
 import Data.Int
@@ -49,7 +49,20 @@ readElf :: FilePath -> IO Elf
 readElf path = BSL.readFile path >>= parseElf
 
 startAddr :: (MonadCatch m) => Elf -> m Word32
-startAddr (Elf SELFCLASS32 elfs) = ehEntry <$> elfFindHeader elfs
+startAddr (Elf SELFCLASS32 elfs) = do
+  ep <- ehEntry <$> elfFindHeader elfs
+  if ep <= 0x7fffffff
+    then pure ep
+    else esAddr <$> elfFindSectionByName elfs ".text.init"
+startAddr (Elf SELFCLASS64 _) = throwM $ userError "64-bit ELF not supported"
+
+baseAddr :: (MonadCatch m) => Elf -> m Word32
+baseAddr (Elf SELFCLASS64 _) = throwM $ userError "64-bit ELF not supported"
+baseAddr (Elf SELFCLASS32 elfs) = go elfs
+  where
+    go (ElfListCons v@(ElfSegment{..}) l) = pure $ fromIntegral epVirtAddr
+    go (ElfListCons _ l) = go l
+    go ElfListNull = pure 0
 
 -- | Read a string from memory starting at the given address for count bytes
 readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m String
