@@ -70,11 +70,11 @@ testSuiteInstrument :: (MonadIO m, MonadMemory m) => Instrument m
 testSuiteInstrument i s o step = do
   case getFirst $ Core.outSyscall o of
     Just True -> do
-      gp <- regRead 3
-      a0 <- regRead 10
+      gp <- toInteger <$> regRead 3
+      a0 <- toInteger <$> regRead 10
       if gp == 1 && a0 == 0
         then pure False
-        else liftIO $ throwIO (userError "Test suite exited with failure")
+        else liftIO $ throwIO (userError $ "Test suite exited with failure: gp=" P.++ show gp P.++ " a0=" P.++ show a0)
     _ -> pure True
 
 -- | Create a test case for a benchmark binary
@@ -100,28 +100,36 @@ mkBenchmarkTest testName _benchmark =
 benchmarkTests :: TestTree
 benchmarkTests =
   testGroup
-    "Libsodium Benchmark Tests"
+    "Software Benchmark Tests"
     [ testGroup
-        "Crypto benchmark Execution"
-        [ mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
-            { benchmarkPath = "benchmark/bench_vuln_strcmp"
-            , benchmarkInstrument = cryptoInstrument
-            },
-          mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
-            { benchmarkPath = "benchmark/bench_chacha20"
-            , benchmarkInstrument = cryptoInstrument
-            },
-          mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
-            { benchmarkPath = "benchmark/bench_blake2b"
-            , benchmarkInstrument = cryptoInstrument
-            },
-          mkBenchmarkTest "SHA-256 execution" BenchmarkTest
-            { benchmarkPath = "benchmark/bench_sha256"
-            , benchmarkInstrument = cryptoInstrument
-            }
-          -- mkBenchmarkTest "X25519 execution" BenchmarkTest
-          --   { benchmarkPath = "benchmark/bench_x25519"
-          --   }
+        "Cryptographic Benchmark Execution"
+        [ testGroup
+            "Timing attacks"
+            [
+              mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
+                { benchmarkPath = "benchmark/bench_vuln_strcmp"
+                , benchmarkInstrument = cryptoInstrument
+                }
+             ],
+          testGroup
+            "LibSodium"
+            [
+              mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
+                { benchmarkPath = "benchmark/bench_chacha20"
+                , benchmarkInstrument = cryptoInstrument
+                },
+              mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
+                { benchmarkPath = "benchmark/bench_blake2b"
+                , benchmarkInstrument = cryptoInstrument
+                },
+              mkBenchmarkTest "SHA-256 execution" BenchmarkTest
+                { benchmarkPath = "benchmark/bench_sha256"
+                , benchmarkInstrument = cryptoInstrument
+                }
+              -- mkBenchmarkTest "X25519 execution" BenchmarkTest
+              --   { benchmarkPath = "benchmark/bench_x25519"
+              --   }
+            ]
         ],
       testGroup
         "Test suite benchmark Execution"
