@@ -1,6 +1,7 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module BenchmarkSpec (benchmarkTests) where
@@ -9,53 +10,34 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
-import qualified Data.ByteString.Lazy as BSL
-import qualified Prelude as P
-import Control.Monad (forM_)
-import Data.Bits
 import Simulate
 import Util
 import qualified Core as Core
-import Control.Monad.Reader
 import ElfLoader
 import Memory
-import GHC.Base (when)
-import Data.Monoid (First(getFirst))
-import Data.Char (chr)
-import Numeric (showHex)
 import Data.Int (Int32)
+import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO)
+import qualified Prelude as P
+import Data.Monoid (First(getFirst))
 
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
   { benchmarkPath :: String
+  , benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Instrument m
   }
-  deriving (Show, Eq)
 
--- | Read a string from memory starting at the given address for count bytes
-readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m String
-readStringFromMemory addr count = do
-  bytes <- mapM (\i -> do
-    byte <- ramRead (addr + i)
-    pure $ fromIntegral (byte .&. 0xFF)) [0..count-1]
-  pure $ P.map chr bytes
-
-watch' :: forall m. (MonadMemory m, MonadIO m) => CircuitSim m Core.Input Core.State Core.Output -> m ()
-watch' c = watchWithStep (0 :: Int) c
+cryptoInstrument :: (MonadIO m, MonadMemory m) => Instrument m
+cryptoInstrument i s o step = do
+  -- when True $ do
+  --   let pc = Core.stateExPc s'
+  --   liftIO $ print $ "stateExPc=0x" ++ showHex pc "" ++ " stateExInstr=0x" ++ show (Core.stateExInstr s')
+  case getFirst $ Core.outSyscall o of
+    Just True -> handleSyscall
+    _ -> pure True
   where
-    watchWithStep step sim = do
-      (s', o, mi') <- run1 sim
-      -- when True $ do
-      --   let pc = Core.stateExPc s'
-      --   liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s')
-      cont <- case getFirst $ Core.outSyscall o of
-          Just True -> handleSyscall
-          _ -> pure True
-      case mi' of
-        Just i' | cont -> do
-          watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
-        _ -> pure ()
-    handleSyscall :: m Bool
+    handleSyscall :: (MonadIO m, MonadMemory m) => m Bool
     handleSyscall = regRead 17 >>= \case
       64 -> do -- write syscall
         fd <- regRead 10    -- a0: file descriptor
@@ -94,7 +76,7 @@ mkBenchmarkTest testName _benchmark =
     -- Run the simulator with IOMem and MonadMemory interface
     _ <- runIOMemT ioMem $ do
       loadProgram elf
-      watch' (simulator @(IOMemT IO)) {
+      runElf (benchmarkInstrument _benchmark) (simulator @(IOMemT IO)) {
         circuitState = Core.init {
           Core.stateFePc = fromIntegral entryOffset
         }
@@ -108,21 +90,29 @@ benchmarkTests =
   testGroup
     "Libsodium Benchmark Tests"
     [ testGroup
-        "Benchmark Execution"
+        "Crypto benchmark Execution"
         [ mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
             { benchmarkPath = "benchmark/bench_vuln_strcmp"
+            , benchmarkInstrument = cryptoInstrument
             },
           mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
             { benchmarkPath = "benchmark/bench_chacha20"
+            , benchmarkInstrument = cryptoInstrument
             },
           mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
             { benchmarkPath = "benchmark/bench_blake2b"
+            , benchmarkInstrument = cryptoInstrument
             },
           mkBenchmarkTest "SHA-256 execution" BenchmarkTest
             { benchmarkPath = "benchmark/bench_sha256"
+            , benchmarkInstrument = cryptoInstrument
             }
           -- mkBenchmarkTest "X25519 execution" BenchmarkTest
           --   { benchmarkPath = "benchmark/bench_x25519"
           --   }
+        ],
+      testGroup
+        "Test suite benchmark Execution"
+        [
         ]
     ]
