@@ -40,11 +40,12 @@ interp instr r1 r2 pc =
       let branched = branch cmp r1 r2
        in Interp
             (pure 0)
-            ( do
-                branched' <- branched
-                if branched'
-                  then pure $ Just $ pc + unpack (signExtend imm)
-                  else pure Nothing
+            ( ( \branched' ->
+                  if branched'
+                    then Just $ pc + unpack (signExtend imm)
+                    else Nothing
+              )
+                <$> branched
             )
             (Just <$> branched)
     UType Zero rd imm ->

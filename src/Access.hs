@@ -7,7 +7,7 @@ import Data.Functor.Identity
 import Data.Maybe
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
-class (Monad f) => Access f where
+class (Applicative f) => Access f where
   unAccess :: f a -> a
   fromPublic :: f a -> Maybe a
   fromSecret :: f a -> Maybe a
