@@ -43,8 +43,6 @@ newtype LeakM f a = LeakM {runLeakM :: RWS (Input f) Out (State f) a}
       MonadState (State f)
     )
 
-instance MonadFail (LeakM f) -- todo
-
 data BaseInstr
   = Jump
   | Load RegIdx

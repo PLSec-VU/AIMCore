@@ -195,8 +195,6 @@ newtype CPUM f a = CPUM {runCPUM :: RWS (Input f) (Output f) (State f) a}
       MonadState (State f)
     )
 
-instance MonadFail (CPUM f) -- todo
-
 -- | Run the CPU for one step.
 circuit :: (Access f) => State f -> Input f -> (State f, Output f)
 circuit = flip $ execRWS $ runCPUM pipe

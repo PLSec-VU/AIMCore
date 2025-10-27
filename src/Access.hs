@@ -20,9 +20,9 @@ isSecret = isJust . fromSecret
 
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
-noSecrets :: (MonadFail m, Access f) => f a -> (a -> m b) -> m b
+noSecrets :: (Access f) => f a -> (a -> m b) -> m b
 noSecrets w m =
-  maybe (fail "die") m $ fromPublic w
+  maybe (error "noSecrets: it was secret!") m $ fromPublic w
 
 data PubSec a
   = Public a
