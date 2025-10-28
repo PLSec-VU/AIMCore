@@ -45,7 +45,7 @@ newIOMem :: MonadIO m => Elf -> m IOMem
 newIOMem elf = do
   let memSize = 0x4000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
-  let sp = base + memSize - 4
+  let sp = base + memSize - 0x1000000
   rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF
   ramArray <- liftIO $ newArray (base, base+memSize) 0
   pure $ IOMem rfRef ramArray

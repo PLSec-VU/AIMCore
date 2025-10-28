@@ -18,7 +18,7 @@ import Memory
 import Data.Int (Int32)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import Control.Exception (throwIO)
+import Control.Exception (throwIO, throw)
 import qualified Prelude as P
 import Data.Monoid (First(getFirst))
 import Numeric (showHex)
@@ -29,8 +29,15 @@ data BenchmarkTest = BenchmarkTest
   , benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Instrument m
   }
 
-cryptoInstrument :: (MonadIO m, MonadMemory m) => Instrument m
-cryptoInstrument i s o step = do
+cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Instrument m
+cryptoInstrument shouldLog i s o step = do
+  when shouldLog $ do
+    let pc = Core.stateExPc s
+    -- liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s)
+    when (pc == 0x1e05c) $ do
+      s9 <- regRead 25
+      s11 <- regRead 27
+      liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " s9=0x" P.++ showHex s9 "" P.++ " s11=0x" P.++ showHex s11 ""
   case getFirst $ Core.outSyscall o of
     Just True -> handleSyscall
     _ -> pure True
@@ -113,7 +120,7 @@ benchmarkTests =
             [
               mkBenchmarkTest "Vulnerable strcmp timing attack" BenchmarkTest
                 { benchmarkPath = "benchmark/bench_vuln_strcmp"
-                , benchmarkInstrument = cryptoInstrument
+                , benchmarkInstrument = cryptoInstrument False
                 }
              ],
           testGroup
@@ -121,18 +128,20 @@ benchmarkTests =
             [
               mkBenchmarkTest "ChaCha20 execution" BenchmarkTest
                 { benchmarkPath = "benchmark/bench_chacha20"
-                , benchmarkInstrument = cryptoInstrument
+                , benchmarkInstrument = cryptoInstrument False
                 },
               mkBenchmarkTest "BLAKE2b execution" BenchmarkTest
                 { benchmarkPath = "benchmark/bench_blake2b"
-                , benchmarkInstrument = cryptoInstrument
+                , benchmarkInstrument = cryptoInstrument False
                 },
               mkBenchmarkTest "SHA-256 execution" BenchmarkTest
                 { benchmarkPath = "benchmark/bench_sha256"
-                , benchmarkInstrument = cryptoInstrument
+                , benchmarkInstrument = cryptoInstrument False
                 }
+              -- This takes 20 minutes to run, so disabled for now
               -- mkBenchmarkTest "X25519 execution" BenchmarkTest
               --   { benchmarkPath = "benchmark/bench_x25519"
+              --   , benchmarkInstrument = cryptoInstrument True
               --   }
             ]
         ],
