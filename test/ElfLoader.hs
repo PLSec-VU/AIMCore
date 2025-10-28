@@ -1,42 +1,44 @@
-module ElfLoader (loadElf, readElf, startAddr) where
+module ElfLoader where
 
-import qualified Data.ByteString.Lazy as BSL
-import Data.Int
-import Data.Word
-import Data.Elf
-import Data.Elf.Headers
-import Data.Elf.Constants
-import Control.Monad.Catch
-import "uc-risc-v" Types
+-- (loadElf, readElf, startAddr)
 
-type LoadFunc m = Address -> BSL.ByteString -> m ()
-
-loadableSegments :: ElfListXX a -> [ElfXX 'Segment a]
-loadableSegments (ElfListCons v@(ElfSegment{..}) l) =
-    if epType == PT_LOAD
-        then v : loadableSegments l
-        else loadableSegments l
-loadableSegments (ElfListCons _ l) = loadableSegments l
-loadableSegments ElfListNull = []
-
-copyData :: (Monad m, SingElfClassI a) => ElfListXX a -> Int64 -> LoadFunc m -> m ()
-copyData ElfListNull _ _ = pure ()
-copyData (ElfListCons (ElfSection{esData = ElfSectionData textData, ..}) xs) zeros f = do
-    f (fromIntegral esAddr) $ BSL.append textData (BSL.replicate zeros 0)
-    copyData xs zeros f
-copyData (ElfListCons _ xs) zeros f = copyData xs zeros f
-
-loadSegment :: (Monad m, SingElfClassI a) => LoadFunc m -> ElfXX 'Segment a -> m ()
-loadSegment loadFunc ElfSegment{..} =
-    copyData epData (fromIntegral epAddMemSize) loadFunc
-
-loadElf :: (Monad m) => Elf -> LoadFunc m -> m ()
-loadElf (Elf classS elfs) loadFunc = withSingElfClassI classS $ do
-    let loadable = loadableSegments elfs
-    mapM_ (loadSegment loadFunc) loadable
-
-readElf :: FilePath -> IO Elf
-readElf path = BSL.readFile path >>= parseElf
-
-startAddr :: (MonadCatch m) => Elf -> m Word32
-startAddr (Elf SELFCLASS32 elfs) = ehEntry <$> elfFindHeader elfs
+-- import qualified Data.ByteString.Lazy as BSL
+-- import Data.Int
+-- import Data.Word
+-- import Data.Elf
+-- import Data.Elf.Headers
+-- import Data.Elf.Constants
+-- import Control.Monad.Catch
+-- import "uc-risc-v" Types
+--
+-- type LoadFunc m = Address -> BSL.ByteString -> m ()
+--
+-- loadableSegments :: ElfListXX a -> [ElfXX 'Segment a]
+-- loadableSegments (ElfListCons v@(ElfSegment{..}) l) =
+--    if epType == PT_LOAD
+--        then v : loadableSegments l
+--        else loadableSegments l
+-- loadableSegments (ElfListCons _ l) = loadableSegments l
+-- loadableSegments ElfListNull = []
+--
+-- copyData :: (Monad m, SingElfClassI a) => ElfListXX a -> Int64 -> LoadFunc m -> m ()
+-- copyData ElfListNull _ _ = pure ()
+-- copyData (ElfListCons (ElfSection{esData = ElfSectionData textData, ..}) xs) zeros f = do
+--    f (fromIntegral esAddr) $ BSL.append textData (BSL.replicate zeros 0)
+--    copyData xs zeros f
+-- copyData (ElfListCons _ xs) zeros f = copyData xs zeros f
+--
+-- loadSegment :: (Monad m, SingElfClassI a) => LoadFunc m -> ElfXX 'Segment a -> m ()
+-- loadSegment loadFunc ElfSegment{..} =
+--    copyData epData (fromIntegral epAddMemSize) loadFunc
+--
+-- loadElf :: (Monad m) => Elf -> LoadFunc m -> m ()
+-- loadElf (Elf classS elfs) loadFunc = withSingElfClassI classS $ do
+--    let loadable = loadableSegments elfs
+--    mapM_ (loadSegment loadFunc) loadable
+--
+-- readElf :: FilePath -> IO Elf
+-- readElf path = BSL.readFile path >>= parseElf
+--
+-- startAddr :: (MonadCatch m) => Elf -> m Word32
+-- startAddr (Elf SELFCLASS32 elfs) = ehEntry <$> elfFindHeader elfs

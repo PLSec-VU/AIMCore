@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -189,11 +191,14 @@ newtype CPUM f a = CPUM {runCPUM :: RWS (Input f) (Output f) (State f) a}
   deriving
     ( Functor,
       Applicative,
-      Monad,
       MonadReader (Input f),
       MonadWriter (Output f),
       MonadState (State f)
     )
+
+-- For some reason it's not deriving the monad instance
+instance Monad (CPUM f) where
+  m >>= f = CPUM $ runCPUM m >>= (runCPUM . f)
 
 -- | Run the CPU for one step.
 circuit :: (Access f) => State f -> Input f -> (State f, Output f)

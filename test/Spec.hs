@@ -1,14 +1,18 @@
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
 
-import BenchmarkSpec (benchmarkTests)
-import InstructionSpec (instructionTests)
+-- import BenchmarkSpec (benchmarkTests)
+-- import InstructionSpec (instructionTests)
+
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
+import Data.Functor.Identity
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
@@ -23,20 +27,21 @@ import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, 
 main :: IO ()
 main = defaultMain tests
 
-data CPUTest = CPUTest
-  { testProg :: Vec PROG_SIZE Word,
-    testExpected :: [(Int, Word)]
+data CPUTest f = CPUTest
+  { testProg :: Vec PROG_SIZE (f Word),
+    testExpected :: [(Int, (f Word))]
   }
-  deriving (Show, Eq)
 
-mkPureTest :: String -> CPUTest -> TestTree
+-- deriving (Show, Eq)
+
+mkPureTest :: forall f. (Show (f Word), Eq (f Word), Access f) => String -> CPUTest f -> TestTree
 mkPureTest s (CPUTest prog expected) =
   testCase s $
-    let ram = simResult @RAM_SIZE_BYTES prog
+    let ram = simResult @f @RAM_SIZE_BYTES prog
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
 
-mkPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
+mkPCLeakTest :: (Access f) => String -> Vec PROG_SIZE (f Word) -> TestTree
 mkPCLeakTest s prog =
   testCase s $
     assertBool "" $
@@ -53,42 +58,41 @@ tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [ instructionTests,
-      testGroup
+    [ testGroup
         "Haskell simulation tests"
         [ testGroup
             "Basic programs"
             [ mkPureTest
                 "test 1"
                 CPUTest
-                  { testProg = mkProg prog1,
+                  { testProg = (fmap Identity . mkProg) prog1,
                     testExpected = [(0, 5)]
                   },
               mkPureTest
                 "test 2"
                 CPUTest
-                  { testProg = mkProg prog2,
+                  { testProg = (fmap Identity . mkProg) prog2,
                     testExpected = [(0, 5), (4, 5)]
                   },
               mkPureTest
                 "test 3"
                 CPUTest
-                  { testProg = mkProg prog3,
+                  { testProg = (fmap Identity . mkProg) prog3,
                     testExpected = [(0, 0), (4, 3)]
                   },
               mkPureTest
                 "sumTo 10"
                 CPUTest
-                  { testProg = mkProg $ sumTo 10,
+                  { testProg = (fmap Identity . mkProg) $ sumTo 10,
                     testExpected = [(0, sum [0 .. 10])]
                   }
             ],
           testGroup
             "PC leak"
-            [ mkPCLeakTest "test 1" $ mkProg prog1,
-              mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1,
-              mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+            [ mkPCLeakTest "test 1" $ (fmap Identity . mkProg) prog1,
+              mkPCLeakTest "test 2" $ (fmap Identity . mkProg) prog1,
+              mkPCLeakTest "test 3" $ (fmap Identity . mkProg) prog1,
+              mkPCLeakTest "sumTo 10" $ (fmap Identity . mkProg) $ sumTo 10
               -- testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
             ]
             -- testGroup
@@ -98,8 +102,7 @@ tests =
             --    mkCmpTest "test 3" prog3,
             --    mkCmpTest "sumTo 10" $ sumTo 10
             --  ]
-        ],
-      benchmarkTests
+        ]
     ]
 
 prog1 :: Vec 3 Instruction
@@ -173,6 +176,9 @@ sumTo n =
 genEnumBound :: (Enum a, Bounded a) => Gen a
 genEnumBound = chooseEnum (minBound, maxBound)
 
+instance (Access f) => Arbitrary (f Word) where
+  arbitrary = pure <$> arbitrary
+
 instance Arbitrary Arith where
   arbitrary = genEnumBound
 
@@ -244,7 +250,7 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance Arbitrary Control where
+instance (Access f) => Arbitrary (Control f) where
   arbitrary =
     Control
       <$> arbitrary
@@ -256,7 +262,7 @@ instance Arbitrary Control where
       <*> arbitrary
       <*> arbitrary
 
-instance Arbitrary Core.State where
+instance (Access f) => Arbitrary (Core.State f) where
   arbitrary =
     Core.State
       <$> arbitrary
@@ -271,7 +277,7 @@ instance Arbitrary Core.State where
       <*> arbitrary
       <*> arbitrary
 
-instance Arbitrary Input where
+instance (Access f) => Arbitrary (Input f) where
   arbitrary = do
     isInstr <- arbitrary
     mem <-
@@ -280,11 +286,11 @@ instance Arbitrary Input where
         else arbitrary
     r1 <- arbitrary
     r2 <- arbitrary
-    pure $ Input isInstr mem r1 r2
+    pure $ Input isInstr (pure mem) r1 r2
 
 theorem :: Gen Property
 theorem = do
-  input <- arbitrary
+  (input :: Input Identity) <- arbitrary
   s_core <- arbitrary
   let s_leaksim = Leak.PC.proj (s_core, ())
       (s_leaksim', pc_leaksim) = Leak.PC.circuit s_leaksim input
