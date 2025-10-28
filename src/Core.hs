@@ -463,11 +463,7 @@ alu itype op lhs rhs = case op of
   SLT -> set $ sign lhs < sign rhs
   SLTU -> set $ lhs < rhs
   where
-    shiftBits s
-      | itype =
-          fromIntegral $ slice d4 d0 s
-      | otherwise =
-          fromIntegral s
+    shiftBits s =bitCoerce $ zeroExtend $ slice d4 d0 s
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 

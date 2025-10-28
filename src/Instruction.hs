@@ -422,5 +422,5 @@ loadExtend :: Size -> Sign -> Word -> Word
 loadExtend Byte Signed = signExtend . slice d7 d0
 loadExtend Byte Unsigned = zeroExtend . slice d7 d0
 loadExtend Half Signed = signExtend . slice d15 d0
-loadExtend Half Unsigned = signExtend . slice d15 d0
+loadExtend Half Unsigned = zeroExtend . slice d15 d0
 loadExtend Word _ = signExtend . slice d31 d0
