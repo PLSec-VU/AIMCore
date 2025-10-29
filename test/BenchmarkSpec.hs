@@ -13,7 +13,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
-import Elf.Instrument (elfInstrument)
+import Elf.Syscall (handleSyscall)
 import Elf.Memory
 import Numeric (showHex)
 import Simulate
@@ -38,7 +38,9 @@ cryptoInstrument shouldLog i s o step = do
       s9 <- regRead 25
       s11 <- regRead 27
       liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " s9=0x" P.++ showHex s9 "" P.++ " s11=0x" P.++ showHex s11 ""
-  elfInstrument i s o step
+  case getFirst $ Core.outSyscall o of
+    Just True -> handleSyscall
+    _ -> pure True
 
 testSuiteInstrument :: (MonadIO m, MonadMemory m) => Bool -> Instrument m
 testSuiteInstrument shouldLog i s o step = do

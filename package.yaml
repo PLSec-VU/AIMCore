@@ -84,6 +84,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
+    - optparse-applicative
 
 tests:
   uc-risc-v-test:

@@ -27,8 +27,8 @@ library
   exposed-modules:
       Core
       Elf.ElfLoader
-      Elf.Instrument
       Elf.Memory
+      Elf.Syscall
       HardwareSim
       Instruction
       Interp
@@ -131,6 +131,7 @@ executable uc-risc-v-exe
     , ghc-typelits-natnormalise
     , melf
     , mtl >=2.2.2
+    , optparse-applicative
     , pretty
     , tasty
     , tasty-hunit
