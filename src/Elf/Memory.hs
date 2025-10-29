@@ -1,10 +1,8 @@
 
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DerivingStrategies #-}
-module Memory where
+module Elf.Memory where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
-import "uc-risc-v" Types
+import Types
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Prelude as P
 import Data.Word (Word8)
@@ -20,7 +18,7 @@ import Data.Array.IO
 import Control.Exception.Base (throwIO)
 import Data.Maybe (listToMaybe)
 import Data.Elf (Elf)
-import ElfLoader
+import Elf.ElfLoader (baseAddr, loadElf)
 import qualified Data.ByteString.Lazy as BSL
 
 -- | IO-based memory implementation for testing.

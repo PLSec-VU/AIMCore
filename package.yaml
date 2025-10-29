@@ -38,6 +38,8 @@ default-extensions:
 - AllowAmbiguousTypes
 - PackageImports
 - RecordWildCards
+- GeneralizedNewtypeDeriving
+- DerivingStrategies
 
 dependencies:
 - base >= 4.7 && < 5
@@ -52,6 +54,9 @@ dependencies:
 - containers
 - ghc-typelits-natnormalise
 - array
+- melf
+- bytestring
+- exceptions
 
 ghc-options:
 - -Wall
@@ -80,7 +85,6 @@ executables:
     dependencies:
     - uc-risc-v
 
-
 tests:
   uc-risc-v-test:
     main:                Spec.hs
@@ -91,7 +95,3 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
-    - melf
-    - bytestring
-    - exceptions
-

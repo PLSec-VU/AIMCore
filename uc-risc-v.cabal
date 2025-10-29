@@ -26,6 +26,9 @@ source-repository head
 library
   exposed-modules:
       Core
+      Elf.ElfLoader
+      Elf.Instrument
+      Elf.Memory
       HardwareSim
       Instruction
       Interp
@@ -66,14 +69,19 @@ library
       AllowAmbiguousTypes
       PackageImports
       RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise
   build-depends:
       array
     , base >=4.7 && <5
+    , bytestring
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , exceptions
     , ghc-typelits-natnormalise
+    , melf
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -109,14 +117,19 @@ executable uc-risc-v-exe
       AllowAmbiguousTypes
       PackageImports
       RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array
     , base >=4.7 && <5
+    , bytestring
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , exceptions
     , ghc-typelits-natnormalise
+    , melf
     , mtl >=2.2.2
     , pretty
     , tasty
@@ -131,9 +144,7 @@ test-suite uc-risc-v-test
   main-is: Spec.hs
   other-modules:
       BenchmarkSpec
-      ElfLoader
       InstructionSpec
-      Memory
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v
@@ -158,6 +169,8 @@ test-suite uc-risc-v-test
       AllowAmbiguousTypes
       PackageImports
       RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array
