@@ -39,9 +39,9 @@ interp instr r1 r2 pc =
       let branched = branch cmp r1 r2
        in Interp 0 (if branched then Just $ pc + unpack (signExtend imm) else Nothing) (Just branched)
     UType Zero rd imm ->
-      Interp (imm ++# 0 `shiftL` 12) Nothing Nothing
+      Interp (imm ++# (0 :: BitVector 12)) Nothing Nothing
     UType PC rd imm ->
-      let imm' = imm ++# 0 `shiftL` 12
+      let imm' = imm ++# (0 :: BitVector 12)
        in Interp (pack pc + imm') Nothing Nothing
     JType rd imm ->
       Interp (pack $ pc + 4) (Just $ pc + unpack (signExtend imm)) Nothing

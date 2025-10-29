@@ -88,8 +88,8 @@ tests =
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
               mkPCLeakTest "test 3" $ mkProg prog1,
-              mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
-              -- testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
+              mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
+              testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."
