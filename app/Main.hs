@@ -16,10 +16,33 @@ import System.Exit (exitWith, ExitCode(..))
 import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Prelude as P
+import Leak.PC.ISA (leak)
+import Data.Traversable
+import System.IO
+import Data.Foldable (forM_)
+import qualified Leak.PC.PC as Leak.PC
+import qualified Leak.PC.Leak as Leak
+import Data.Binary (encode, Binary (..), Get (..))
+import Data.IORef
+import Crypto.Hash.BLAKE2.BLAKE2b (initialize', BLAKE2bState, update, finalize)
+import qualified Data.ByteString as BS
+import qualified Data.Binary.Builder as BS
+import qualified Data.ByteString.Builder as BS
+
+instance (KnownNat n) => Binary (Unsigned n) where
+  put = put . toInteger
+  get = fromInteger <$> (get :: Get Integer)
+
+instance Binary Leak.BaseInstr
+
+instance Binary Leak.Instr
+
+instance Binary Leak.Out
 
 -- | Command line options
 data Options = Options
   { optVerbose :: Bool
+  , optLeakageOutput :: Maybe FilePath
   , optExecutable :: String
   } deriving (Show)
 
@@ -29,6 +52,14 @@ verboseParser = switch
   ( long "verbose"
   <> short 'v'
   <> help "Enable verbose output (shows PC and instruction trace)" )
+
+-- | Parser for leakage output file argument
+leakageOutputParser :: Parser (Maybe FilePath)
+leakageOutputParser = optional $ strOption
+  ( long "leakage-output"
+  <> short 'l'
+  <> metavar "FILE"
+  <> help "Output file for leakage traces" )
 
 -- | Parser for executable argument
 executableParser :: Parser String
@@ -40,6 +71,7 @@ executableParser = strArgument
 optionsParser :: Parser Options
 optionsParser = Options
   <$> verboseParser
+  <*> leakageOutputParser
   <*> executableParser
 
 -- | Program info for help generation
@@ -54,11 +86,20 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
 
 -- | General purpose instrument for crypto benchmarks and normal programs
-generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Instrument m
-generalInstrument shouldLog i s o step = do
+generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument m
+generalInstrument shouldLog leakageOutput leakDigest i s o step = do
   when shouldLog $ do
     let pc = Core.stateExPc s
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s)
+
+  let (leakState , _) = Leak.PC.proj (s , ())
+  let (_ , leakOutput) = Leak.PC.leak leakState i
+  case leakageOutput of
+    Nothing -> pure ()
+    Just h -> liftIO $ hPutStrLn h $ show leakOutput
+
+  liftIO $ modifyIORef' leakDigest (update (BS.toStrict (encode leakOutput)))
+
   case getFirst $ Core.outSyscall o of
     Just True -> handleSyscall
     _ -> pure True
@@ -68,6 +109,7 @@ runExecutable :: Options -> IO ()
 runExecutable opts = do
   let exePath = optExecutable opts
       verbose = optVerbose opts
+      leakageOutput = optLeakageOutput opts
 
   when verbose $ putStrLn $ "Loading ELF file: " P.++ exePath
 
@@ -78,12 +120,15 @@ runExecutable opts = do
   when verbose $ do
     putStrLn $ "Entry point: 0x" P.++ showHex entryOffset ""
     putStrLn "Starting execution..."
+  
+  leakOutputHandle <- forM leakageOutput (flip openFile WriteMode)
+  leakDigest <- newIORef (initialize' 20 "leakage checksum")
 
   -- Run the simulator with proper exception handling
   _ <- runIOMemT ioMem $ do
     loadProgram elf
     runElf
-      (generalInstrument verbose)
+      (generalInstrument verbose leakOutputHandle leakDigest)
       (simulator @(IOMemT IO))
         { circuitState =
             Core.init
@@ -91,7 +136,14 @@ runExecutable opts = do
               }
         }
 
+  forM_ leakOutputHandle hClose
+
   when verbose $ putStrLn "Execution completed successfully"
+
+  digest <- finalize 20 <$> readIORef leakDigest
+  putStr "Leakage digest: "
+  BS.putStr $ BS.toStrict $ BS.toLazyByteString $ BS.byteStringHex digest
+  putStrLn ""
 
 main :: IO ()
 main = do

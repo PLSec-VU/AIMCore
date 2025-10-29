@@ -85,6 +85,8 @@ executables:
     dependencies:
     - uc-risc-v
     - optparse-applicative
+    - binary
+    - blake2
 
 tests:
   uc-risc-v-test:

@@ -123,6 +123,8 @@ executable uc-risc-v-exe
   build-depends:
       array
     , base >=4.7 && <5
+    , binary
+    , blake2
     , bytestring
     , clash-prelude >=1.8.1
     , composition

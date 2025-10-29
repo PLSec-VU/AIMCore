@@ -36,13 +36,13 @@ data BaseInstr
   | Store
   | Other
   | Break
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 data Instr = Instr
   { instrBase :: BaseInstr,
     instrDeps :: (Maybe RegIdx, Maybe RegIdx)
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
@@ -99,7 +99,7 @@ init =
 data Out = Out
   { outInstr :: First Instr,
     outJumpAddr :: First Address
-  }
+  } deriving (Eq, Generic)
 
 instance Show Out where
   show (Out instr _) = showInstr instr
