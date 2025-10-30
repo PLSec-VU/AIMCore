@@ -15,7 +15,7 @@ CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -fPIC
 LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
 # Benchmark sources and targets
-BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_strcmp
+BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_memcmp bench_sodium_memcmp bench_random
 SOURCES = $(addsuffix .c, $(BENCHMARKS))
 OBJECTS = $(addsuffix .o, $(BENCHMARKS))
 

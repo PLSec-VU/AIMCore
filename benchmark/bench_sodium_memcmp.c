@@ -21,7 +21,11 @@ int main() {
     populate_random_bytes(b, sizeof(b));
 
     // sodium_memcmp is constant-time
-    int i = sodium_memcmp(a, b, SIZE);
-    printf("sodium_memcmp result: %d\n", i);
+    if (sodium_memcmp(a, b, SIZE) == 0) {
+        printf("sodium_memcmp: equal\n");
+    } else {
+        printf("sodium_memcmp: not equal\n");
+    }
+
     return 0;
 }

@@ -21,7 +21,11 @@ int main() {
     populate_random_bytes(b, sizeof(b));
 
     // memcmp is vulnerable to timing attacks
-    int i = memcmp(a, b, SIZE);
-    printf("memcmp result: %d\n", i);
+    if (memcmp(a, b, SIZE) == 0) {
+        printf("memcmp: equal\n");
+    } else {
+        printf("memcmp: not equal\n");
+    }
+
     return 0;
 }
