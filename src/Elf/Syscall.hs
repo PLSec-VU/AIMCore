@@ -1,14 +1,17 @@
 module Elf.Syscall (handleSyscall, ProgramExitException(..)) where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize, (++))
+import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize, zip, (++))
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (||))
 import Util
 import Elf.ElfLoader
 import Data.Int (Int32)
-import Control.Monad (when, forM_)
+import Control.Monad (when, forM_, forM)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, throw, Exception)
 import Types
+import Numeric (showHex)
+import System.Entropy
+import qualified Data.ByteString as BS
 
 -- Custom exception type for non-zero program exit codes
 data ProgramExitException = ProgramExitException Int32
@@ -40,7 +43,7 @@ handleSyscall = regRead 17 >>= \case
   80 -> do -- fstat
     regRead 10 >>= \case
       a0 | a0 /= randomFd ->
-        regWrite 10 10 -- EFAULT
+        regWrite 10 (-1)
       _ -> do
         buf <- bitCoerce <$> regRead 11
         -- Write zeroed struct stat (size = 128 bytes)
@@ -48,6 +51,18 @@ handleSyscall = regRead 17 >>= \case
         ramWrite (buf+8)  Half 0x67 -- st_dev
         ramWrite (buf+16) Half 0x2000 -- st_mode = S_IFCHR
         regWrite 10 0
+    pure True
+  63 -> do -- read
+    regRead 10 >>= \case
+      a0 | a0 /= randomFd ->
+        regWrite 10 (-1)
+      _ -> do
+        buf <- regRead 11
+        count <- regRead 12
+        entropy <- liftIO $ getEntropy (fromIntegral count)
+        forM_ (zip [0..] (BS.unpack entropy)) $ \(i, byte) ->
+          ramWrite (bitCoerce buf + i) Byte (fromIntegral byte)
+        regWrite 10 (bitCoerce count)
     pure True
   57 -> do -- close
     pure True

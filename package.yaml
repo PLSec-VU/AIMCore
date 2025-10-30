@@ -57,6 +57,7 @@ dependencies:
 - melf
 - bytestring
 - exceptions
+- entropy
 
 ghc-options:
 - -Wall

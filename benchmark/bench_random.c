@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,5 +44,19 @@ int main() {
     printf("Last status change:       %s", ctime(&sb.st_ctime));
     printf("Last file access:         %s", ctime(&sb.st_atime));
     printf("Last file modification:   %s", ctime(&sb.st_mtime));
+
+    char buffer[16];
+    ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
+    if (bytesRead <= 0) {
+        perror("Failed to read from /dev/urandom");
+        return 1;
+    }
+
+    printf("Read %zd bytes from /dev/urandom: ", bytesRead);
+    for (ssize_t i = 0; i < bytesRead; i++) {
+        printf("%02x", (unsigned char)buffer[i]);
+    }
+    printf("\n");
+
     return 0;
 }

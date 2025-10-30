@@ -79,6 +79,7 @@ library
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , entropy
     , exceptions
     , ghc-typelits-natnormalise
     , melf
@@ -129,6 +130,7 @@ executable uc-risc-v-exe
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , entropy
     , exceptions
     , ghc-typelits-natnormalise
     , melf
@@ -182,6 +184,7 @@ test-suite uc-risc-v-test
     , clash-prelude >=1.8.1
     , composition
     , containers
+    , entropy
     , exceptions
     , ghc-typelits-natnormalise
     , melf
