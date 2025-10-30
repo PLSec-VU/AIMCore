@@ -36,7 +36,10 @@ bench_blake2b: bench_blake2b.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 bench_vuln_strcmp: bench_vuln_strcmp.c
-	$(CC) $(CFLAGS) -o $@ $< -march=rv32i -mabi=ilp32
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+bench_random: bench_random.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 # Generic rule for all benchmarks
 %: %.c

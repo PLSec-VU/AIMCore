@@ -143,7 +143,9 @@ data Control = Control
     -- contains the new PC.
     ctrlExBranch :: Maybe Address,
     -- | Does the `execute` stage contain a load instruction?
-    ctrlExLoad :: Bool
+    ctrlExLoad :: Bool,
+    -- | Does the `execute` stage contain a syscall instruction?
+    ctrlExSyscall :: Bool
   }
   -- \| Need propagate whether a branch instruction is in the `memory` stage
   -- so we can stall the decode stall another cycle.
@@ -258,7 +260,8 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
-      ctrlExLoad = False
+      ctrlExLoad = False,
+      ctrlExSyscall = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -319,7 +322,7 @@ decode = do
         | otherwise = Instruction.nop
   readRF ir
 
-  when (isLoad ir) $
+  when ((isLoad ir) || (isCall ir)) $
     setLines $
       \c -> c {ctrlDecodeLoad = True}
 
@@ -327,6 +330,7 @@ decode = do
 
   let stall =
         ctrlExLoad ctrl
+          || ctrlExSyscall ctrl
           -- First cycle = gibberish from memory, so we stall.
           || ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
@@ -365,7 +369,6 @@ execute = do
   -- Fetch alu operands
   aluInputs <- runMaybeT $
     case ir of
-      Instruction.IType Env {} _ _ _ -> empty
       Instruction.RType op _ _ _ -> do
         r1 <- rs1
         r2 <- rs2
@@ -376,6 +379,11 @@ execute = do
         setLines $
           \c -> c {ctrlExBranch = Just $ unpack $ alu True ADD r1 (signExtend imm)}
         pure (ADD, pc, 4)
+      Instruction.IType (Env Call) _ _ _ -> do
+        setLines $
+          \c -> c {ctrlExSyscall = True}
+        pure (ADD, 0, 0)
+      Instruction.IType Env {} _ _ _ -> empty
       Instruction.IType op _ _ imm -> do
         let loadOp Load {} = True
             loadOp _ = False
@@ -503,6 +511,14 @@ memory = do
             ctrlMemOutputActive = True
           }
       readRAM (unpack res) size
+    Instruction.IType (Env Call) _ _ _ -> do
+      setLines $ \c ->
+        c
+          { -- Don't forward syscalls that haven't happened yet
+            ctrlMeRegFwd = Nothing,
+            ctrlMemOutputActive = True
+          }
+      readSyscall
     _ -> pure ()
 
   modify $ \s ->
@@ -535,10 +551,6 @@ writeback = do
     readRAM 0 Word
     halt
 
-  when (isCall ir) $ do
-    tell $
-      mempty {outSyscall = pure True}
-
   try $ do
     rd <- getRd ir
     lift $ setLines $ \c ->
@@ -556,6 +568,14 @@ writeback = do
             ctrlMemInputActive = True
           }
       writeRF rd val
+    Instruction.IType (Env Call) _ _ _ -> do
+      let val = input
+      let rd = 10 -- a0
+      setLines $ \c ->
+        c
+          { ctrlWbRegFwd = pure (rd, val),
+            ctrlMemInputActive = True
+          }
     Instruction.SType {} ->
       setLines $ \c ->
         c {ctrlMemInputActive = True}
@@ -609,6 +629,11 @@ writeRAM addr size val =
                 memVal = Just val
               }
       }
+
+readSyscall :: (MonadWriter Output m) => m ()
+readSyscall =
+  tell $
+    mempty {outSyscall = pure True}
 
 setLines :: (MonadState State m) => (Control -> Control) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}

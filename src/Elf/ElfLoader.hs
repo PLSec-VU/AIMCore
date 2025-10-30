@@ -82,7 +82,7 @@ readStringFromMemory addr count = do
           pure $ fromIntegral (byte .&. 0xFF)
       )
       [0 .. count - 1]
-  pure $ map chr bytes
+  pure $ map chr $ takeWhile (/= 0) bytes
 
 -- | Called on each step of the ELF execution, returning whether to continue execution.
 type Instrument m = Core.Input -> Core.State -> Core.Output -> Int -> m Bool
@@ -90,10 +90,11 @@ type Instrument m = Core.Input -> Core.State -> Core.Output -> Int -> m Bool
 runElf :: forall m. (MonadMemory m) => Instrument m -> CircuitSim m Core.Input Core.State Core.Output -> m ()
 runElf instr c = watchWithStep (0 :: Int) c
   where
-    watchWithStep step sim = do
-      (s', o, mi') <- run1 sim
-      cont <- instr (circuitInput sim) s' o step
+    watchWithStep stepCount sim@(CircuitSim i s step next) = do
+      (s', o) <- step i s
+      mi' <- next o
+      cont <- instr i s' o stepCount
       case mi' of
         Just i' | cont -> do
-          watchWithStep (step + 1) $ sim {circuitInput = i', circuitState = s'}
+          watchWithStep (stepCount + 1) $ sim {circuitInput = i', circuitState = s'}
         _ -> pure ()

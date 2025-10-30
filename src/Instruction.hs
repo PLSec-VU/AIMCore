@@ -369,6 +369,7 @@ nop = RType ADD 0 0 0
 getRd :: (Alternative f) => Instruction -> f RegIdx
 getRd = \case
   Instruction.RType _ rd _ _ -> pure rd
+  Instruction.IType (Env Call) _ _ _ -> pure 10 -- a0
   Instruction.IType _ rd _ _ -> pure rd
   Instruction.UType _ rd _ -> pure rd
   Instruction.JType rd _ -> pure rd
@@ -378,6 +379,7 @@ getRd = \case
 getRs1 :: (Alternative f) => Instruction -> f RegIdx
 getRs1 = \case
   Instruction.RType _ _ rs1 _ -> pure rs1
+  Instruction.IType (Env Call) _ _ _ -> pure 17 -- a7
   Instruction.IType _ _ rs1 _ -> pure rs1
   Instruction.SType _ _ rs1 _ -> pure rs1
   Instruction.BType _ _ rs1 _ -> pure rs1

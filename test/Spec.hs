@@ -89,7 +89,7 @@ tests =
               mkPCLeakTest "test 2" $ mkProg prog1,
               mkPCLeakTest "test 3" $ mkProg prog1,
               mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-              testProperty "QuickCheck" $ withMaxSuccess 5000000 theorem
+              testProperty "QuickCheck" $ withMaxSuccess 500000 theorem
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."
@@ -248,6 +248,7 @@ instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary

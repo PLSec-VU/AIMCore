@@ -28,6 +28,7 @@ import Crypto.Hash.BLAKE2.BLAKE2b (initialize', BLAKE2bState, update, finalize)
 import qualified Data.ByteString as BS
 import qualified Data.Binary.Builder as BS
 import qualified Data.ByteString.Builder as BS
+import Clash.Explicit.SimIO (reg)
 
 instance (KnownNat n) => Binary (Unsigned n) where
   put = put . toInteger
@@ -88,9 +89,15 @@ programInfo = info (optionsParser <**> helper)
 -- | General purpose instrument for crypto benchmarks and normal programs
 generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument m
 generalInstrument shouldLog leakageOutput leakDigest i s o step = do
+  let pc = Core.stateExPc s
   when shouldLog $ do
-    let pc = Core.stateExPc s
-    liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s)
+    liftIO $ putStrLn "==============================="
+    liftIO $ print i
+    liftIO $ print o
+    a0 <- regRead 10
+    a7 <- regRead 17
+    s0 <- regRead 8
+    liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
 
   let (leakState , _) = Leak.PC.proj (s , ())
   let (_ , leakOutput) = Leak.PC.leak leakState i
