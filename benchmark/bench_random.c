@@ -53,6 +53,7 @@ int main() {
     }
 
     printf("Read %zd bytes from /dev/urandom: ", bytesRead);
+    // printing this will trigger non-deterministic leakage due to formatting random numbers
     for (ssize_t i = 0; i < bytesRead; i++) {
         printf("%02x", (unsigned char)buffer[i]);
     }

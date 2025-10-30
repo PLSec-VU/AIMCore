@@ -35,7 +35,10 @@ bench_sha256: bench_sha256.c
 bench_blake2b: bench_blake2b.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-bench_vuln_strcmp: bench_vuln_strcmp.c
+bench_vuln_memcmp: bench_vuln_memcmp.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+bench_sodium_memcmp: bench_sodium_memcmp.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 bench_random: bench_random.c
