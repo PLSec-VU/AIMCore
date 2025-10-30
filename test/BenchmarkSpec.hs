@@ -93,9 +93,15 @@ benchmarkTests =
         [ testGroup
             "Timing attacks"
             [ mkBenchmarkTest
-                "Vulnerable strcmp timing attack"
+                "Vulnerable memcmp"
                 BenchmarkTest
-                  { benchmarkPath = "benchmark/bench_vuln_strcmp",
+                  { benchmarkPath = "benchmark/bench_vuln_memcmp",
+                    benchmarkInstrument = cryptoInstrument False
+                  },
+              mkBenchmarkTest
+                "Secure sodium_memcmp"
+                BenchmarkTest
+                  { benchmarkPath = "benchmark/bench_sodium_memcmp",
                     benchmarkInstrument = cryptoInstrument False
                   }
             ],
