@@ -79,7 +79,7 @@ simulator =
       pure (s', o)
       where
         simCore :: Core.State f -> Input f -> (Control f, Core.State f, Output f)
-        simCore = flip $ runRWS $ Core.runCPUM simCoreM
+        simCore = flip $ runRWS simCoreM
           where
             simCoreM :: CPUM f (Control f)
             simCoreM = withCtrlReset $ do

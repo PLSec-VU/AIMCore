@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -33,15 +32,7 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-newtype LeakM f a = LeakM {runLeakM :: RWS (Input f) Out (State f) a}
-  deriving
-    ( Functor,
-      Applicative,
-      Monad,
-      MonadReader (Input f),
-      MonadWriter Out,
-      MonadState (State f)
-    )
+type LeakM f = RWS (Input f) Out (State f)
 
 data BaseInstr
   = Jump
@@ -375,4 +366,4 @@ pipe = withCtrlReset $ do
       modify $ \s -> s {stateFirstCycle = False}
 
 circuit :: (Access f) => State f -> Input f -> (State f, Out)
-circuit = flip $ execRWS $ runLeakM pipe
+circuit = flip $ execRWS pipe

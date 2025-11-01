@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -186,23 +183,11 @@ deriving instance (Generic (f Word)) => Generic (Control f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
 
--- | The CPU monad.
-newtype CPUM f a = CPUM {runCPUM :: RWS (Input f) (Output f) (State f) a}
-  deriving
-    ( Functor,
-      Applicative,
-      MonadReader (Input f),
-      MonadWriter (Output f),
-      MonadState (State f)
-    )
-
--- For some reason it's not deriving the monad instance
-instance Monad (CPUM f) where
-  m >>= f = CPUM $ runCPUM m >>= (runCPUM . f)
+type CPUM f = RWS (Input f) (Output f) (State f)
 
 -- | Run the CPU for one step.
 circuit :: (Access f) => State f -> Input f -> (State f, Output f)
-circuit = flip $ execRWS $ runCPUM pipe
+circuit = flip $ execRWS pipe
 
 -- | The CPU, composed of each stage. Note that in Haskell-land, this pipeline
 -- is sequential. That is, it works like so:
