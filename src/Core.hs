@@ -345,10 +345,10 @@ fetch = do
 decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
-  let ir
-        | inputIsInstr input =
-            Instruction.decode' $ unAccess $ inputMem input
-        | otherwise = Instruction.nop
+  ir <-
+    if (inputIsInstr input)
+      then noSecrets (inputMem input) (pure . Instruction.decode')
+      else pure Instruction.nop
   readRF ir
 
   when (isLoad ir) $

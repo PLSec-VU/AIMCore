@@ -148,10 +148,10 @@ fetch = do
 decode :: (Access f) => LeakM f ()
 decode = do
   input <- ask
-  let instr
-        | Core.inputIsInstr input =
-            Core.decode' $ unAccess $ Core.inputMem input
-        | otherwise = Core.nop
+  instr <-
+    if (Core.inputIsInstr input)
+      then noSecrets (Core.inputMem input) (pure . Core.decode')
+      else pure Core.nop
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
     stallFetch
