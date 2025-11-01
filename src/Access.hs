@@ -29,6 +29,10 @@ data PubSec a
   | Secret a
   deriving (Functor, Show, Eq, Generic, NFDataX)
 
+fromPubSec :: a -> PubSec a -> a
+fromPubSec _ (Public a) = a
+fromPubSec a Secret {} = a
+
 instance Access PubSec where
   unAccess (Public a) = a
   unAccess (Secret a) = a
