@@ -3,13 +3,11 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Simulate
-  ( Mem (..),
-    result,
-    simulator,
-    runSimulator,
-    watchSim,
-    simResult,
+module SecureSimulate
+  ( secureSimulator,
+    runSecureSimulator,
+    watchSecureSim,
+    secureSimResult,
   )
 where
 
@@ -22,32 +20,13 @@ import qualified Core
 import Data.Functor.Identity
 import Data.Monoid
 import RegFile
+import SecureMemory
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 
-data Mem n = Mem
-  { memRAM :: Vec n Byte,
-    memRF :: RegFile
-  }
-  deriving (Eq, Show, Generic, NFDataX)
-
-instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
-  getRegFile = gets memRF
-  putRegFile rf = modify $ \s -> s {memRF = rf}
-  ramRead addr = readWord addr <$> gets memRAM
-  ramWrite addr size w = do
-    ram <- gets memRAM
-    modify $ \s -> s {memRAM = write size addr w ram}
-  -- Identity implementation: no-op security functions
-  markMemoryRegion _ _ _ = pure ()
-  isMemorySecret _ = pure False
-
-result :: (MonadState (Mem n) m) => CircuitSim m i s o -> m (Vec n Byte)
-result c = watch c *> gets memRAM
-
-simulator :: forall f m. (Access f, MonadMemory m) => CircuitSim m (Input f) (Core.State f) (Output f)
-simulator =
+secureSimulator :: forall f m. (Access f, MonadMemory m) => CircuitSim m (Input f) (Core.State f) (Output f)
+secureSimulator =
   CircuitSim
     { circuitInput = initInput,
       circuitState = init,
@@ -103,16 +82,20 @@ simulator =
                   pure (0, isInstr)
           | otherwise = pure (0, False)
 
-runSimulator :: forall f ramSize progSize a. (Access f, KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
-  ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) (Input f) (Core.State f) (Output f) ->
-    State (Mem (MemSizeFrom progSize ramSize)) a
+runSecureSimulator :: forall f ramSize progSize a. (Access f, KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
+  ( CircuitSim (State (SecureMem (MemSizeFrom progSize ramSize))) (Input f) (Core.State f) (Output f) ->
+    State (SecureMem (MemSizeFrom progSize ramSize)) a
   ) ->
   Vec progSize Word ->
   a
-runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
+runSecureSimulator f prog = evalState (f secureSimulator) (initSecureMem (mkRAM @progSize @ramSize prog) initRF)
 
-watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State Identity, Output Identity, Maybe (Input Identity))]
-watchSim = runSimulator @Identity @ramSize @progSize watch
+-- | Extract the RAM from secure memory
+secureResult :: (MonadState (SecureMem n) m) => CircuitSim m i s o -> m (Vec n Byte)
+secureResult c = watch c *> gets secureRAM
 
-simResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
-simResult = runSimulator @Identity result
+watchSecureSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State PubSec, Output PubSec, Maybe (Input PubSec))]
+watchSecureSim = runSecureSimulator @PubSec @ramSize @progSize watch
+
+secureSimResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
+secureSimResult = runSecureSimulator @PubSec @ramSize @progSize secureResult

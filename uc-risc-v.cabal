@@ -43,6 +43,8 @@ library
       Leak.SecretPC.Leak
       Pretty
       RegFile
+      SecureMemory
+      SecureSimulate
       Simulate
       Types
       Util
@@ -152,6 +154,7 @@ test-suite uc-risc-v-test
   other-modules:
       BenchmarkSpec
       InstructionSpec
+      SecuritySpec
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v

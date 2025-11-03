@@ -83,3 +83,6 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
       Byte -> writeBytes $ bitCoerce <$> [b0]           -- Write 1 byte
       Half -> writeBytes $ bitCoerce <$> [b0, b1]       -- Write 2 bytes (halfword)
       Word -> writeBytes $ bitCoerce <$> [b0, b1, b2, b3] -- Write 4 bytes (word)
+  -- IOMemT implementation: no-op security functions (like Identity)
+  markMemoryRegion _ _ _ = pure ()
+  isMemorySecret _ = pure False

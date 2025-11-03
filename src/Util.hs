@@ -86,6 +86,10 @@ class Monad m => MonadMemory m where
   putRegFile :: RegFile -> m ()
   ramRead :: Address -> m Word
   ramWrite :: Address -> Size -> Word -> m ()
+  -- | Mark a region of memory as public or secret
+  markMemoryRegion :: Address -> Address -> Bool -> m ()
+  -- | Check if a memory address is marked as secret
+  isMemorySecret :: Address -> m Bool
 
   -- ramRead :: (MonadMemory n m) => Address -> m Word
   -- ramRead addr = readWord addr <$> getRAM @n
