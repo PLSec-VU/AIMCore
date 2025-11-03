@@ -137,7 +137,9 @@ data State f = State
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | Are we done?
-    stateHalt :: Bool
+    stateHalt :: Bool,
+    -- | Security violation occurred?
+    stateSecurityViolation :: Bool
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -278,7 +280,8 @@ init =
       stateWbInstr = nop,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
-      stateHalt = False
+      stateHalt = False,
+      stateSecurityViolation = False
     }
 
 -- | Initial control lines.
@@ -310,6 +313,11 @@ withCtrlReset m = do
 halt :: (Access f) => CPUM f ()
 halt =
   modify $ \s -> s {stateHalt = True}
+
+-- | Set security violation flag.
+setSecurityViolation :: (Access f) => CPUM f ()
+setSecurityViolation =
+  modify $ \s -> s {stateSecurityViolation = True}
 
 -- | The fetch stage.
 fetch :: (Access f) => CPUM f ()
@@ -687,4 +695,7 @@ setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}
 noSecrets :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
 noSecrets w a m = case fromPublic w of
   Just v -> m v
-  Nothing -> halt >> pure a
+  Nothing -> do
+    setSecurityViolation
+    halt
+    pure a

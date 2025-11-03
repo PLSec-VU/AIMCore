@@ -272,6 +272,7 @@ instance Arbitrary (Core.State Identity) where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
 
 instance Arbitrary (Input Identity) where
   arbitrary = do

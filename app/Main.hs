@@ -98,8 +98,8 @@ programInfo = info (optionsParser <**> helper)
 
 -- | General purpose instrument for crypto benchmarks and normal programs
 -- Uses Identity functor for non-security mode (backward compatibility)
-generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument Identity m
-generalInstrument shouldLog leakageOutput leakDigest i s o step = do
+generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity m
+generalInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = do
   let pc = Core.stateExPc s
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
@@ -118,14 +118,17 @@ generalInstrument shouldLog leakageOutput leakDigest i s o step = do
 
   liftIO $ modifyIORef' leakDigest (update (BS.toStrict (encode leakOutput)))
 
+  -- Store the current state as the final state
+  liftIO $ writeIORef finalStateRef (Just s)
+
   case getFirst $ Core.outSyscall o of
     Just True -> handleSyscall
     _ -> pure True
 
 -- | Secure instrument for crypto benchmarks with memory security tracking
 -- Uses PubSec functor for security mode
-secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument PubSec m
-secureInstrument shouldLog leakageOutput leakDigest i s o step = do
+secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument PubSec m
+secureInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = do
   let pc = Core.stateExPc s
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
@@ -145,6 +148,9 @@ secureInstrument shouldLog leakageOutput leakDigest i s o step = do
 
   -- Still update digest with a placeholder for secure mode
   liftIO $ modifyIORef' leakDigest (update (BS.toStrict (encode ("secure_mode" :: String))))
+
+  -- Store the current state as the final state
+  liftIO $ writeIORef finalStateRef (Just s)
 
   case getFirst $ Core.outSyscall o of
     Just True -> handleSyscall
@@ -177,30 +183,42 @@ runExecutable opts = do
     then do
       -- Run with secure memory tracking (PubSec mode)
       secureIOMem <- newSecureIOMem elf
+      finalStateRef <- newIORef Nothing
       _ <- runSecureIOMemT secureIOMem $ do
         loadSecureProgram elf
         runElf
-          (secureInstrument verbose leakOutputHandle leakDigest)
+          (secureInstrument verbose leakOutputHandle leakDigest finalStateRef)
           (simulator @PubSec @(SecureIOMemT IO))
             { circuitState =
                 (Core.init @PubSec)
                   { Core.stateFePc = fromIntegral entryOffset
                   }
             }
-      pure ()
+      -- Check for security violation
+      finalState <- readIORef finalStateRef
+      case finalState of
+        Just state | Core.stateSecurityViolation state -> do
+          putStrLn "Program aborted due to security violation"
+        _ -> pure ()
     else do
       -- Run with standard memory (Identity mode)
+      finalStateRef <- newIORef Nothing
       _ <- runIOMemT ioMem $ do
         loadProgram elf
         runElf
-          (generalInstrument verbose leakOutputHandle leakDigest)
+          (generalInstrument verbose leakOutputHandle leakDigest finalStateRef)
           (simulator @Identity @(IOMemT IO))
             { circuitState =
                 (Core.init @Identity)
                   { Core.stateFePc = fromIntegral entryOffset
                   }
             }
-      pure ()
+      -- Check for security violation
+      finalState <- readIORef finalStateRef
+      case finalState of
+        Just state | Core.stateSecurityViolation state -> do
+          putStrLn "Program aborted due to security violation"
+        _ -> pure ()
 
   forM_ leakOutputHandle hClose
 
