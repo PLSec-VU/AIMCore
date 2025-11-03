@@ -505,7 +505,7 @@ execute = do
       guard $ rd /= 0 && rs == rd
 
 alu :: (Access f) => Bool -> Arith -> f Word -> f Word -> f Word
-alu itype op lhs rhs = case op of
+alu _ op lhs rhs = case op of
   ADD -> (+) <$> lhs <*> rhs
   SUB -> (-) <$> lhs <*> rhs
   XOR -> (.^.) <$> lhs <*> rhs
@@ -517,11 +517,7 @@ alu itype op lhs rhs = case op of
   SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
   SLTU -> set <$> ((<) <$> lhs <*> rhs)
   where
-    shiftBits s
-      | itype =
-          fromIntegral $ slice d4 d0 s
-      | otherwise =
-          fromIntegral s
+    shiftBits s = fromIntegral $ slice d4 d0 s
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 
