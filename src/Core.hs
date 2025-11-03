@@ -599,10 +599,6 @@ writeback = do
     readRAM 0 Types.Word
     halt
 
-  when (isCall ir) $ do
-    tell $
-      mempty {outSyscall = pure True}
-
   try $ do
     rd <- getRd ir
     lift $ setLines $ \c ->
