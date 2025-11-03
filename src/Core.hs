@@ -350,7 +350,7 @@ decode = do
   input <- ask
   ir <-
     if (inputIsInstr input)
-      then noSecrets (inputMem input) (pure . Instruction.decode')
+      then noSecrets (inputMem input) nop (pure . Instruction.decode')
       else pure Instruction.nop
   readRF ir
 
@@ -423,10 +423,8 @@ execute = do
           pc <- gets $ pure . pack . stateExPc
           r1 <- rs1
           let branchAddr = unpack <$> alu True ADD r1 (pure $ signExtend imm)
-          lift $
-            noSecrets branchAddr $ \branchAddr' ->
-              setLines $
-                \c -> c {ctrlExBranch = Just branchAddr'}
+          setLines $
+            \c -> c {ctrlExBranch = fromPublic branchAddr}
           pure
             (ADD, pc, pure 4)
         Instruction.IType op _ _ imm -> do
@@ -455,12 +453,11 @@ execute = do
           let doBranch = branch cmp r1 r2
               branchAddr :: f Address
               branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
-          lift $ noSecrets doBranch $ \doBranch' ->
-            noSecrets branchAddr $ \branchAddr' ->
-              if doBranch'
-                then setLines $
-                  \c -> c {ctrlExBranch = Just branchAddr'}
-                else modify $ \s -> s {stateMemInstr = nop}
+          lift $ noSecrets doBranch () $ \doBranch' ->
+            if doBranch'
+              then setLines $
+                \c -> c {ctrlExBranch = fromPublic branchAddr}
+              else modify $ \s -> s {stateMemInstr = nop}
           empty
         Instruction.UType base _ imm -> do
           base' <- case base of
@@ -472,10 +469,9 @@ execute = do
           pc <- gets $ pack . stateExPc
           let branchAddr :: f Address
               branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
-          lift $ noSecrets branchAddr $ \branchAddr' -> do
-            setLines $
-              \c -> c {ctrlExBranch = Just branchAddr'}
-            pure (ADD, pure pc, pure 4)
+          setLines $
+            \c -> c {ctrlExBranch = fromPublic branchAddr}
+          pure (ADD, pure pc, pure 4)
 
     isIType :: Instruction -> Bool
     isIType (Instruction.IType {}) = True
@@ -545,13 +541,13 @@ memory = do
 
   case instr of
     Instruction.SType size _ _ _ ->
-      noSecrets res $ \res' -> do
+      noSecrets res () $ \res' -> do
         r2 <- gets stateMemVal
         writeRAM (unpack res') size r2
         setLines $ \c ->
           c {ctrlMemOutputActive = True}
     Instruction.IType (Load size _) _ _ _ ->
-      noSecrets res $ \res' -> do
+      noSecrets res () $ \res' -> do
         setLines $ \c ->
           c
             { -- Don't forward loads that haven't happened yet

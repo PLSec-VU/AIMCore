@@ -8,21 +8,20 @@ import Data.Maybe
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 class (Applicative f) => Access f where
+  -- | Access the underlying value, regardless of secrecy.
   unAccess :: f a -> a
+  -- | Try to extract a public value. Returns 'Nothing' if the value is secret.
   fromPublic :: f a -> Maybe a
-  fromSecret :: f a -> Maybe a
 
 isPublic :: (Access f) => f a -> Bool
 isPublic = isJust . fromPublic
 
-isSecret :: (Access f) => f a -> Bool
-isSecret = isJust . fromSecret
-
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
-noSecrets :: (Access f) => f a -> (a -> m b) -> m b
-noSecrets w m =
-  maybe (error "noSecrets: it was secret!") m $ fromPublic w
+noSecrets :: (Applicative m, Access f) => f a -> b -> (a -> m b) -> m b
+noSecrets w a m = case fromPublic w of
+  Just v -> m v
+  Nothing -> pure a
 
 data PubSec a
   = Public a
@@ -40,14 +39,10 @@ instance Access PubSec where
   fromPublic (Public a) = pure a
   fromPublic _ = empty
 
-  fromSecret (Secret a) = pure a
-  fromSecret _ = empty
-
 instance Applicative PubSec where
   pure = Public
-  f <*> x
-    | isSecret f || isSecret x = Secret $ unAccess f $ unAccess x
-    | otherwise = Public $ unAccess f $ unAccess x
+  (Public f) <*> (Public x) = Public (f x)
+  f <*> x = Secret (unAccess f (unAccess x))
 
 instance Monad PubSec where
   (Public x) >>= f = f x
@@ -56,4 +51,3 @@ instance Monad PubSec where
 instance Access Identity where
   unAccess = runIdentity
   fromPublic = pure . unAccess
-  fromSecret = const empty
