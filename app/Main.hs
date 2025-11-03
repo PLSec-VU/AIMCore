@@ -168,7 +168,6 @@ runExecutable opts = do
 
   elf <- readElf exePath
   entryOffset <- startAddr elf
-  ioMem <- newIOMem elf
 
   when verbose $ do
     putStrLn $ "Entry point: 0x" P.++ showHex entryOffset ""
@@ -202,8 +201,9 @@ runExecutable opts = do
         _ -> pure ()
     else do
       -- Run with standard memory (Identity mode)
+      ioMem <- newIOMem elf
       finalStateRef <- newIORef Nothing
-      _ <- runIOMemT ioMem $ do
+      runIOMemT ioMem $ do
         loadProgram elf
         runElf
           (generalInstrument verbose leakOutputHandle leakDigest finalStateRef)
@@ -213,12 +213,6 @@ runExecutable opts = do
                   { Core.stateFePc = fromIntegral entryOffset
                   }
             }
-      -- Check for security violation
-      finalState <- readIORef finalStateRef
-      case finalState of
-        Just state | Core.stateSecurityViolation state -> do
-          putStrLn "Program aborted due to security violation"
-        _ -> pure ()
 
   forM_ leakOutputHandle hClose
 
