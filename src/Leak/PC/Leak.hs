@@ -20,6 +20,7 @@ import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
 import Core (Input)
 import qualified Core
+import Data.Functor.Identity
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified Instruction as Core
@@ -28,7 +29,7 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-type LeakM = RWS Input Out State
+type LeakM = RWS (Input Identity) Out State
 
 data BaseInstr
   = Jump
@@ -99,13 +100,7 @@ init =
 data Out = Out
   { outInstr :: First Instr,
     outJumpAddr :: First Address
-  } deriving (Eq, Generic)
-
-instance Show Out where
-  show (Out instr _) = showInstr instr
-    where
-      showInstr (First Nothing) = "_"
-      showInstr (First (Just (Instr instr _))) = show instr
+  } deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
   Out i1 a1 <> Out i2 a2 = Out (i1 <> i2) (a1 <> a2)
@@ -143,7 +138,7 @@ decode = do
   input <- ask
   let instr
         | Core.inputIsInstr input =
-            Core.decode' $ Core.inputMem input
+            Core.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Core.nop
   ex_ir <- gets stateExInstr
   when (Core.isLoad instr) $
@@ -215,10 +210,10 @@ execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
   let r1M :: LeakM Word
-      r1M = regWithFwd Core.getRs1 =<< asks Core.inputRs1
+      r1M = regWithFwd Core.getRs1 =<< (runIdentity <$> asks Core.inputRs1)
 
       r2M :: LeakM Word
-      r2M = regWithFwd Core.getRs2 =<< asks Core.inputRs2
+      r2M = regWithFwd Core.getRs2 =<< (runIdentity <$> asks Core.inputRs2)
 
       regWithFwd :: (Core.Instruction -> Maybe RegIdx) -> Word -> LeakM Word
       regWithFwd getR def = do
@@ -232,7 +227,7 @@ execute = do
           $ runMaybeT
           $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
-  interp_res <- interp instr <$> r1M <*> r2M <*> gets stateExPc
+  interp_res <- interp instr <$> (Identity <$> r1M) <*> (Identity <$> r2M) <*> gets stateExPc
 
   modify $ \s -> s {stateMemInstr = instr}
 
@@ -297,7 +292,7 @@ memory = do
 
 writeback :: LeakM ()
 writeback = do
-  input <- asks Core.inputMem
+  input <- runIdentity <$> asks Core.inputMem
   instr <- gets stateWbInstr
   stateHalted <- gets stateHalt
   res <- gets stateWbRes
@@ -350,5 +345,5 @@ pipe = withCtrlReset $ do
       void m
       modify $ \s -> s {stateFirstCycle = False}
 
-circuit :: State -> Input -> (State, Out)
+circuit :: State -> Input Identity -> (State, Out)
 circuit = flip $ execRWS pipe

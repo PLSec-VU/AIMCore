@@ -1,4 +1,5 @@
 #include <sodium.h>
+#include "secure_memory.h"
 
 #define MESSAGE ((const unsigned char *) "Arbitrary data to hash")
 #define MESSAGE_LEN 22
@@ -7,6 +8,9 @@
 int main() {
     unsigned char hash[crypto_generichash_BYTES];
     unsigned char expected_hash[crypto_generichash_BYTES];
+
+    // Mark sensitive data as secret
+    SECURE_VAR(hash);            // Hash output can be sensitive
 
     int i = crypto_generichash(hash, sizeof hash, MESSAGE, MESSAGE_LEN, NULL, 0);
     if (i != 0) {

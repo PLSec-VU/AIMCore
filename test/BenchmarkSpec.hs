@@ -11,6 +11,7 @@ import Control.Exception (throw, throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
+import Data.Functor.Identity
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
@@ -26,10 +27,10 @@ import qualified Prelude as P
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
   { benchmarkPath :: String,
-    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Instrument m
+    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
   }
 
-cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Instrument m
+cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
 cryptoInstrument shouldLog i s o step = do
   when shouldLog $ do
     let pc = Core.stateExPc s
@@ -42,7 +43,7 @@ cryptoInstrument shouldLog i s o step = do
     Just True -> handleSyscall
     _ -> pure True
 
-testSuiteInstrument :: (MonadIO m, MonadMemory m) => Bool -> Instrument m
+testSuiteInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
 testSuiteInstrument shouldLog i s o step = do
   when shouldLog $ do
     let pc = Core.stateExPc s
@@ -72,14 +73,16 @@ mkBenchmarkTest testName _benchmark =
     -- Run the simulator with IOMem and MonadMemory interface
     _ <- runIOMemT ioMem $ do
       loadProgram elf
+      let sim :: CircuitSim (IOMemT IO) (Core.Input Identity) (Core.State Identity) (Core.Output Identity)
+          sim = (simulator :: CircuitSim (IOMemT IO) (Core.Input Identity) (Core.State Identity) (Core.Output Identity))
       runElf
         (benchmarkInstrument _benchmark)
-        (simulator @(IOMemT IO))
+        (sim
           { circuitState =
-              Core.init
+              (Core.init @Identity)
                 { Core.stateFePc = fromIntegral entryOffset
                 }
-          }
+          })
 
     pure ()
 

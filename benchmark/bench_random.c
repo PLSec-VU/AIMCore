@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "secure_memory.h"
 
 int main() {
     // open /dev/urandom
@@ -46,6 +47,10 @@ int main() {
     printf("Last file modification:   %s", ctime(&sb.st_mtime));
 
     char buffer[16];
+    
+    // Mark random data buffer as secret since random data can be sensitive
+    SECURE_VAR(buffer);
+    
     ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
     if (bytesRead <= 0) {
         perror("Failed to read from /dev/urandom");

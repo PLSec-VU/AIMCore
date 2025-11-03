@@ -86,6 +86,10 @@ class Monad m => MonadMemory m where
   putRegFile :: RegFile -> m ()
   ramRead :: Address -> m Word
   ramWrite :: Address -> Size -> Word -> m ()
+  -- | Mark a region of memory as public or secret
+  markMemoryRegion :: Address -> Address -> Bool -> m ()
+  -- | Check if a memory address is marked as secret
+  isMemorySecret :: Address -> m Bool
 
   -- ramRead :: (MonadMemory n m) => Address -> m Word
   -- ramRead addr = readWord addr <$> getRAM @n
@@ -156,7 +160,15 @@ type MemSizeFrom progSize ramSizeBytes =
 
 mkRAM :: forall progSize ramSize. (KnownNat ramSize) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
 mkRAM prog =
-  (repeat 0 :: Vec ramSize Byte) ++ vecWordToByte prog
+  (repeat 0 :: Vec ramSize Byte) ++ Clash.Prelude.concatMap splitWord prog
+  where
+    splitWord :: Word -> Vec 4 Byte
+    splitWord word =
+      let b0 = slice d7 d0 word
+          b1 = slice d15 d8 word
+          b2 = slice d23 d16 word
+          b3 = slice d31 d24 word
+       in b0 :> b1 :> b2 :> b3 :> Nil
 
 try :: (Monad m) => MaybeT m () -> m ()
 try m = runMaybeT m >>= maybe (pure ()) pure

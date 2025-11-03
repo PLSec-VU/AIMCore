@@ -9,6 +9,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
+import Data.Functor.Identity
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
@@ -244,7 +245,7 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance Arbitrary Control where
+instance Arbitrary (Control Identity) where
   arbitrary =
     Control
       <$> arbitrary
@@ -257,7 +258,7 @@ instance Arbitrary Control where
       <*> arbitrary
       <*> arbitrary
 
-instance Arbitrary Core.State where
+instance Arbitrary (Core.State Identity) where
   arbitrary =
     Core.State
       <$> arbitrary
@@ -271,8 +272,9 @@ instance Arbitrary Core.State where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
 
-instance Arbitrary Input where
+instance Arbitrary (Input Identity) where
   arbitrary = do
     isInstr <- arbitrary
     mem <-
@@ -281,7 +283,7 @@ instance Arbitrary Input where
         else arbitrary
     r1 <- arbitrary
     r2 <- arbitrary
-    pure $ Input isInstr mem r1 r2
+    pure $ Input isInstr (Identity mem) (Identity r1) (Identity r2)
 
 theorem :: Gen Property
 theorem = do

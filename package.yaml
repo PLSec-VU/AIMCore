@@ -74,6 +74,28 @@ ghc-options:
 
 library:
   source-dirs: src
+  exposed-modules:
+    - Access
+    - Core
+    - Elf.ElfLoader
+    - Elf.Memory
+    - Elf.Syscall
+    - HardwareSim
+    - Instruction
+    - Interp
+    - ISA
+    - Leak.Arch.Arch
+    - Leak.PC.ISA
+    - Leak.PC.Leak
+    - Leak.PC.PC
+    - Leak.PC.Sim
+    - Leak.PCWithState.PCWithState
+    - Leak.SecretPC.Leak
+    - Pretty
+    - RegFile
+    - Simulate
+    - Types
+    - Util
 
 executables:
   uc-risc-v-exe:
@@ -99,3 +121,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - uc-risc-v
+    - melf
+    - bytestring
+    - exceptions
+

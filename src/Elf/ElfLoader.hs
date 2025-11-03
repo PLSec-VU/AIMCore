@@ -8,6 +8,7 @@ module Elf.ElfLoader
   , readStringFromMemory
   ) where
 
+import Access
 import Clash.Explicit.Prelude (Unsigned, bitCoerce)
 import Clash.Explicit.Prelude.Safe ((.&.))
 import Control.Exception (throwIO)
@@ -20,6 +21,7 @@ import Data.Char (chr)
 import Data.Elf
 import Data.Elf.Constants
 import Data.Elf.Headers
+import Data.Functor.Identity
 import Data.Int
 import Data.Monoid (First (getFirst))
 import Data.Word
@@ -85,9 +87,9 @@ readStringFromMemory addr count = do
   pure $ map chr $ takeWhile (/= 0) bytes
 
 -- | Called on each step of the ELF execution, returning whether to continue execution.
-type Instrument m = Core.Input -> Core.State -> Core.Output -> Int -> m Bool
+type Instrument f m = Core.Input f -> Core.State f -> Core.Output f -> Int -> m Bool
 
-runElf :: forall m. (MonadMemory m) => Instrument m -> CircuitSim m Core.Input Core.State Core.Output -> m ()
+runElf :: forall f m. (Access f, MonadMemory m) => Instrument f m -> CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m ()
 runElf instr c = watchWithStep (0 :: Int) c
   where
     watchWithStep stepCount sim@(CircuitSim i s step next) = do

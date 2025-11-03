@@ -1,9 +1,13 @@
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module HardwareSim (topEntity) where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (topEntity)
+import Data.Functor.Identity
 import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified GHC.TypeNats
@@ -18,28 +22,28 @@ topEntity ::
   Clock System ->
   Reset System ->
   Enable System ->
-  Signal System Output
+  Signal System (Output Identity)
 topEntity = exposeClockResetEnable $ system prog3
 
-cpu :: (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
+cpu :: (Access f, Generic (f Word), NFDataX (f Word), HiddenClockResetEnable dom) => Signal dom (Input f) -> Signal dom (Output f)
 cpu = mealy circuit init
 
-system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom Output
+system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom (Output Identity)
 system prog = cpuOut
   where
-    cpuInput :: Signal dom Input
+    cpuInput :: Signal dom (Input Identity)
     cpuInput = register initInput input
-    cpuOut = cpu cpuInput
+    cpuOut = cpu @Identity cpuInput
     regfile = mkRegFile $ mkRegAccess <$> cpuOut
-    ram = mkRAM @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
+    ram = mkRAM @Identity @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
     input =
       ( \o mread (rs1, rs2) ->
           Input
             ( fromMaybe False $ memIsInstr <$> getFirst (outMem o)
             )
-            mread
-            rs1
-            rs2
+            (Identity mread)
+            (Identity rs1)
+            (Identity rs2)
       )
         <$> cpuOut
         <*> ram
@@ -48,27 +52,29 @@ system prog = cpuOut
       RegAccess
         { regRs1 = fromMaybe 0 $ getFirst mr1,
           regRs2 = fromMaybe 0 $ getFirst mr2,
-          regRd = fromMaybe (0, 0) $ getFirst mrd
+          regRd = fromMaybe (0, Identity 0) $ getFirst mrd
         }
 
-data RegAccess = RegAccess
+data RegAccess f = RegAccess
   { regRs1 :: RegIdx,
     regRs2 :: RegIdx,
-    regRd :: (RegIdx, Word)
+    regRd :: (RegIdx, f Word)
   }
-  deriving (Show, Generic, NFDataX)
+deriving instance (Show (f Word)) => Show (RegAccess f)
+deriving instance (Generic (f Word)) => Generic (RegAccess f)
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (RegAccess f)
 
-mkRegFile :: (HiddenClockResetEnable dom) => Signal dom RegAccess -> Signal dom (Word, Word)
+mkRegFile :: (Access f, HiddenClockResetEnable dom) => Signal dom (RegAccess f) -> Signal dom (Word, Word)
 mkRegFile input = mkOutput <$> reg_update <*> input
   where
     reg_output = register initRF reg_update
-    reg_update = ((uncurry modifyRF . regRd) <$> input) <*> reg_output
+    reg_update = ((\(idx, val) -> modifyRF idx (unAccess val)) . regRd <$> input) <*> reg_output
     mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
 
-mkRAM :: forall progSize ramSize dom. 
-  (HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
+mkRAM :: forall f progSize ramSize dom.
+  (Access f, HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
   Vec progSize Word ->
-  Signal dom MemAccess ->
+  Signal dom (MemAccess f) ->
   Signal dom Word
 mkRAM prog memAccessM =
   combine <$> ram0 <*> ram1 <*> ram2 <*> ram3
@@ -78,7 +84,7 @@ mkRAM prog memAccessM =
     mkWrite n =
       fmap $ \memAccess -> do
         w <- memVal memAccess
-        pure (memAddress memAccess, extractByte n w)
+        pure (memAddress memAccess, extractByte n (unAccess w))
 
     extractByte 0 w = slice d7 d0 w
     extractByte 1 w = slice d15 d8 w
