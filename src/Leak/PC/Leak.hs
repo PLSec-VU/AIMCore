@@ -99,13 +99,7 @@ init =
 data Out = Out
   { outInstr :: First Instr,
     outJumpAddr :: First Address
-  } deriving (Eq, Generic)
-
-instance Show Out where
-  show (Out instr _) = showInstr instr
-    where
-      showInstr (First Nothing) = "_"
-      showInstr (First (Just (Instr instr _))) = show instr
+  } deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
   Out i1 a1 <> Out i2 a2 = Out (i1 <> i2) (a1 <> a2)
