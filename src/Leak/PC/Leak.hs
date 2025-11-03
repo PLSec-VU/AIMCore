@@ -227,7 +227,7 @@ execute = do
           $ runMaybeT
           $ checkForFwd stateMeRegFwd <|> checkForFwd stateWbRegFwd
 
-  interp_res <- interp instr <$> r1M <*> r2M <*> gets stateExPc
+  interp_res <- interp instr <$> (Identity <$> r1M) <*> (Identity <$> r2M) <*> gets stateExPc
 
   modify $ \s -> s {stateMemInstr = instr}
 

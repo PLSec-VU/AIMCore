@@ -90,7 +90,7 @@ programInfo = info (optionsParser <**> helper)
 
 -- | General purpose instrument for crypto benchmarks and normal programs
 -- Uses Identity functor for non-security mode (backward compatibility)
-generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument m
+generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument Identity m
 generalInstrument shouldLog leakageOutput leakDigest i s o step = do
   let pc = Core.stateExPc s
   when shouldLog $ do
@@ -140,7 +140,7 @@ runExecutable opts = do
     loadProgram elf
     runElf
       (generalInstrument verbose leakOutputHandle leakDigest)
-      (simulator @(IOMemT IO))
+      (simulator @Identity @(IOMemT IO))
         { circuitState =
             (Core.init @Identity)
               { Core.stateFePc = fromIntegral entryOffset
