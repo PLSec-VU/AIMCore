@@ -48,15 +48,17 @@ data Size
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 vecWordToByte ::
-  Vec n Word ->
-  Vec ((GHC.TypeNats.*) n 4) Byte
+  forall f n.
+  (Functor f) =>
+  Vec n (f Word) ->
+  Vec ((GHC.TypeNats.*) n 4) (f Byte)
 vecWordToByte =
   concatMap splitWord
   where
-    splitWord :: Word -> Vec 4 Byte
+    splitWord :: f Word -> Vec 4 (f Byte)
     splitWord word =
-      let b0 = slice d7 d0 word
-          b1 = slice d15 d8 word
-          b2 = slice d23 d16 word
-          b3 = slice d31 d24 word
+      let b0 = slice d7 d0 <$> word
+          b1 = slice d15 d8 <$> word
+          b2 = slice d23 d16 <$> word
+          b3 = slice d31 d24 <$> word
        in b0 :> b1 :> b2 :> b3 :> Nil

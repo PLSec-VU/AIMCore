@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Access
       Core
       Elf.ElfLoader
       Elf.Memory
@@ -39,6 +40,7 @@ library
       Leak.PC.PC
       Leak.PC.Sim
       Leak.PCWithState.PCWithState
+      Leak.SecretPC.Leak
       Pretty
       RegFile
       Simulate

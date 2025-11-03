@@ -18,6 +18,7 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core hiding (State)
 import qualified Core
+import Data.Functor.Identity
 import Data.Monoid
 import RegFile
 import Types
@@ -41,7 +42,7 @@ instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
 result :: (MonadState (Mem n) m) => CircuitSim m i s o -> m (Vec n Byte)
 result c = watch c *> gets memRAM
 
-simulator :: forall m. (MonadMemory m) => CircuitSim m Input Core.State Output
+simulator :: forall m. (MonadMemory m) => CircuitSim m (Input Identity) (Core.State Identity) (Output Identity)
 simulator =
   CircuitSim
     { circuitInput = initInput,
@@ -50,15 +51,15 @@ simulator =
       circuitNext = next
     }
   where
-    step :: Input -> Core.State -> m (Core.State, Output)
+    step :: Input Identity -> Core.State Identity -> m (Core.State Identity, Output Identity)
     step i s = do
       let (_ctrl', s', o) = simCore s i
       pure (s', o)
       where
-        simCore :: Core.State -> Input -> (Control, Core.State, Output)
+        simCore :: Core.State Identity -> Input Identity -> (Control Identity, Core.State Identity, Output Identity)
         simCore = flip $ runRWS simCoreM
           where
-            simCoreM :: CPUM Control
+            simCoreM :: CPUM Identity (Control Identity)
             simCoreM = withCtrlReset $ do
               writeback
               memory
@@ -66,7 +67,7 @@ simulator =
               decode
               fetch
 
-    next :: Output -> m (Maybe Input)
+    next :: Output Identity -> m (Maybe (Input Identity))
     next (Output mem rs1 rs2 rd _ hlt)
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
@@ -76,14 +77,14 @@ simulator =
             Just $
               Input
                 { inputIsInstr = mem_instr,
-                  inputMem = mem_in,
-                  inputRs1 = rs1',
-                  inputRs2 = rs2'
+                  inputMem = Identity mem_in,
+                  inputRs1 = Identity rs1',
+                  inputRs2 = Identity rs2'
                 }
       where
         doRegFile :: m (Word, Word)
         doRegFile = do
-          maybe (pure ()) (uncurry regWrite) $ getFirst rd
+          maybe (pure ()) (\(idx, val) -> regWrite idx (runIdentity val)) $ getFirst rd
           rs1' <- maybe (pure 0) regRead $ getFirst rs1
           rs2' <- maybe (pure 0) regRead $ getFirst rs2
           pure (rs1', rs2')
@@ -94,19 +95,19 @@ simulator =
               case mval of
                 Nothing -> (,isInstr) <$> ramRead addr
                 Just val -> do
-                  ramWrite addr size val
+                  ramWrite addr size (runIdentity val)
                   pure (0, isInstr)
           | otherwise = pure (0, False)
 
 runSimulator :: forall ramSize progSize a. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
-  ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) Input Core.State Output ->
+  ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) (Input Identity) (Core.State Identity) (Output Identity) ->
     State (Mem (MemSizeFrom progSize ramSize)) a
   ) ->
   Vec progSize Word ->
   a
 runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
 
-watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State, Output, Maybe Input)]
+watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State Identity, Output Identity, Maybe (Input Identity))]
 watchSim = runSimulator @ramSize @progSize watch
 
 simResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte

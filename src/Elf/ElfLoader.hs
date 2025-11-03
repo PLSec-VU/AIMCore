@@ -20,6 +20,7 @@ import Data.Char (chr)
 import Data.Elf
 import Data.Elf.Constants
 import Data.Elf.Headers
+import Data.Functor.Identity
 import Data.Int
 import Data.Monoid (First (getFirst))
 import Data.Word
@@ -85,9 +86,9 @@ readStringFromMemory addr count = do
   pure $ map chr $ takeWhile (/= 0) bytes
 
 -- | Called on each step of the ELF execution, returning whether to continue execution.
-type Instrument m = Core.Input -> Core.State -> Core.Output -> Int -> m Bool
+type Instrument m = Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
 
-runElf :: forall m. (MonadMemory m) => Instrument m -> CircuitSim m Core.Input Core.State Core.Output -> m ()
+runElf :: forall m. (MonadMemory m) => Instrument m -> CircuitSim m (Core.Input Identity) (Core.State Identity) (Core.Output Identity) -> m ()
 runElf instr c = watchWithStep (0 :: Int) c
   where
     watchWithStep stepCount sim@(CircuitSim i s step next) = do

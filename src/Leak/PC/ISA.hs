@@ -7,6 +7,7 @@ import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Core (Input)
 import qualified Core
+import Data.Functor.Identity
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified Instruction as Core
@@ -23,9 +24,9 @@ leak = Prelude.map (\(_, o, _) -> o) . runSimulator watch
 
 simulator ::
   forall m.
-  ( MonadState ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES) m
+  ( MonadState ((Core.State Identity, Core.Output Identity), Simulate.Mem MEM_SIZE_BYTES) m
   ) =>
-  CircuitSim m Input Leak.State Leak.Out
+  CircuitSim m (Input Identity) Leak.State Leak.Out
 simulator =
   CircuitSim
     { circuitInput = Core.initInput,
@@ -34,7 +35,7 @@ simulator =
       circuitNext = next
     }
   where
-    step :: Input -> Leak.State -> m (Leak.State, Leak.Out)
+    step :: Input Identity -> Leak.State -> m (Leak.State, Leak.Out)
     step i s = do
       ((s_sim, _), mem) <- get
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
@@ -42,7 +43,7 @@ simulator =
       let (s', leakInstr) = Leak.circuit s i
       pure (s', leakInstr)
 
-    next :: Leak.Out -> m (Maybe Input)
+    next :: Leak.Out -> m (Maybe (Input Identity))
     next _out = do
       ((_, o_sim), mem) <- get
       let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
@@ -51,11 +52,11 @@ simulator =
 
 runSimulator ::
   ( CircuitSim
-      (State ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES))
-      Input
+      (State ((Core.State Identity, Core.Output Identity), Simulate.Mem MEM_SIZE_BYTES))
+      (Input Identity)
       Leak.State
       Leak.Out ->
-    State ((Core.State, Core.Output), Simulate.Mem MEM_SIZE_BYTES) a
+    State ((Core.State Identity, Core.Output Identity), Simulate.Mem MEM_SIZE_BYTES) a
   ) ->
   Vec PROG_SIZE Word ->
   a

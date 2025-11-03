@@ -1,10 +1,12 @@
 module Main (main) where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Control.Exception (catch, throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
+import Data.Functor.Identity
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
@@ -87,6 +89,7 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
 
 -- | General purpose instrument for crypto benchmarks and normal programs
+-- Uses Identity functor for non-security mode (backward compatibility)
 generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> Instrument m
 generalInstrument shouldLog leakageOutput leakDigest i s o step = do
   let pc = Core.stateExPc s
@@ -132,13 +135,14 @@ runExecutable opts = do
   leakDigest <- newIORef (initialize' 20 "leakage checksum")
 
   -- Run the simulator with proper exception handling
+  -- Use Identity functor for backward compatibility (non-security mode)
   _ <- runIOMemT ioMem $ do
     loadProgram elf
     runElf
       (generalInstrument verbose leakOutputHandle leakDigest)
       (simulator @(IOMemT IO))
         { circuitState =
-            Core.init
+            (Core.init @Identity)
               { Core.stateFePc = fromIntegral entryOffset
               }
         }
