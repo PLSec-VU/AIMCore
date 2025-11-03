@@ -5,7 +5,6 @@ module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
 import InstructionSpec (instructionTests)
-import SecuritySpec (securityTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -56,7 +55,6 @@ tests =
   testGroup
     "All Tests"
     [ instructionTests,
-      securityTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup

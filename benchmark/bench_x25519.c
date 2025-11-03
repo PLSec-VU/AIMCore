@@ -1,6 +1,7 @@
 #include <sodium.h>
 #include <stdio.h>
 #include <string.h>
+#include "secure_memory.h"
 
 int main() {
     unsigned char input_scalar[crypto_scalarmult_curve25519_SCALARBYTES];
@@ -9,6 +10,10 @@ int main() {
     unsigned char expected_output[crypto_scalarmult_curve25519_BYTES];
     unsigned char hex_output[crypto_scalarmult_curve25519_BYTES * 2 + 1];
 
+    // Mark sensitive cryptographic data as secret
+    SECURE_VAR(input_scalar);    // Private scalar (private key) - highly sensitive
+    SECURE_VAR(output_u);        // Shared secret output - sensitive
+    
     // Test vector from specification
     // Input scalar: a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4
     if (sodium_hex2bin(input_scalar, crypto_scalarmult_curve25519_SCALARBYTES,

@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sodium.h>
+#include "secure_memory.h"
 
 #define SIZE 256
 
@@ -16,6 +17,10 @@ void populate_random_bytes(char *buf, size_t len) {
 int main() {
     char a[SIZE];
     char b[SIZE];
+
+    // Mark comparison buffers as secret since they may contain sensitive data
+    SECURE_VAR(a);
+    SECURE_VAR(b);
 
     populate_random_bytes(a, sizeof(a));
     populate_random_bytes(b, sizeof(b));

@@ -93,8 +93,6 @@ library:
     - Leak.SecretPC.Leak
     - Pretty
     - RegFile
-    - SecureMemory
-    - SecureSimulate
     - Simulate
     - Types
     - Util

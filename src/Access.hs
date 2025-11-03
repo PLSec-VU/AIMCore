@@ -12,16 +12,11 @@ class (Applicative f) => Access f where
   unAccess :: f a -> a
   -- | Try to extract a public value. Returns 'Nothing' if the value is secret.
   fromPublic :: f a -> Maybe a
+  -- | Create a secret value if the boolean is True, otherwise create a public value
+  conditionalSecret :: Bool -> a -> f a
 
 isPublic :: (Access f) => f a -> Bool
 isPublic = isJust . fromPublic
-
--- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
--- private, die.
-noSecrets :: (Applicative m, Access f) => f a -> b -> (a -> m b) -> m b
-noSecrets w a m = case fromPublic w of
-  Just v -> m v
-  Nothing -> pure a
 
 data PubSec a
   = Public a
@@ -38,6 +33,9 @@ instance Access PubSec where
 
   fromPublic (Public a) = pure a
   fromPublic _ = empty
+  
+  conditionalSecret True a = Secret a
+  conditionalSecret False a = Public a
 
 instance Applicative PubSec where
   pure = Public
@@ -51,3 +49,4 @@ instance Monad PubSec where
 instance Access Identity where
   unAccess = runIdentity
   fromPublic = pure . unAccess
+  conditionalSecret _ = pure

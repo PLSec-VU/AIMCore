@@ -61,9 +61,9 @@ simulator =
       pure (s', o)
       where
         simCore :: Core.State f -> Input f -> (Control f, Core.State f, Output f)
-        simCore = flip $ runRWS simCoreM
+        simCore = flip $ runRWS (simCoreM @f)
           where
-            simCoreM :: CPUM f (Control f)
+            simCoreM :: forall g. (Access g) => CPUM g (Control g)
             simCoreM = withCtrlReset $ do
               writeback
               memory
@@ -81,7 +81,7 @@ simulator =
             Just $
               Input
                 { inputIsInstr = mem_instr,
-                  inputMem = pure mem_in,
+                  inputMem = mem_in,
                   inputRs1 = pure rs1',
                   inputRs2 = pure rs2'
                 }
@@ -93,15 +93,21 @@ simulator =
           rs2' <- maybe (pure 0) regRead $ getFirst rs2
           pure (rs1', rs2')
 
-        doMemory :: m (Word, Bool)
+        doMemory :: m (f Word, Bool)
         doMemory
           | Just (MemAccess isInstr addr size mval) <- getFirst mem =
               case mval of
-                Nothing -> (,isInstr) <$> ramRead addr
+                Nothing -> do
+                  -- This is a memory read - check if the address is secret
+                  word <- ramRead addr
+                  isSecret <- isMemorySecret addr
+                  -- Use conditionalSecret to create the appropriate value based on security
+                  let secureWord = conditionalSecret isSecret word
+                  pure (secureWord, isInstr)
                 Just val -> do
                   ramWrite addr size (unAccess val)
-                  pure (0, isInstr)
-          | otherwise = pure (0, False)
+                  pure (pure 0, isInstr)
+          | otherwise = pure (pure 0, False)
 
 runSimulator :: forall f ramSize progSize a. (Access f, KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
   ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) (Input f) (Core.State f) (Output f) ->
@@ -116,3 +122,4 @@ watchSim = runSimulator @Identity @ramSize @progSize watch
 
 simResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
 simResult = runSimulator @Identity result
+

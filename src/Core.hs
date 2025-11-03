@@ -681,3 +681,10 @@ readSyscall =
 
 setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}
+
+-- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
+-- private, die.
+noSecrets :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
+noSecrets w a m = case fromPublic w of
+  Just v -> m v
+  Nothing -> halt >> pure a

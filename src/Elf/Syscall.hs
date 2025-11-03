@@ -77,6 +77,14 @@ handleSyscall = regRead 17 >>= \case
       "/dev/urandom" -> regWrite 10 randomFd
       _              -> liftIO (print path) *> regWrite 10 (-1)
     pure True
+  676767 -> do -- mark_memory_region syscall
+    addr <- regRead 10    -- a0: start address
+    size <- regRead 11    -- a1: size in bytes
+    level <- regRead 12   -- a2: security level (0 = public, 1 = secret)
+    let endAddr = addr + size - 1
+    markMemoryRegion (fromIntegral addr) (fromIntegral endAddr) (level /= 0)
+    regWrite 10 0  -- return success
+    pure True
   n -> do
     liftIO $ putStrLn $ "Syscall: Unknown " ++ show (toInteger n)
     pure True
