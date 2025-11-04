@@ -154,6 +154,7 @@ test-suite uc-risc-v-test
   other-modules:
       BenchmarkSpec
       InstructionSpec
+      TheoremSpec
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v

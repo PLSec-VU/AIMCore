@@ -1,15 +1,16 @@
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
 
+import Access
 import BenchmarkSpec (benchmarkTests)
 import InstructionSpec (instructionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
-import Data.Functor.Identity
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
@@ -17,6 +18,7 @@ import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
+import TheoremSpec (simulatorTheorem, nonInterferenceTheorem)
 import "uc-risc-v" Types
 import "uc-risc-v" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -90,7 +92,10 @@ tests =
               mkPCLeakTest "test 2" $ mkProg prog1,
               mkPCLeakTest "test 3" $ mkProg prog1,
               mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-              testProperty "QuickCheck" $ withMaxSuccess 500000 theorem
+              testProperty "LeakPC Simulator" $ withMaxSuccess 500000
+                $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs (),
+              testProperty "Non-interference" $ withMaxSuccess 500000
+                $ nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."
@@ -245,23 +250,36 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance Arbitrary (Control Identity) where
+instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
   arbitrary =
     Control
       <$> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> genMaybeRegFwd
+      <*> genMaybeRegFwd
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
+    where
+      genAccessWord = do
+        isSecret <- arbitrary
+        word <- arbitrary
+        pure $ conditionalSecret isSecret word
+      genMaybeRegFwd = do
+        hasFwd <- arbitrary
+        if hasFwd
+          then do
+            regIdx <- arbitrary
+            accessWord <- genAccessWord
+            pure $ Just (regIdx, accessWord)
+          else pure Nothing
 
 instance Arbitrary Core.HaltState where
   arbitrary = elements [Core.Running, Core.EBreak, Core.SecurityViolation]
 
-instance Arbitrary (Core.State Identity) where
+instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
   arbitrary =
     Core.State
       <$> arbitrary
@@ -269,14 +287,19 @@ instance Arbitrary (Core.State Identity) where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> genAccessWord
+      <*> genAccessWord
+      <*> arbitrary
+      <*> genAccessWord
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
+    where
+      genAccessWord = do
+        isSecret <- arbitrary
+        word <- arbitrary
+        pure $ conditionalSecret isSecret word
 
-instance Arbitrary (Input Identity) where
+instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
   arbitrary = do
     isInstr <- arbitrary
     mem <-
@@ -285,52 +308,10 @@ instance Arbitrary (Input Identity) where
         else arbitrary
     r1 <- arbitrary
     r2 <- arbitrary
-    pure $ Input isInstr (Identity mem) (Identity r1) (Identity r2)
-
-theorem :: Gen Property
-theorem = do
-  input <- arbitrary
-  s_core <- arbitrary
-  let s_leaksim = Leak.PC.proj (s_core, ())
-      (s_leaksim', pc_leaksim) = Leak.PC.circuit s_leaksim input
-      (s_core', o_core) = Core.circuit s_core input
-      (_, pc_core) = Leak.PC.obs () o_core
-  pure $
-    flip counterexample (pc_core == pc_leaksim && Leak.PC.proj (s_core', ()) == s_leaksim') $
-      unlines
-        [ "input: ",
-          "-------------------------------",
-          show input,
-          "",
-          "s_core:",
-          "-------------------------------",
-          show s_core,
-          "",
-          "s_core':",
-          "-------------------------------",
-          show s_core',
-          "",
-          "s_leaksim:",
-          "-------------------------------",
-          show s_leaksim,
-          "",
-          "s_leaksim':",
-          "-------------------------------",
-          show s_leaksim',
-          "",
-          "Leak.PC.proj s_core'",
-          "-------------------------------",
-          show $ Leak.PC.proj (s_core', ()),
-          "",
-          "pc_leaksim:",
-          "-------------------------------",
-          show pc_leaksim,
-          "",
-          "pc_core:",
-          "-------------------------------",
-          show pc_core,
-          "",
-          "o_core:",
-          "-------------------------------",
-          show o_core
-        ]
+    isSecretMem <- arbitrary
+    isSecretR1 <- arbitrary
+    isSecretR2 <- arbitrary
+    pure $ Input isInstr
+                 (conditionalSecret isSecretMem mem)
+                 (conditionalSecret isSecretR1 r1)
+                 (conditionalSecret isSecretR2 r2)
