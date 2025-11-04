@@ -10,6 +10,7 @@ module Core
     Input (..),
     Output (..),
     State (..),
+    HaltState (..),
     fetch,
     decode,
     execute,
@@ -114,6 +115,12 @@ instance Semigroup (Output f) where
 instance Monoid (Output f) where
   mempty = Output mempty mempty mempty mempty mempty mempty
 
+-- | CPU halt state
+data HaltState = Running | EBreak | SecurityViolation
+  deriving (Show, Eq, Generic)
+
+instance NFDataX HaltState
+
 -- | The internal state of the CPU; essentially the pipeline registers.
 data State f = State
   { -- | Program counter fetch stage
@@ -136,10 +143,8 @@ data State f = State
     stateWbRes :: f Word,
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
-    -- | Are we done?
-    stateHalt :: Bool,
-    -- | Security violation occurred?
-    stateSecurityViolation :: Bool
+    -- | CPU halt state
+    stateHalt :: HaltState
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -280,8 +285,7 @@ init =
       stateWbInstr = nop,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
-      stateHalt = False,
-      stateSecurityViolation = False
+      stateHalt = Running
     }
 
 -- | Initial control lines.
@@ -312,12 +316,12 @@ withCtrlReset m = do
 -- | Stop the CPU.
 halt :: (Access f) => CPUM f ()
 halt =
-  modify $ \s -> s {stateHalt = True}
+  modify $ \s -> s {stateHalt = EBreak}
 
 -- | Set security violation flag.
 setSecurityViolation :: (Access f) => CPUM f ()
 setSecurityViolation =
-  modify $ \s -> s {stateSecurityViolation = True}
+  modify $ \s -> s {stateHalt = SecurityViolation}
 
 -- | The fetch stage.
 fetch :: (Access f) => CPUM f ()
@@ -586,9 +590,9 @@ writeback = do
   ir <- gets stateWbInstr
   res <- gets stateWbRes
 
-  halted <- gets stateHalt
+  haltState <- gets stateHalt
 
-  when halted $ do
+  when (haltState /= Running) $ do
     tell $
       mempty {outHalt = pure True}
     readRAM 0 Types.Word
@@ -695,7 +699,4 @@ setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}
 noSecrets :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
 noSecrets w a m = case fromPublic w of
   Just v -> m v
-  Nothing -> do
-    setSecurityViolation
-    halt
-    pure a
+  Nothing -> setSecurityViolation >> pure a

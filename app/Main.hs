@@ -196,7 +196,7 @@ runExecutable opts = do
       -- Check for security violation
       finalState <- readIORef finalStateRef
       case finalState of
-        Just state | Core.stateSecurityViolation state -> do
+        Just state | Core.stateHalt state == Core.SecurityViolation -> do
           putStrLn "Program aborted due to security violation"
         _ -> pure ()
     else do

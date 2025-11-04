@@ -258,11 +258,13 @@ instance Arbitrary (Control Identity) where
       <*> arbitrary
       <*> arbitrary
 
+instance Arbitrary Core.HaltState where
+  arbitrary = elements [Core.Running, Core.EBreak, Core.SecurityViolation]
+
 instance Arbitrary (Core.State Identity) where
   arbitrary =
     Core.State
       <$> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
