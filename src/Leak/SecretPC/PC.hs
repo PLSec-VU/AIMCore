@@ -1,15 +1,15 @@
 module Leak.SecretPC.PC where
 
-import Core (Input (..), MemAccess (..), Output (..), State (..), Control (..), initInput)
-import qualified Core
 import Access (PubSec, censor)
-import Types
+import Control.Monad (guard)
+import Core (Control (..), Input (..), MemAccess (..), Output (..), State (..), initInput)
+import qualified Core
+import Data.Functor.Identity (Identity)
+import Data.Maybe (isJust)
+import Data.Monoid (First (..), getFirst)
 import qualified Leak.SecretPC.Leak as Leak
 import qualified Leak.SecretPC.Sim as Sim
-import Data.Functor.Identity (Identity)
-import Data.Monoid (First(..), getFirst)
-import Control.Monad (guard)
-import Data.Maybe (isJust)
+import Types
 
 implementation :: Core.State PubSec -> Input PubSec -> (Core.State PubSec, Output PubSec)
 implementation = Core.circuit
@@ -30,7 +30,7 @@ leak :: () -> Input PubSec -> ((), Leak.Out)
 leak = Leak.circuit
 
 sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
-sim = undefined
+sim = Sim.circuit
 
 circuit ::
   ((), Sim.State) ->
@@ -44,9 +44,14 @@ circuit (ts, ss) input = ((ts', ss'), addr)
 proj :: (Core.State PubSec, ()) -> ((), Sim.State)
 proj (s, _) = ((), ss)
   where
-    ss = s { stateMemRes = censor (stateMemRes s),
-             stateMemVal = censor (stateMemVal s),
-             stateWbRes = censor (stateWbRes s),
-             stateCtrl = (stateCtrl s) { ctrlMeRegFwd = fmap (\(idx, val) -> (idx, censor val)) (ctrlMeRegFwd (stateCtrl s)),
-                                         ctrlWbRegFwd = fmap (\(idx, val) -> (idx, censor val)) (ctrlWbRegFwd (stateCtrl s)) }
-           }
+    ss =
+      s
+        { stateMemRes = censor (stateMemRes s),
+          stateMemVal = censor (stateMemVal s),
+          stateWbRes = censor (stateWbRes s),
+          stateCtrl =
+            (stateCtrl s)
+              { ctrlMeRegFwd = fmap (\(idx, val) -> (idx, censor val)) (ctrlMeRegFwd (stateCtrl s)),
+                ctrlWbRegFwd = fmap (\(idx, val) -> (idx, censor val)) (ctrlWbRegFwd (stateCtrl s))
+              }
+        }

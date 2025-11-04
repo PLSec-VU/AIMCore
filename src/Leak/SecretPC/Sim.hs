@@ -7,8 +7,12 @@ module Leak.SecretPC.Sim
   )
 where
 
+import Control.Monad
 import qualified Core
+import Data.Bifunctor
 import Data.Functor.Identity (Identity (Identity))
+import Data.Monoid
+import Types
 import Prelude hiding (init)
 
 type Input = Core.Input Identity
@@ -24,5 +28,11 @@ deriving instance Eq Leak.SecretPC.Sim.State
 init :: State
 init = Core.init
 
-circuit :: State -> Input -> (State, Output)
-circuit = Core.circuit
+circuit :: State -> Input -> (State, Maybe Address)
+circuit s i = second obs' $ Core.circuit s i
+  where
+    obs' :: Output -> Maybe Address
+    obs' o_sim = do
+      mem <- getFirst $ Core.outMem o_sim
+      guard $ Core.memIsInstr mem
+      pure $ Core.memAddress mem
