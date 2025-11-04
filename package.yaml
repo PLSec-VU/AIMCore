@@ -91,6 +91,8 @@ library:
     - Leak.PC.Sim
     - Leak.PCWithState.PCWithState
     - Leak.SecretPC.Leak
+    - Leak.SecretPC.PC
+    - Leak.SecretPC.Sim
     - Pretty
     - RegFile
     - Simulate

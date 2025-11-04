@@ -1,3 +1,5 @@
+{-# LANGUAGE StandaloneDeriving #-}
+
 module Leak.SecretPC.Leak
   ( circuit
   , In
@@ -11,6 +13,8 @@ import Prelude hiding (Word)
 
 type In = Input PubSec
 type Out = Input Identity
+
+deriving instance Eq Out
 
 circuit :: () -> In -> ((), Out)
 circuit _ input =

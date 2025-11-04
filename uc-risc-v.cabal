@@ -41,14 +41,14 @@ library
       Leak.PC.Sim
       Leak.PCWithState.PCWithState
       Leak.SecretPC.Leak
+      Leak.SecretPC.PC
+      Leak.SecretPC.Sim
       Pretty
       RegFile
       Simulate
       Types
       Util
   other-modules:
-      Leak.SecretPC.PC
-      Leak.SecretPC.Sim
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v

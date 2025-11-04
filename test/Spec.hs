@@ -14,6 +14,7 @@ import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import qualified Leak.PC.PC as Leak.PC
+import qualified Leak.SecretPC.PC as SecretPC
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -95,7 +96,9 @@ tests =
               testProperty "LeakPC Simulator" $ withMaxSuccess 500000
                 $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs (),
               testProperty "Non-interference" $ withMaxSuccess 500000
-                $ nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
+                $ nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
+              testProperty "SecretPC Non-interference" $ withMaxSuccess 5000000
+                $ nonInterferenceTheorem SecretPC.proj SecretPC.leak SecretPC.implementation SecretPC.obs
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."
