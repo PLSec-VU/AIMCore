@@ -2,7 +2,7 @@
 
 module Access where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
+import Clash.Prelude hiding (Ordering (..), Word, init, lift)
 import Data.Functor.Identity
 import Data.Maybe
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
@@ -50,3 +50,6 @@ instance Access Identity where
   unAccess = runIdentity
   fromPublic = pure . unAccess
   conditionalSecret _ = pure
+
+censor :: (Access f, Default a) => PubSec a -> f a
+censor = pure . fromPubSec def

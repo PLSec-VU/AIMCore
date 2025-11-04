@@ -47,6 +47,8 @@ library
       Types
       Util
   other-modules:
+      Leak.SecretPC.PC
+      Leak.SecretPC.Sim
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v

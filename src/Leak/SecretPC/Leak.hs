@@ -1,21 +1,22 @@
-module Leak.SecretPC.Leak (circuit) where
+module Leak.SecretPC.Leak
+  ( circuit
+  , In
+  , Out
+  ) where
 
 import Access
 import Core (Input (..))
 import Data.Functor.Identity
-import Types
 import Prelude hiding (Word)
 
-type Public = Identity
+type In = Input PubSec
+type Out = Input Identity
 
-circuit :: () -> Input PubSec -> ((), Input Public)
+circuit :: () -> In -> ((), Out)
 circuit _ input =
   ((), output)
   where
-    censor :: PubSec Word -> Public Word
-    censor = pure . fromPubSec 0
-
-    output :: Input Public
+    output :: Out
     output =
       input
         { inputMem = censor $ inputMem input,
