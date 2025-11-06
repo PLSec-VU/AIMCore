@@ -10,11 +10,12 @@ import Data.Functor.Identity
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
-import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMem, IOMemT, runIOMemT, newIOMem, loadProgram)
+import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram)
 import Numeric (showHex)
 import Simulate
 import Options.Applicative
 import System.Exit (exitWith, ExitCode(..))
+import Types (Word)
 import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Prelude as P
@@ -23,6 +24,7 @@ import System.IO
 import Data.Foldable (forM_)
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.PC.Leak as Leak
+import qualified Leak.SecretPC.PC as SecretLeak.PC
 import Data.Binary (encode, Binary (..), Get (..))
 import Data.IORef
 import Crypto.Hash.BLAKE2.BLAKE2b (initialize', BLAKE2bState, update, finalize)
@@ -39,6 +41,8 @@ instance Binary Leak.BaseInstr
 instance Binary Leak.Instr
 
 instance Binary Leak.Out
+
+-- Note: SecretLeak.Out is Input Identity, but we'll handle encoding differently
 
 -- | Command line options
 data Options = Options
@@ -96,13 +100,21 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --secure-memory benchmark/bench_secure_memory\n\
             \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
 
--- | General purpose instrument for crypto benchmarks and normal programs
--- Uses Identity functor for non-security mode (backward compatibility)
-generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity m
-generalInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = do
+-- | Generalized instrument for crypto benchmarks and normal programs
+-- Works with any Access functor by taking proj and leak functions as parameters
+generalizedInstrument ::
+  (Access f, Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
+  ((Core.State f, ()) -> (leakState, simState)) ->  -- proj function
+  (leakState -> Core.Input f -> (leakState, leakOut)) ->  -- leak function
+  (leakOut -> BS.ByteString) ->  -- serialization function
+  String ->  -- mode name for logging
+  Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State f)) -> Instrument f m
+generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput leakDigest finalStateRef i s o _step = do
   let pc = Core.stateExPc s
+        
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
+    liftIO $ putStrLn $ "[" P.++ modeName P.++ " MODE]"
     liftIO $ print i
     liftIO $ print o
     a0 <- regRead 10
@@ -110,13 +122,13 @@ generalInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = 
     s0 <- regRead 8
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
 
-  let (leakState , _) = Leak.PC.proj (s , ())
-  let (_ , leakOutput) = Leak.PC.leak leakState i
+  -- Use the provided proj and leak functions
+  let (leakState , _) = projFn (s , ())
+  let (_ , leakOutput) = leakFn leakState i
   case leakageOutput of
     Nothing -> pure ()
     Just h -> liftIO $ hPutStrLn h $ show leakOutput
-
-  liftIO $ modifyIORef' leakDigest (update (BS.toStrict (encode leakOutput)))
+  liftIO $ modifyIORef' leakDigest (update (serializeFn leakOutput))
 
   -- Store the current state as the final state
   liftIO $ writeIORef finalStateRef (Just s)
@@ -124,37 +136,24 @@ generalInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = 
   case getFirst $ Core.outSyscall o of
     Just True -> handleSyscall
     _ -> pure True
+
+-- | General purpose instrument for crypto benchmarks and normal programs
+-- Uses Identity functor for non-security mode (backward compatibility)
+generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity m
+generalInstrument = generalizedInstrument
+  Leak.PC.proj
+  Leak.PC.leak
+  (BS.toStrict . encode)
+  "STANDARD"
 
 -- | Secure instrument for crypto benchmarks with memory security tracking
 -- Uses PubSec functor for security mode
 secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument PubSec m
-secureInstrument shouldLog leakageOutput leakDigest finalStateRef i s o step = do
-  let pc = Core.stateExPc s
-  when shouldLog $ do
-    liftIO $ putStrLn "==============================="
-    liftIO $ putStrLn "[SECURE MODE]"
-    liftIO $ print i
-    liftIO $ print o
-    a0 <- regRead 10
-    a7 <- regRead 17
-    s0 <- regRead 8
-    liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
-
-  -- Skip leak analysis for secure mode to avoid type complications
-  -- The main benefit is the secure memory tracking, not the leak analysis
-  case leakageOutput of
-    Nothing -> pure ()
-    Just h -> liftIO $ hPutStrLn h "Secure mode: leak analysis skipped"
-
-  -- Still update digest with a placeholder for secure mode
-  liftIO $ modifyIORef' leakDigest (update (BS.toStrict (encode ("secure_mode" :: String))))
-
-  -- Store the current state as the final state
-  liftIO $ writeIORef finalStateRef (Just s)
-
-  case getFirst $ Core.outSyscall o of
-    Just True -> handleSyscall
-    _ -> pure True
+secureInstrument = generalizedInstrument
+  SecretLeak.PC.proj
+  SecretLeak.PC.leak
+  (BS.toStrict . encode . show)
+  "SECURE"
 
 -- | Run a RISC-V executable
 runExecutable :: Options -> IO ()
