@@ -34,7 +34,7 @@ interp instr r1 r2 pc =
             Env Break ->
               Interp (unAccess alu_res) Nothing Nothing
             Env Call ->
-              Interp (unAccess alu_res) Nothing Nothing
+              Interp 0 Nothing Nothing
     SType size imm _ _ ->
       Interp (unpack (unAccess r1 + signExtend imm)) Nothing Nothing
     BType cmp imm _ _ ->
