@@ -52,4 +52,4 @@ instance Access Identity where
   conditionalSecret _ = pure
 
 censor :: (Access f, Default a) => PubSec a -> f a
-censor = pure . fromPubSec def
+censor x = conditionalSecret (not $ isPublic x) (fromPubSec def x)

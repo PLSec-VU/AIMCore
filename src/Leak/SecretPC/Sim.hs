@@ -18,7 +18,7 @@ import Access
 
 type Input = Core.Input Identity
 
-type State = Core.State Identity
+type State = Core.State PubSec
 
 type Output = Core.Output Identity
 
