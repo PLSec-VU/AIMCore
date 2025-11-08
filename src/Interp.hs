@@ -31,9 +31,7 @@ interp instr r1 r2 pc =
             Load size sign -> Interp (unpack $ unAccess alu_res) Nothing Nothing
             Jump ->
               Interp (pack $ pc + 4) (Just $ unpack $ unAccess alu_res) Nothing
-            Env Break ->
-              Interp (unAccess alu_res) Nothing Nothing
-            Env Call ->
+            Env _ ->
               Interp 0 Nothing Nothing
     SType size imm _ _ ->
       Interp (unpack (unAccess r1 + signExtend imm)) Nothing Nothing
