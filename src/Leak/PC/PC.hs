@@ -11,9 +11,9 @@ module Leak.PC.PC
     watchSim,
     pcsEqual,
     implementation,
-    theory,
-    -- theoryNonInterference0,
-    -- theoryNonInterference1,
+    -- theory,
+    -- stateProjectionPreservation,
+    -- leakageDeterminism,
   )
 where
 
@@ -60,13 +60,13 @@ circuits = P.NonInterference
   , P.projection = proj
   }
 
-{-# ANN theoryNonInterference0 (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theoryNonInterference0 :: Core.State Identity -> Input Identity -> Bool
-theoryNonInterference0 = P.nonInterference0 circuits
+{-# ANN stateProjectionPreservation (P.Theory $ Base.axioms <> Clash.axioms) #-}
+stateProjectionPreservation :: Core.State Identity -> Input Identity -> Bool
+stateProjectionPreservation = P.stateProjectionPreservation circuits
 
-{-# ANN theoryNonInterference1 (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theoryNonInterference1 :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
-theoryNonInterference1 = P.nonInterference1 circuits
+{-# ANN leakageDeterminism (P.Theory $ Base.axioms <> Clash.axioms) #-}
+leakageDeterminism :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
+leakageDeterminism = P.leakageDeterminism circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)

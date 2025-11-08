@@ -14,6 +14,7 @@ import Data.Functor.Identity (Identity (Identity))
 import Data.Monoid
 import Types
 import Prelude hiding (init)
+import Access
 
 type Input = Core.Input Identity
 
@@ -29,10 +30,12 @@ init :: State
 init = Core.init
 
 circuit :: State -> Input -> (State, Maybe Address)
-circuit s i = second obs' $ Core.circuit s i
-  where
-    obs' :: Output -> Maybe Address
-    obs' o_sim = do
-      mem <- getFirst $ Core.outMem o_sim
-      guard $ Core.memIsInstr mem
-      pure $ Core.memAddress mem
+circuit = undefined -- TODO
+-- circuit s i = second obs' $ Core.circuit s i
+--   where
+--     obs' :: Output -> Maybe Address
+--     obs' o_sim = do
+--       mem <- getFirst $ Core.outMem o_sim
+--       guard $ Core.memIsInstr mem
+--       pure $ Core.memAddress mem
+-- 

@@ -12,7 +12,7 @@ import Data.Functor.Identity
 import Prelude hiding (Word)
 
 type In = Input PubSec
-type Out = Input Identity
+type Out = Input PubSec
 
 deriving instance Eq Out
 

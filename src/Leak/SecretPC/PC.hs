@@ -7,8 +7,8 @@ module Leak.SecretPC.PC
     circuit,
     proj,
     implementation,
-    theoryNonInterference0,
-    theoryNonInterference1,
+    stateProjectionPreservation,
+    leakageDeterminism,
   )
 where
 
@@ -48,13 +48,13 @@ circuits = P.NonInterference
   , P.projection = proj
   }
 
-{-# ANN theoryNonInterference0 (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theoryNonInterference0 :: Core.State PubSec -> Input PubSec -> Bool
-theoryNonInterference0 = P.nonInterference0 circuits
+{-# ANN stateProjectionPreservation (P.Theory $ Base.axioms <> Clash.axioms) #-}
+stateProjectionPreservation :: Core.State PubSec -> Input PubSec -> Bool
+stateProjectionPreservation = P.stateProjectionPreservation circuits
 
-{-# ANN theoryNonInterference1 (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theoryNonInterference1 :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
-theoryNonInterference1 = P.nonInterference1 circuits
+{-# ANN leakageDeterminism (P.Theory $ Base.axioms <> Clash.axioms) #-}
+leakageDeterminism :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
+leakageDeterminism = P.leakageDeterminism circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
@@ -72,7 +72,7 @@ leak :: () -> Input PubSec -> ((), Leak.Out)
 leak = Leak.circuit
 
 sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
-sim = Sim.circuit
+sim = undefined -- TODO
 
 circuit ::
   ((), Sim.State) ->
