@@ -11,8 +11,9 @@ module Leak.PC.PC
     watchSim,
     pcsEqual,
     implementation,
-    theoryNonInterference0,
-    theoryNonInterference1,
+    theory,
+    -- theoryNonInterference0,
+    -- theoryNonInterference1,
   )
 where
 

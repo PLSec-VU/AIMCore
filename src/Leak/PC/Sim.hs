@@ -132,6 +132,9 @@ memory = do
     Leak.Load {} -> do
       outputNothing
       stallFetch
+    Leak.Call {} -> do
+      outputNothing
+      stallFetch
     Leak.Store -> do
       outputNothing
       stallFetch
@@ -156,6 +159,8 @@ writeback = do
             stateHalt = True
           }
     Leak.Load {} -> do
+      stallDecode
+    Leak.Call {} -> do
       stallDecode
     Leak.Store -> do
       stallDecode

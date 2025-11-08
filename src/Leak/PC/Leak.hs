@@ -48,6 +48,7 @@ data Instr = Instr
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
+isLoad (Instr Call _) = True -- syscalls behaves like load to a0 
 isLoad _ = False
 
 loadHazard :: Instr -> Instr -> Bool
