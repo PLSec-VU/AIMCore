@@ -11,9 +11,10 @@ module Leak.PC.PC
     watchSim,
     pcsEqual,
     implementation,
-    -- theory,
-    -- stateProjectionPreservation,
-    -- leakageDeterminism,
+    -- comment them out to disable Pantomime checks for faster compilation
+    theory,
+    stateProjectionPreservation,
+    leakageDeterminism,
   )
 where
 

@@ -8,6 +8,8 @@ module Leak.SecretPC.PC
     proj,
     pcsEqual,
     implementation,
+    -- comment them out to disable Pantomime checks for faster compilation
+    theory,
     stateProjectionPreservation,
     leakageDeterminism,
   )
@@ -95,25 +97,7 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ss', addr) = sim ss o_leak
 
 proj :: Core.State PubSec -> ((), Sim.State)
-proj s = ((), ss)
-  where
-    ss =
-      s
-        { Core.stateMemRes = censor (Core.stateMemRes s),
-          Core.stateMemVal = censor (Core.stateMemVal s),
-          Core.stateWbRes = censor (Core.stateWbRes s),
-          Core.stateCtrl =
-            (Core.stateCtrl s)
-              { ctrlMeRegFwd =
-                  fmap
-                    (\(idx, val) -> (idx, censor val))
-                    (ctrlMeRegFwd (Core.stateCtrl s)),
-                ctrlWbRegFwd =
-                  fmap
-                    (\(idx, val) -> (idx, censor val))
-                    (ctrlWbRegFwd (Core.stateCtrl s))
-              }
-        }
+proj s = ((), Sim.proj s)
 
 simulator ::
   forall m.

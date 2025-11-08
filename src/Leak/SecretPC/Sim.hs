@@ -3,6 +3,7 @@
 module Leak.SecretPC.Sim
   ( circuit,
     init,
+    proj,
     State,
   )
 where
