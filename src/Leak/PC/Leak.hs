@@ -36,6 +36,7 @@ data BaseInstr
   | Load RegIdx
   | Store
   | Other
+  | Call
   | Break
   deriving (Show, Eq, Generic)
 
@@ -141,7 +142,7 @@ decode = do
             Core.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Core.nop
   ex_ir <- gets stateExInstr
-  when (Core.isLoad instr) $
+  when (Core.isLoad instr || Core.isCall instr) $
     stallFetch
   tell $
     mempty
@@ -155,7 +156,7 @@ decode = do
 
   ifM
     ( pure (\a b c -> a || b || c)
-        <*> pure (Core.isLoad ex_ir)
+        <*> pure (Core.isLoad ex_ir || Core.isCall ex_ir)
         <*> gets stateStallDecode
         <*> gets stateFirstCycle
     )
@@ -194,7 +195,7 @@ mkInstr instr =
         Core.Env Core.Break ->
           Break
         Core.Env Core.Call ->
-          Other
+          Call
     Core.SType {} ->
       Store
     Core.BType {} ->
@@ -318,6 +319,11 @@ writeback = do
     Core.IType (Core.Load size sign) rd _ _ -> do
       stallDecode
       let val = Core.loadExtend size sign input
+      modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
+    Core.IType (Core.Env Core.Call) _ _ _ -> do
+      stallDecode
+      let rd = 10
+      let val = input
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
     Core.SType {} ->
       stallDecode
