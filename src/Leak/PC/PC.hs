@@ -11,6 +11,8 @@ module Leak.PC.PC
     watchSim,
     pcsEqual,
     implementation,
+    theoryNonInterference0,
+    theoryNonInterference1,
   )
 where
 
@@ -34,6 +36,8 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 import qualified Pantomime as P
 import qualified Pantomime.Clash as Clash
 import qualified Pantomime.Base as Base
+import Data.Bifunctor (second)
+import Data.Composition
 
 {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State Identity -> Input Identity -> Bool
@@ -47,6 +51,21 @@ theory = P.pantomime P.Pantomime
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
+
+circuits :: P.NonInterference   (Core.State Identity)   Leak.State   Sim.State   (Input Identity)   Leak.Out   (Maybe Address)
+circuits = P.NonInterference
+  { P.implementation = second obs' .: implementation
+  , P.leakage = leak
+  , P.projection = proj
+  }
+
+{-# ANN theoryNonInterference0 (P.Theory $ Base.axioms <> Clash.axioms) #-}
+theoryNonInterference0 :: Core.State Identity -> Input Identity -> Bool
+theoryNonInterference0 = P.nonInterference0 circuits
+
+{-# ANN theoryNonInterference1 (P.Theory $ Base.axioms <> Clash.axioms) #-}
+theoryNonInterference1 :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
+theoryNonInterference1 = P.nonInterference1 circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
