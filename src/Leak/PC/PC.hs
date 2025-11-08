@@ -24,7 +24,6 @@ import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
 import Instruction (Instruction)
-import qualified Instruction
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
 import RegFile
@@ -32,19 +31,20 @@ import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified Pantomime as P
+import qualified Pantomime.Clash as Clash
+import qualified Pantomime.Base as Base
 
--- Uncomment this to check the leakage.
--- import UC (Spec (..))
---
--- {-# ANN
---   implementation
---   Spec
---     { observation' = 'obs,
---       leakage' = 'leak,
---       simulator' = 'sim,
---       projection' = 'proj
---     }
---   #-}
+{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+theory :: Core.State Identity -> Input Identity -> Bool
+theory = P.pantomime P.Pantomime
+  { observation = obs'
+  , implementation = implementation
+  , leakage = leak
+  , simulator = sim
+  , projection = proj
+  }
+
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
@@ -75,8 +75,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ts', o_leak) = leak ts input
     (ss', addr) = sim ss o_leak
 
-proj :: (Core.State Identity, ()) -> (Leak.State, Sim.State)
-proj (s, _) = (ts, ss)
+proj :: Core.State Identity -> (Leak.State, Sim.State)
+proj s = (ts, ss)
   where
     ts =
       Leak.State

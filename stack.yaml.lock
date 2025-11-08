@@ -11,6 +11,13 @@ packages:
       size: 2133
   original:
     hackage: blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
+- completed:
+    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
+    pantry-tree:
+      sha256: a1eff3f311b09c3aa568a07040a42456787c4a60ec7f16878d8fb688453a220b
+      size: 29396
+  original:
+    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
 snapshots:
 - completed:
     sha256: 6de673d789fcf2a5605736233090d24271257b4031c59f93e40f6632b7568301

@@ -94,7 +94,7 @@ tests =
               mkPCLeakTest "test 3" $ mkProg prog1,
               mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
               testProperty "LeakPC Simulator" $ withMaxSuccess 500000
-                $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs (),
+                $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs,
               testProperty "Non-interference" $ withMaxSuccess 500000
                 $ nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
               testProperty "SecretPC Non-interference" $ withMaxSuccess 5000000

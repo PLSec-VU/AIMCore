@@ -104,7 +104,7 @@ programInfo = info (optionsParser <**> helper)
 -- Works with any Access functor by taking proj and leak functions as parameters
 generalizedInstrument ::
   (Access f, Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
-  ((Core.State f, ()) -> (leakState, simState)) ->  -- proj function
+  ((Core.State f) -> (leakState, simState)) ->  -- proj function
   (leakState -> Core.Input f -> (leakState, leakOut)) ->  -- leak function
   (leakOut -> BS.ByteString) ->  -- serialization function
   String ->  -- mode name for logging
@@ -123,7 +123,7 @@ generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
 
   -- Use the provided proj and leak functions
-  let (leakState , _) = projFn (s , ())
+  let (leakState , _) = projFn s
   let (_ , leakOutput) = leakFn leakState i
   case leakageOutput of
     Nothing -> pure ()

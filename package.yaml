@@ -58,6 +58,7 @@ dependencies:
 - bytestring
 - exceptions
 - entropy
+- uc-plugin
 
 ghc-options:
 - -Wall
@@ -71,6 +72,7 @@ ghc-options:
 - -Wredundant-constraints
 - -fexpose-all-unfoldings
 - -fplugin GHC.TypeLits.Normalise
+- -fplugin Pantomime
 
 library:
   source-dirs: src

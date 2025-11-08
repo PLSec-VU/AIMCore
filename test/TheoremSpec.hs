@@ -15,23 +15,22 @@ simulatorTheorem ::
   , Eq leakState
   , Eq simState
   ) =>
-  ((coreState, obsState) -> (leakState, simState)) ->  -- proj
+  (coreState -> (leakState, simState)) ->  -- proj
   (leakState -> input -> (leakState, leakOut)) ->  -- leak circuit
   (simState -> leakOut -> (simState, observable)) ->  -- sim circuit
   (coreState -> input -> (coreState, coreOutput)) ->  -- coreCircuit
-  (obsState -> coreOutput -> (obsState, observable)) ->  -- obs
-  obsState ->  -- observer state
+  (() -> coreOutput -> ((), observable)) ->  -- obs
   Gen Property
-simulatorTheorem proj leakCircuit simCircuit coreCircuit obs obsState = do
+simulatorTheorem proj leakCircuit simCircuit coreCircuit obs = do
   input <- arbitrary
   s_core <- arbitrary
-  let (s_leak, s_sim) = proj (s_core, obsState)
+  let (s_leak, s_sim) = proj s_core
       (s_leak', o_leak) = leakCircuit s_leak input
       (s_sim', observable_leaksim) = simCircuit s_sim o_leak
       (s_core', o_core) = coreCircuit s_core input
-      (_, observable_core) = obs obsState o_core
+      (_, observable_core) = obs () o_core
   pure $
-    flip counterexample (observable_core == observable_leaksim && proj (s_core', obsState) == (s_leak', s_sim')) $
+    flip counterexample (observable_core == observable_leaksim && proj s_core' == (s_leak', s_sim')) $
       unlines
         [ "input: ",
           "-------------------------------",
@@ -63,7 +62,7 @@ simulatorTheorem proj leakCircuit simCircuit coreCircuit obs obsState = do
           "",
           "proj s_core'",
           "-------------------------------",
-          show $ proj (s_core', obsState),
+          show $ proj s_core',
           "",
           "observable_leaksim:",
           "-------------------------------",
@@ -87,10 +86,8 @@ implies p q = not p || q
 nonInterferenceTheorem ::
   ( Arbitrary input
   , Arbitrary coreState
-  , Arbitrary obsState
   , Show input
   , Show coreState
-  , Show obsState
   , Show leakState
   , Show simState
   , Show leakOut
@@ -100,10 +97,10 @@ nonInterferenceTheorem ::
   , Eq leakOut
   , Eq observable
   ) =>
-  ((coreState, obsState) -> (leakState, simState)) ->  -- proj
+  (coreState -> (leakState, simState)) ->  -- proj
   (leakState -> input -> (leakState, leakOut)) ->  -- leak circuit
   (coreState -> input -> (coreState, coreOutput)) ->  -- impl circuit
-  (obsState -> coreOutput -> (obsState, observable)) ->  -- obs circuit
+  (() -> coreOutput -> ((), observable)) ->  -- obs circuit
   Gen Property
 nonInterferenceTheorem proj leak impl obs = do
   -- Test LeakStateConsistency: impl-obs-proj-state ≡ leak-proj-state
@@ -115,22 +112,22 @@ nonInterferenceTheorem proj leak impl obs = do
       implObsProjState (s, sₒ) i =
         let (s', x) = impl s i
             (sₒ', _) = obs sₒ x
-            (sₗ, _) = proj (s', sₒ')
+            (sₗ, _) = proj s'
         in sₗ
       
       leakProjState (s, sₒ) i =
-        let (sₗ, _) = proj (s, sₒ)
+        let (sₗ, _) = proj s
             (sₗ', _) = leak sₗ i
         in sₗ'
       
       implObsProjSo ((s, sₒ), i) =
         let (s', x) = impl s i
             (sₒ', o) = obs sₒ x
-            (sₗ, sₛ) = proj (s', sₒ')
+            (sₗ, sₛ) = proj s'
         in (sₛ, o)
       
       leakProjSo ((s, sₒ), i) =
-        let (sₗ, sₛ) = proj (s, sₒ)
+        let (sₗ, sₛ) = proj s
             (sₗ', o) = leak sₗ i
         in (sₛ, o)
       

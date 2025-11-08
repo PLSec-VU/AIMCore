@@ -41,8 +41,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ts', o_leak) = leak ts input
     (ss', addr) = sim ss o_leak
 
-proj :: (Core.State PubSec, ()) -> ((), Sim.State)
-proj (s, _) = ((), ss)
+proj :: Core.State PubSec -> ((), Sim.State)
+proj s = ((), ss)
   where
     ss =
       s
