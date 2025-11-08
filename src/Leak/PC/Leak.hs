@@ -281,6 +281,9 @@ memory = do
     Core.IType Core.Load {} _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       stallFetch
+    Core.IType (Core.Env Core.Call) _ _ _ -> do
+      modify $ \s -> s {stateMeRegFwd = Nothing}
+      stallFetch
     Core.SType {} ->
       stallFetch
     _ -> pure ()
