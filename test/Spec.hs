@@ -6,20 +6,20 @@ module Main (main) where
 
 import Access
 import BenchmarkSpec (benchmarkTests)
-import InstructionSpec (instructionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
+import InstructionSpec (instructionTests)
 import qualified Leak.PC.PC as Leak.PC
-import qualified Leak.SecretPC.PC as SecretPC
+import qualified Leak.SecretPC.PC as Leak.SecretPC
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
-import TheoremSpec (simulatorTheorem, nonInterferenceTheorem)
+import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
 import "uc-risc-v" Types
 import "uc-risc-v" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -45,6 +45,12 @@ mkPCLeakTest s prog =
   testCase s $
     assertBool "" $
       Leak.PC.pcsEqual prog
+
+mkSecretPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
+mkSecretPCLeakTest s prog =
+  testCase s $
+    assertBool "" $
+      Leak.SecretPC.pcsEqual prog
 
 -- mkCmpTest :: String -> Vec n Word -> TestTree
 -- mkCmpTest s prog =
@@ -92,13 +98,36 @@ tests =
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
               mkPCLeakTest "test 3" $ mkProg prog1,
-              mkPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-              testProperty "LeakPC Simulator" $ withMaxSuccess 500000
+              mkPCLeakTest "sumTo 10"
+                $ mkProg
+                $ sumTo
+                  10
+                  testProperty
+                  "LeakPC Simulator"
+                $ withMaxSuccess 500000
                 $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs,
-              testProperty "Non-interference" $ withMaxSuccess 500000
-                $ nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
-              testProperty "SecretPC Non-interference" $ withMaxSuccess 5000000
-                $ nonInterferenceTheorem SecretPC.proj SecretPC.leak SecretPC.implementation SecretPC.obs
+              testProperty "Non-interference" $
+                withMaxSuccess 500000 $
+                  nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
+              testProperty "SecretPC Non-interference" $
+                withMaxSuccess 5000000 $
+                  nonInterferenceTheorem SecretPC.proj SecretPC.leak SecretPC.implementation SecretPC.obs
+            ],
+          testGroup
+            "SecretPC leak"
+            [ mkSecretPCLeakTest "test 1" $ mkProg prog1,
+              mkSecretPCLeakTest "test 1" $ mkProg prog1,
+              mkSecretPCLeakTest "test 2" $ mkProg prog1,
+              mkSecretPCLeakTest "test 3" $ mkProg prog1,
+              mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
+              testProperty "SecretPC Simulator" $
+                withMaxSuccess 500000 $
+                  simulatorTheorem
+                    Leak.SecretPC.proj
+                    Leak.SecretPC.leak
+                    Leak.SecretPC.sim
+                    Core.circuit
+                    Leak.SecretPC.obs
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."
@@ -314,7 +343,9 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
     isSecretMem <- arbitrary
     isSecretR1 <- arbitrary
     isSecretR2 <- arbitrary
-    pure $ Input isInstr
-                 (conditionalSecret isSecretMem mem)
-                 (conditionalSecret isSecretR1 r1)
-                 (conditionalSecret isSecretR2 r2)
+    pure $
+      Input
+        isInstr
+        (conditionalSecret isSecretMem mem)
+        (conditionalSecret isSecretR1 r1)
+        (conditionalSecret isSecretR2 r2)
