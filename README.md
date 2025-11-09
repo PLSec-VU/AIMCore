@@ -52,6 +52,7 @@ stack test
 │   ├── ISA.hs                     -- An interpreter for the ISA
 │   ├── Access.hs                  -- Security access control types
 │   ├── Leak
+│   │   ├── Existence.hs           -- Construct simulator from non-interference proof
 │   │   ├── Arch
 │   │   │   └── Arch.hs            -- Architectural leakage (Broken)
 │   │   ├── PC
@@ -61,8 +62,7 @@ stack test
 │   │   │   ├── ISA.hs             -- ISA-level leakage definitions
 │   │   └── SecretPC
 │   │       ├── Leak.hs            -- Leakage model for secret PC analysis
-│   │       ├── PC.hs              -- Secret PC leakage analysis with formal verification
-│   │       └── Sim.hs             -- Simulator for secret PC leakage analysis
+│   │       └── PC.hs              -- Secret PC leakage analysis with formal verification
 │   ├── Elf
 │   │   ├── ElfLoader.hs           -- ELF file loading and parsing
 │   │   ├── Memory.hs              -- Memory management (standard and secure)
