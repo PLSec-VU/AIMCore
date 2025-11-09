@@ -9,9 +9,9 @@ module Leak.SecretPC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    -- theory,
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
+    theory,
+    tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -28,15 +28,17 @@ import Data.Maybe (isJust)
 import Data.Monoid (First (..), getFirst)
 import Instruction (Instruction)
 import qualified Leak.SecretPC.Leak as Leak
-import qualified Leak.SecretPC.Sim as Sim
 import qualified Pantomime as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
+import qualified Leak.Existence as Existence
 import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+
+type SimState = Core.State PubSec
 
 {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State PubSec -> Input PubSec -> Bool
@@ -53,7 +55,7 @@ theory =
 implementation :: Core.State PubSec -> Input PubSec -> (Core.State PubSec, Output PubSec)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State PubSec) () Sim.State (Input PubSec) Leak.Out (Maybe Address)
+circuits :: P.NonInterference (Core.State PubSec) () SimState (Input PubSec) Leak.Out (Maybe Address)
 circuits =
   P.NonInterference
     { P.implementation = second obs' .: implementation,
@@ -84,37 +86,58 @@ obs' o_sim = do
 leak :: () -> Input PubSec -> ((), Leak.Out)
 leak = Leak.circuit
 
-sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
-sim = Sim.circuit
+sim :: SimState -> Leak.Out -> (SimState, Maybe Address)
+sim = curry (Existence.simulatorFor circuits id)
 
 circuit ::
-  ((), Sim.State) ->
+  ((), SimState) ->
   Input PubSec ->
-  (((), Sim.State), Maybe Address)
+  (((), SimState), Maybe Address)
 circuit (ts, ss) input = ((ts', ss'), addr)
   where
     (ts', o_leak) = leak ts input
     (ss', addr) = sim ss o_leak
 
-proj :: Core.State PubSec -> ((), Sim.State)
-proj s = ((), Sim.proj s)
+proj' :: SimState -> SimState
+proj' s = ss
+  where
+    ss =
+      s
+        { Core.stateMemRes = censor (Core.stateMemRes s),
+          Core.stateMemVal = censor (Core.stateMemVal s),
+          Core.stateWbRes = censor (Core.stateWbRes s),
+          Core.stateCtrl =
+            (Core.stateCtrl s)
+              { Core.ctrlMeRegFwd =
+                  fmap
+                    (\(idx, val) -> (idx, censor val))
+                    (Core.ctrlMeRegFwd (Core.stateCtrl s)),
+                Core.ctrlWbRegFwd =
+                  fmap
+                    (\(idx, val) -> (idx, censor val))
+                    (Core.ctrlWbRegFwd (Core.stateCtrl s))
+              }
+        }
+
+proj :: Core.State PubSec -> ((), SimState)
+proj s = ((), proj' s)
 
 simulator ::
   forall m.
   (MonadState ((Core.State PubSec, Output PubSec), Simulate.Mem MEM_SIZE_BYTES) m) =>
-  CircuitSim m (Input PubSec) (Leak.State, Sim.State) (Maybe Address, Maybe Address)
+  CircuitSim m (Input PubSec) (Leak.State, SimState) (Maybe Address, Maybe Address)
 simulator =
   CircuitSim
     { circuitInput = initInput,
-      circuitState = (Leak.init, Sim.init),
+      circuitState = (Leak.init, Core.init),
       circuitStep = step,
       circuitNext = next
     }
   where
     step ::
       Input PubSec ->
-      (Leak.State, Sim.State) ->
-      m ((Leak.State, Sim.State), (Maybe Address, Maybe Address))
+      (Leak.State, SimState) ->
+      m ((Leak.State, SimState), (Maybe Address, Maybe Address))
     step i s = do
       ((s_sim, _), mem) <- get
       let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
@@ -133,7 +156,7 @@ runSimulator ::
   ( CircuitSim
       (State ((Core.State PubSec, Output PubSec), Simulate.Mem MEM_SIZE_BYTES))
       (Input PubSec)
-      (Leak.State, Sim.State)
+      (Leak.State, SimState)
       (Maybe Address, Maybe Address) ->
     State ((Core.State PubSec, Output PubSec), Simulate.Mem MEM_SIZE_BYTES) a
   ) ->
@@ -145,7 +168,7 @@ runSimulator f prog = evalState (f Leak.SecretPC.PC.simulator) s
 
 watchSim ::
   Vec PROG_SIZE Word ->
-  [((Leak.State, Sim.State), (Maybe Address, Maybe Address), Maybe (Input PubSec))]
+  [((Leak.State, SimState), (Maybe Address, Maybe Address), Maybe (Input PubSec))]
 watchSim = runSimulator watch
 
 pcsEqual :: Vec PROG_SIZE Word -> Bool

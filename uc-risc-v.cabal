@@ -42,7 +42,7 @@ library
       Leak.PCWithState.PCWithState
       Leak.SecretPC.Leak
       Leak.SecretPC.PC
-      Leak.SecretPC.Sim
+      Leak.Existence
       Pretty
       RegFile
       Simulate

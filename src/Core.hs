@@ -149,6 +149,8 @@ data State f = State
 
 deriving instance (Show (f Word)) => Show (State f)
 
+deriving instance (Eq (f Word)) => Eq (State f)
+
 deriving instance (Generic (f Word)) => Generic (State f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
