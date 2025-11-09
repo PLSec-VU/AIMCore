@@ -12,9 +12,9 @@ module Leak.PC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
-    stateProjectionPreservation,
-    leakageDeterminism,
+    -- theory,
+    -- tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -61,13 +61,13 @@ circuits = P.NonInterference
   , P.projection = proj
   }
 
-{-# ANN stateProjectionPreservation (P.Theory $ Base.axioms <> Clash.axioms) #-}
-stateProjectionPreservation :: Core.State Identity -> Input Identity -> Bool
-stateProjectionPreservation = P.stateProjectionPreservation circuits
+{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
+tickStateCorrespondence = P.tickStateCorrespondence circuits
 
-{-# ANN leakageDeterminism (P.Theory $ Base.axioms <> Clash.axioms) #-}
-leakageDeterminism :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
-leakageDeterminism = P.leakageDeterminism circuits
+{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
+projectionCoherence = P.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
