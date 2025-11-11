@@ -360,7 +360,6 @@ decode = do
     if (inputIsInstr input)
       then noSecrets (inputMem input) nop (pure . Instruction.decode')
       else pure Instruction.nop
-  readRF ir
 
   when ((isLoad ir) || (isCall ir)) $
     setLines $
@@ -388,6 +387,9 @@ decode = do
           { stateExInstr = ir,
             stateExPc = stateDePc s
           }
+
+  unless stall $
+    readRF ir
   where
     readRF ir =
       tell $
