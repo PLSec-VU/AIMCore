@@ -83,12 +83,10 @@ fetch = do
 decode :: SimM ()
 decode = do
   instr <- fromMaybe Leak.nop . getFirst <$> asks Leak.outInstr
-  ex_ir <- gets stateExInstr
   when (Leak.isLoad instr) $ do
     stallFetch
   ifM
-    ( pure (\a b c -> a || b || c)
-        <*> pure (Leak.isLoad ex_ir)
+    ( pure (||)
         <*> gets stateStallDecode
         <*> gets stateFirstCycle
     )
@@ -158,12 +156,6 @@ writeback = do
             stateExInstr = Leak.nop,
             stateHalt = True
           }
-    Leak.Load {} -> do
-      stallDecode
-    Leak.Call {} -> do
-      stallDecode
-    Leak.Store -> do
-      stallDecode
     _ -> pure ()
 
 pipe :: SimM ()
