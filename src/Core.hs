@@ -177,8 +177,6 @@ data Control f = Control
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
     ctrlExBranch :: Maybe Address,
-    -- | Does the `execute` stage contain a load instruction?
-    ctrlExLoad :: Bool,
     -- | Does the `execute` stage contain a syscall instruction?
     ctrlExSyscall :: Bool
   }
@@ -301,7 +299,6 @@ initCtrl =
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
-      ctrlExLoad = False,
       ctrlExSyscall = False
     }
 
@@ -375,8 +372,7 @@ decode = do
   ctrl <- gets stateCtrl
 
   let stall =
-        ctrlExLoad ctrl
-          || ctrlExSyscall ctrl
+        ctrlExSyscall ctrl
           -- First cycle = gibberish from memory, so we stall.
           || ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
@@ -425,8 +421,9 @@ execute = do
     fetchALUOperands ir =
       case ir of
         Instruction.IType (Env Call) _ _ _ -> do
-          lift $ setLines $
-            \c -> c {ctrlExSyscall = True}
+          lift $
+            setLines $
+              \c -> c {ctrlExSyscall = True}
           pure (ADD, pure 0, pure 0)
         Instruction.IType Env {} _ _ _ -> empty
         Instruction.RType op _ _ _ -> do
@@ -442,11 +439,6 @@ execute = do
           pure
             (ADD, pc, pure 4)
         Instruction.IType op _ _ imm -> do
-          let loadOp Load {} = True
-              loadOp _ = False
-          when (loadOp op) $
-            setLines $
-              \c -> c {ctrlExLoad = True}
           -- Do addition for non arithmetic operations.
           let op' = case op of
                 Arith arith -> arith

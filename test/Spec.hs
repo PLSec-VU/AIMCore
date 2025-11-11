@@ -294,7 +294,6 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> genMaybeRegFwd
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
     where
       genAccessWord = do
         isSecret <- arbitrary
