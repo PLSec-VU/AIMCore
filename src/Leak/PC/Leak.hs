@@ -142,7 +142,6 @@ decode = do
         | Core.inputIsInstr input =
             Core.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Core.nop
-  ex_ir <- gets stateExInstr
   when (Core.isLoad instr || Core.isCall instr) $
     stallFetch
   tell $
@@ -156,8 +155,7 @@ decode = do
       }
 
   ifM
-    ( pure (\a b c -> a || b || c)
-        <*> pure (Core.isLoad ex_ir || Core.isCall ex_ir)
+    ( pure (||)
         <*> gets stateStallDecode
         <*> gets stateFirstCycle
     )
@@ -321,16 +319,10 @@ writeback = do
 
   case instr of
     Core.IType (Core.Load size sign) rd _ _ -> do
-      stallDecode
       let val = Core.loadExtend size sign input
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
     Core.IType (Core.Env Core.Call) _ _ _ -> do
-      stallDecode
-      let rd = 10
-      let val = input
-      modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
-    Core.SType {} ->
-      stallDecode
+      modify $ \s -> s {stateWbRegFwd = pure (10, input)}
     _ -> pure ()
 
 pipe :: LeakM ()

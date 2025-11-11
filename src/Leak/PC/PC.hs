@@ -12,9 +12,9 @@ module Leak.PC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
+    -- theory,
+    tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -152,7 +152,6 @@ proj s = (ts, ss)
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
-        || Core.ctrlMemInputActive ctrl
 
 simulator ::
   forall m.

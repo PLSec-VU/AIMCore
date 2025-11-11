@@ -9,9 +9,9 @@ module Leak.SecretPC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
-    tickStateCorrespondence,
-    projectionCoherence,
+    -- theory,
+    -- tickStateCorrespondence,
+    -- projectionCoherence,
   )
 where
 

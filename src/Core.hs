@@ -174,9 +174,7 @@ data Control f = Control
     ctrlWbRegFwd :: Maybe (RegIdx, f Word),
     -- | The result of a branch computation. Set in the `execute` stage and
     -- contains the new PC.
-    ctrlExBranch :: Maybe Address,
-    -- | Does the `execute` stage contain a syscall instruction?
-    ctrlExSyscall :: Bool
+    ctrlExBranch :: Maybe Address
   }
 
 -- \| Need propagate whether a branch instruction is in the `memory` stage
@@ -295,8 +293,7 @@ initCtrl =
       ctrlMemOutputActive = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
-      ctrlExBranch = Nothing,
-      ctrlExSyscall = False
+      ctrlExBranch = Nothing
     }
 
 -- | The control lines need to be reset every tick.
@@ -368,9 +365,8 @@ decode = do
   ctrl <- gets stateCtrl
 
   let stall =
-        ctrlExSyscall ctrl
           -- First cycle = gibberish from memory, so we stall.
-          || ctrlFirstCycle ctrl
+          ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
           || isJust (ctrlExBranch ctrl)
@@ -416,11 +412,6 @@ execute = do
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
       case ir of
-        Instruction.IType (Env Call) _ _ _ -> do
-          lift $
-            setLines $
-              \c -> c {ctrlExSyscall = True}
-          pure (ADD, pure 0, pure 0)
         Instruction.IType Env {} _ _ _ -> empty
         Instruction.RType op _ _ _ -> do
           r1 <- rs1

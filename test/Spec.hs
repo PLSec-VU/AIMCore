@@ -9,6 +9,7 @@ import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
+import Control.Monad.Identity (Identity(..))
 import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
@@ -97,7 +98,43 @@ tests =
             "PC leak"
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1
+              mkPCLeakTest "test 3" $ mkProg prog1,
+              testProperty "PC leak counterexample" $
+                once $
+                  let initialState = Core.State
+                        { Core.stateFePc = 0x0210417d,
+                          Core.stateDePc = 0x00000000,
+                          Core.stateExPc = 0x4210220d,
+                          Core.stateExInstr = BType EQ 0b1111101110100 28 10,
+                          Core.stateMemInstr = UType PC 28 0b00000000000000000000,
+                          Core.stateMemRes = Identity 0x014c0557,
+                          Core.stateMemVal = Identity 0x00000000,
+                          Core.stateWbInstr = IType (Env Call) 0 0 0b000000000000,
+                          Core.stateWbRes = Identity 0x094c0557,
+                          Core.stateCtrl = Control
+                            { Core.ctrlFirstCycle = True,
+                              Core.ctrlDecodeLoad = False,
+                              Core.ctrlMemOutputActive = False,
+                              Core.ctrlMeRegFwd = Nothing,
+                              Core.ctrlWbRegFwd = Nothing,
+                              Core.ctrlExBranch = Nothing
+                            },
+                          Core.stateHalt = EBreak
+                        }
+                      input = Input
+                        { inputIsInstr = True,
+                          inputMem = Identity 0x094c0557,
+                          inputRs1 = Identity 0x22000644,
+                          inputRs2 = Identity 0x094c0155
+                        }
+                  in property $
+                       let (leakState, simState) = Leak.PC.proj initialState
+                           (leakState', leakOut) = Leak.PC.leak leakState input
+                           (simState', simObs) = Leak.PC.sim simState leakOut
+                           (coreState', coreOut) = Core.circuit initialState input
+                           (_, coreObs) = Leak.PC.obs () coreOut
+                           (projLeakState, projSimState) = Leak.PC.proj coreState'
+                       in simState' === projSimState
               -- compilation errors im too lazy to fix
               -- mkPCLeakTest "sumTo 10"
               --   $ mkProg
@@ -292,7 +329,6 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
       <*> arbitrary
-      <*> arbitrary
     where
       genAccessWord = do
         isSecret <- arbitrary
@@ -348,3 +384,4 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
         (conditionalSecret isSecretMem mem)
         (conditionalSecret isSecretR1 r1)
         (conditionalSecret isSecretR2 r2)
+
