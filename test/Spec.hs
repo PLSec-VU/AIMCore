@@ -289,7 +289,6 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <$> arbitrary
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
       <*> arbitrary

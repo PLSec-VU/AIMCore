@@ -163,8 +163,6 @@ data Control f = Control
     ctrlDecodeLoad :: Bool,
     -- | `True` when the instruction in the `execute` stage is a load.
     ctrlMemOutputActive :: Bool,
-    -- | `True` when the memory input is a read from memory request.
-    ctrlMemInputActive :: Bool,
     -- | Forwards the rd register from the `memory` stage to the `execute`
     -- stage.  The `RegIdx` payload is necessary to know what the destination
     -- register is for the instruction in the `memory` stage: it's too late to
@@ -295,7 +293,6 @@ initCtrl =
     { ctrlFirstCycle = True,
       ctrlDecodeLoad = False,
       ctrlMemOutputActive = False,
-      ctrlMemInputActive = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
@@ -378,9 +375,6 @@ decode = do
           -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
           || isJust (ctrlExBranch ctrl)
-          -- If the memory input is active (i.e., there's a load down the
-          -- pipe), stall.
-          || ctrlMemInputActive ctrl
 
   modify $ \s ->
     if stall
@@ -614,13 +608,9 @@ writeback = do
       let val = loadExtend size sign <$> input
       setLines $ \c ->
         c
-          { ctrlWbRegFwd = pure (rd, val),
-            ctrlMemInputActive = True
+          { ctrlWbRegFwd = pure (rd, val)
           }
       writeRF rd val
-    Instruction.SType {} ->
-      setLines $ \c ->
-        c {ctrlMemInputActive = True}
     Instruction.IType Jump rd _ _ ->
       writeRF rd res
     Instruction.JType rd _ ->
@@ -630,8 +620,7 @@ writeback = do
       let rd = 10 -- a0
       setLines $ \c ->
         c
-          { ctrlWbRegFwd = pure (rd, val),
-            ctrlMemInputActive = True
+          { ctrlWbRegFwd = pure (rd, val)
           }
     _ -> pure ()
   where
