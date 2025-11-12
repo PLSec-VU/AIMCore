@@ -19,24 +19,24 @@ BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_m
 SOURCES = $(addsuffix .c, $(BENCHMARKS))
 OBJECTS = $(addsuffix .o, $(BENCHMARKS))
 
-# Secure memory library
-SECURE_MEMORY_OBJS = secure_memory.o
+# Secure memory library and getrandom
+SECURE_MEMORY_OBJS = secure_memory.o getrandom.o
 
 # Default target
 all: $(BENCHMARKS)
 
 # Build individual benchmarks
-bench_chacha20: bench_chacha20.c secure_memory.o
-	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+bench_chacha20: bench_chacha20.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
 
 bench_x25519: bench_x25519.c secure_memory.o
 	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
 
-bench_sha256: bench_sha256.c secure_memory.o
-	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+bench_sha256: bench_sha256.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
 
-bench_blake2b: bench_blake2b.c secure_memory.o
-	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+bench_blake2b: bench_blake2b.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
 
 bench_vuln_memcmp: bench_vuln_memcmp.c secure_memory.o
 	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
@@ -52,6 +52,10 @@ bench_secure_memory: bench_secure_memory.c secure_memory.o
 
 # Build secure memory library
 secure_memory.o: secure_memory.c secure_memory.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Build getrandom library
+getrandom.o: getrandom.c getrandom.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Generic rule for all benchmarks
