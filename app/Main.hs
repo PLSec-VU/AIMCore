@@ -44,8 +44,54 @@ instance Binary Leak.Instr
 
 instance Binary Leak.Out
 
-data LeakageDivergenceException = LeakageDivergenceException String
-  deriving (Show)
+data LeakageDivergenceException = LeakageDivergenceException
+  { ldStepCount :: Int
+  , ldLeakages :: [Leak.Out]
+  , ldStates :: [Core.State Identity]
+  , ldInputs :: [Core.Input Identity]
+  }
+
+instance Show LeakageDivergenceException where
+  show (LeakageDivergenceException stepCount leakages states inputs) =
+    unlines $
+      [ "Leakage divergence detected:",
+        "============================",
+        "",
+        "Step count: " P.++ show stepCount,
+        "",
+        "Number of instances: " P.++ show (P.length leakages),
+        ""
+      ] P.++
+      P.concatMap formatInstance (P.zip [0..] (P.zip3 leakages states inputs)) P.++
+      [ "",
+        "Differing leakages:",
+        "-------------------"
+      ] P.++
+      P.map (\(i, leak) -> "Instance " P.++ show i P.++ ": " P.++ show leak) (P.zip [0..] leakages)
+    where
+      formatInstance (idx, (leakage, state, input)) =
+        [ "Instance " P.++ show idx P.++ ":",
+          "-------------------------------",
+          "",
+          "Input:",
+          "  inputIsInstr: " P.++ show (Core.inputIsInstr input),
+          "  inputMem: " P.++ show (Core.inputMem input),
+          "  inputRs1: " P.++ show (Core.inputRs1 input),
+          "  inputRs2: " P.++ show (Core.inputRs2 input),
+          "",
+          "State:",
+          "  PC (fetch): 0x" P.++ showHex (Core.stateFePc state) "",
+          "  PC (decode): 0x" P.++ showHex (Core.stateDePc state) "",
+          "  PC (execute): 0x" P.++ showHex (Core.stateExPc state) "",
+          "  Instruction (execute): " P.++ show (Core.stateExInstr state),
+          "  Instruction (memory): " P.++ show (Core.stateMemInstr state),
+          "  Instruction (writeback): " P.++ show (Core.stateWbInstr state),
+          "  Halt state: " P.++ show (Core.stateHalt state),
+          "",
+          "Leakage:",
+          "  " P.++ show leakage,
+          ""
+        ]
 
 instance Exception LeakageDivergenceException
 
@@ -229,12 +275,13 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
       let leakages = P.map stepLeakage results
       case leakages of
         [] -> pure ()
-        (firstLeakage:restLeakages) -> do
-          let allSame = P.all (== firstLeakage) restLeakages
-          if not allSame
-            then throwIO $ LeakageDivergenceException $
-              "Leakage divergence detected at step " P.++ show stepCount P.++ ". Leakages: " P.++ show leakages
-            else when optVerbose $ putStrLn $ "All instances have consistent leakage: " P.++ show firstLeakage
+        (firstLeakage:restLeakages) -> case filter (/= firstLeakage) restLeakages of
+          [] -> when optVerbose $ putStrLn $ "All instances have consistent leakage: " P.++ show firstLeakage
+          (diff:_) -> do
+            -- Collect current inputs and states for detailed error reporting
+            let currentInputs = P.map (circuitInput . stepSim) results
+            let currentStates = P.map stepFinalState results
+            throwIO $ LeakageDivergenceException stepCount leakages currentStates currentInputs
       
       let continuations = P.map stepContinue results
       let nextInputs = P.map stepNextInput results
