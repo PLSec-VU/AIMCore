@@ -389,5 +389,56 @@ benchmarkTests =
               { benchmarkPath = "test/rv32ui/rv32ui-p-xori",
                 benchmarkInstrument = testSuiteInstrument False
               }
+        ],
+      testGroup
+        "M Extension Test Suite"
+        [ mkBenchmarkTest
+            "rv32um-p-mul"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-mul",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-mulh"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-mulh",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-mulhsu"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-mulhsu",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-mulhu"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-mulhu",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-div"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-div",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-divu"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-divu",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-rem"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-rem",
+                benchmarkInstrument = testSuiteInstrument False
+              },
+          mkBenchmarkTest
+            "rv32um-p-remu"
+            BenchmarkTest
+              { benchmarkPath = "test/rv32um/rv32um-p-remu",
+                benchmarkInstrument = testSuiteInstrument False
+              }
         ]
     ]

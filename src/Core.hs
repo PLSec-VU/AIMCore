@@ -505,10 +505,65 @@ alu _ op lhs rhs = case op of
   SRA -> pack <$> (shiftR <$> (sign <$> lhs) <*> (shiftBits <$> rhs))
   SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
   SLTU -> set <$> ((<) <$> lhs <*> rhs)
+  MUL -> pack <$> ((*) <$> (sign <$> lhs) <*> (sign <$> rhs))
+  MULH -> mulHigh <$> lhs <*> rhs
+  MULHSU -> mulHighSU <$> lhs <*> rhs
+  MULHU -> mulHighU <$> lhs <*> rhs
+  DIV -> divSigned <$> lhs <*> rhs
+  DIVU -> divUnsigned <$> lhs <*> rhs
+  REM -> remSigned <$> lhs <*> rhs
+  REMU -> remUnsigned <$> lhs <*> rhs
   where
     shiftBits s = fromIntegral $ slice d4 d0 s
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
+
+    mulHigh :: Word -> Word -> Word
+    mulHigh w1 w2 =
+      let s1 = unpack @(Signed 64) $ signExtend w1
+          s2 = unpack @(Signed 64) $ signExtend w2
+          result = s1 * s2
+          resultU64 = unpack @(Unsigned 64) (pack result)
+          high32 = unpack @(Unsigned 32) $ slice d63 d32 $ pack resultU64
+      in pack high32
+
+    mulHighSU :: Word -> Word -> Word
+    mulHighSU w1 w2 =
+      let s1 = unpack @(Signed 64) $ signExtend w1
+          u2 = unpack @(Unsigned 64) $ zeroExtend w2
+          -- Convert signed to unsigned for multiplication, handling negative case
+          (u1, isNeg) = if s1 < 0
+                        then (unpack @(Unsigned 64) $ pack (-s1), True)
+                        else (unpack @(Unsigned 64) $ pack s1, False)
+          result = u1 * u2
+          -- Apply sign correction if original was negative
+          finalResult = if isNeg then unpack @(Unsigned 64) $ pack (-(unpack @(Signed 64) $ pack result)) else result
+          high32 = unpack @(Unsigned 32) $ slice d63 d32 $ pack finalResult
+      in pack high32
+    
+    mulHighU :: Word -> Word -> Word
+    mulHighU w1 w2 =
+      let u1 = unpack @(Unsigned 64) $ zeroExtend w1
+          u2 = unpack @(Unsigned 64) $ zeroExtend w2
+          result = u1 * u2
+          high32 = unpack @(Unsigned 32) $ slice d63 d32 $ pack result
+      in pack high32
+
+    divSigned :: Word -> Word -> Word
+    divSigned _  w2 | w2 == 0 = 0xFFFFFFFF
+    divSigned w1 w2 = pack (sign w1 `quot` sign w2)
+
+    divUnsigned :: Word -> Word -> Word
+    divUnsigned _  w2 | w2 == 0 = 0xFFFFFFFF
+    divUnsigned w1 w2 = w1 `quot` w2
+    
+    remSigned :: Word -> Word -> Word
+    remSigned w1 w2 | w2 == 0 = w1 
+    remSigned w1 w2 = pack (sign w1 `rem` sign w2)
+    
+    remUnsigned :: Word -> Word -> Word
+    remUnsigned w1 w2 | w2 == 0 = w1
+    remUnsigned w1 w2 = w1 `rem` w2
 
 branch :: (Access f) => Comparison -> f Word -> f Word -> f Bool
 branch op lhs rhs = case op of

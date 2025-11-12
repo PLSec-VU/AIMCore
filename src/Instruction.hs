@@ -51,6 +51,22 @@ data Arith
     SLT
   | -- | Set Less Than Unsigned
     SLTU
+  | -- | Multiply (M extension)
+    MUL
+  | -- | Multiply High (M extension)
+    MULH
+  | -- | Multiply High Signed-Unsigned (M extension)
+    MULHSU
+  | -- | Multiply High Unsigned (M extension)
+    MULHU
+  | -- | Divide (M extension)
+    DIV
+  | -- | Divide Unsigned (M extension)
+    DIVU
+  | -- | Remainder (M extension)
+    REM
+  | -- | Remainder Unsigned (M extension)
+    REMU
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
 -- | Comparison operations.
@@ -163,6 +179,15 @@ decode word = do
         (0x5, 0x20) -> pure SRA
         (0x2, 0x00) -> pure SLT
         (0x3, 0x00) -> pure SLTU
+        -- M extension instructions
+        (0x0, 0x01) -> pure MUL
+        (0x1, 0x01) -> pure MULH
+        (0x2, 0x01) -> pure MULHSU
+        (0x3, 0x01) -> pure MULHU
+        (0x4, 0x01) -> pure DIV
+        (0x5, 0x01) -> pure DIVU
+        (0x6, 0x01) -> pure REM
+        (0x7, 0x01) -> pure REMU
         _ -> empty
       pure $ RType arith rd rs1 rs2
 
@@ -255,6 +280,15 @@ encode' instruction =
             SRA -> (0x5, 0x20)
             SLT -> (0x2, 0x00)
             SLTU -> (0x3, 0x00)
+            -- M extension instructions
+            MUL -> (0x0, 0x01)
+            MULH -> (0x1, 0x01)
+            MULHSU -> (0x2, 0x01)
+            MULHU -> (0x3, 0x01)
+            DIV -> (0x4, 0x01)
+            DIVU -> (0x5, 0x01)
+            REM -> (0x6, 0x01)
+            REMU -> (0x7, 0x01)
 
       let rd' = pack rd
       let rs1' = pack rs1

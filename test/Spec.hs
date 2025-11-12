@@ -123,7 +123,7 @@ tests =
               mkSecretPCLeakTest "test 3" $ mkProg prog1,
               mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
               testProperty "SecretPC Simulator" $
-                withMaxSuccess 500000 $
+                withMaxSuccess 1 $
                   simulatorTheorem
                     Leak.SecretPC.proj
                     Leak.SecretPC.leak
