@@ -4,3 +4,6 @@
 [submodule "uc-plugin"]
 	path = uc-plugin
 	url = git@github.com:PLSec-VU/uc-plugin.git
+[submodule "benchmark/wolfSSL"]
+	path = benchmark/wolfSSL
+	url = https://github.com/wolfSSL/wolfssl.git
