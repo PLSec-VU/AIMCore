@@ -2,30 +2,32 @@ module Main (main) where
 
 import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
-import Control.Exception (catch)
-import Control.Monad (when)
+import Control.Exception (catch, throwIO, Exception)
+import Control.Monad (when, forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
 import Data.Functor.Identity
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
+import Data.Elf (Elf)
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
-import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram)
+import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram, IOMem)
+import Data.Word (Word32)
 import Numeric (showHex)
 import Simulate
 import Options.Applicative
 import System.Exit (exitWith, ExitCode(..))
 import Types (Word)
 import Util
-import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||), replicate, zip, take)
 import qualified Prelude as P
 import Data.Traversable
 import System.IO
-import Data.Foldable (forM_)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.SecretPC.PC as SecretLeak.PC
-import Data.Binary (encode, Binary (..), Get (..))
+import Data.Binary (encode, Binary (..), Get)
 import Data.IORef
 import Crypto.Hash.BLAKE2.BLAKE2b (initialize', BLAKE2bState, update, finalize)
 import qualified Data.ByteString as BS
@@ -42,7 +44,19 @@ instance Binary Leak.Instr
 
 instance Binary Leak.Out
 
--- Note: SecretLeak.Out is Input Identity, but we'll handle encoding differently
+data LeakageDivergenceException = LeakageDivergenceException String
+  deriving (Show)
+
+instance Exception LeakageDivergenceException
+
+data StepResult f = StepResult
+  { stepMem :: IOMem
+  , stepSim :: CircuitSim (IOMemT IO) (Core.Input Identity) (Core.State Identity) (Core.Output Identity)
+  , stepNextInput :: Maybe (Core.Input Identity)
+  , stepContinue :: Bool
+  , stepFinalState :: Core.State Identity
+  , stepLeakage :: Leak.Out
+  }
 
 -- | Command line options
 data Options = Options
@@ -50,6 +64,7 @@ data Options = Options
   , optLeakageOutput :: Maybe FilePath
   , optSecureMemory :: Bool
   , optExecutable :: String
+  , optNumInstances :: Int
   } deriving (Show)
 
 -- | Parser for verbose flag
@@ -80,6 +95,15 @@ executableParser = strArgument
   ( metavar "EXECUTABLE"
   <> help "RISC-V ELF executable to run" )
 
+-- | Parser for number of instances
+optNumInstancesParser :: Parser Int
+optNumInstancesParser = option auto
+  ( long "num-instances"
+  <> short 'n'
+  <> metavar "N"
+  <> value 2
+  <> help "Number of instances to run concurrently (default: 1)" )
+
 -- | Complete options parser
 optionsParser :: Parser Options
 optionsParser = Options
@@ -87,6 +111,7 @@ optionsParser = Options
   <*> leakageOutputParser
   <*> secureMemoryParser
   <*> executableParser
+  <*> optNumInstancesParser
 
 -- | Program info for help generation
 programInfo :: ParserInfo Options
@@ -100,10 +125,8 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --secure-memory benchmark/bench_secure_memory\n\
             \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
 
--- | Generalized instrument for crypto benchmarks and normal programs
--- Works with any Access functor by taking proj and leak functions as parameters
 generalizedInstrument ::
-  (Access f, Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
+  (Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
   ((Core.State f) -> (leakState, simState)) ->  -- proj function
   (leakState -> Core.Input f -> (leakState, leakOut)) ->  -- leak function
   (leakOut -> BS.ByteString) ->  -- serialization function
@@ -122,7 +145,6 @@ generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput
     s0 <- regRead 8
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
 
-  -- Use the provided proj and leak functions
   let (leakState , _) = projFn s
   let (_ , leakOutput) = leakFn leakState i
   case leakageOutput of
@@ -137,8 +159,6 @@ generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput
     Just True -> handleSyscall
     _ -> pure True
 
--- | General purpose instrument for crypto benchmarks and normal programs
--- Uses Identity functor for non-security mode (backward compatibility)
 generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity m
 generalInstrument = generalizedInstrument
   Leak.PC.proj
@@ -146,8 +166,6 @@ generalInstrument = generalizedInstrument
   (BS.toStrict . encode)
   "STANDARD"
 
--- | Secure instrument for crypto benchmarks with memory security tracking
--- Uses PubSec functor for security mode
 secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument PubSec m
 secureInstrument = generalizedInstrument
   SecretLeak.PC.proj
@@ -155,67 +173,125 @@ secureInstrument = generalizedInstrument
   (BS.toStrict . encode . show)
   "SECURE"
 
--- | Run a RISC-V executable
+runNormalMemory ::
+  Options -> -- Command line options
+  Elf -> -- ELF file
+  Word32 -> -- Entry offset
+  Maybe Handle -> -- Leakage output handle
+  IORef BLAKE2bState -> -- Leakage digest
+  IORef (Maybe (Core.State Identity)) -> -- Final state ref (simplified to Identity for now)
+  IO ()
+runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalStateRef = do
+  memInstances <- forM [1..optNumInstances] $ \_ -> newIOMem elf
+  
+  forM_ memInstances $ \mem -> do
+    runIOMemT mem $ loadProgram elf
+  
+  let initialSims = P.map (\_ -> simulator @Identity @(IOMemT IO)) [1..optNumInstances]
+  let initialStates = P.map (\sim -> sim { circuitState = (Core.init @Identity) { Core.stateFePc = fromIntegral entryOffset } }) initialSims
+  
+  go 0 (P.zip memInstances initialStates)
+  where
+    go stepCount instances = do
+      when optVerbose $ putStrLn $ "=== Step " P.++ show stepCount P.++ " ==="
+      
+      -- Execute one step for each instance in its own memory context
+      results <- forM (P.zip instances [(0::Int)..]) $ \((mem, sim@(CircuitSim i s step next)), idx) -> do
+        (s', _o, mi', cont) <- runIOMemT mem $ do
+          (s', o) <- step i s
+          mi' <- next o
+          
+          let instr = generalInstrument optVerbose leakOutputHandle leakDigest finalStateRef
+          cont <- instr i s' o stepCount
+          
+          pure (s', o, mi', cont)
+        
+        when optVerbose $ do
+          putStrLn $ "Instance " P.++ show idx P.++ ":"
+          putStrLn $ "  PC: 0x" P.++ showHex (Core.stateExPc s') ""
+        
+        let (leakState, _) = Leak.PC.proj s'
+        let (_, leakOutput) = Leak.PC.leak leakState i
+        let newSim = sim { circuitInput = fromMaybe i mi', circuitState = s' }
+        pure StepResult
+          { stepMem = mem
+          , stepSim = newSim
+          , stepNextInput = mi'
+          , stepContinue = cont
+          , stepFinalState = s'
+          , stepLeakage = leakOutput
+          }
+      
+      -- Extract leakages and check consistency immediately
+      let leakages = P.map stepLeakage results
+      case leakages of
+        [] -> pure ()
+        (firstLeakage:restLeakages) -> do
+          let allSame = P.all (== firstLeakage) restLeakages
+          if not allSame
+            then throwIO $ LeakageDivergenceException $
+              "Leakage divergence detected at step " P.++ show stepCount P.++ ". Leakages: " P.++ show leakages
+            else when optVerbose $ putStrLn $ "All instances have consistent leakage: " P.++ show firstLeakage
+      
+      let continuations = P.map stepContinue results
+      let nextInputs = P.map stepNextInput results
+      let nextInstances = P.map (\r -> (stepMem r, stepSim r)) results
+      
+      let shouldContinue = P.all id continuations && P.all isJust nextInputs
+      if shouldContinue
+        then go (stepCount + 1) nextInstances
+        else do
+          putStrLn $ "Execution completed after " P.++ show stepCount P.++ " steps"
+          case results of
+            (r:_) -> writeIORef finalStateRef (Just (stepFinalState r))
+            [] -> pure ()
+
 runExecutable :: Options -> IO ()
-runExecutable opts = do
-  let exePath = optExecutable opts
-      verbose = optVerbose opts
-      leakageOutput = optLeakageOutput opts
-      secureMemory = optSecureMemory opts
+runExecutable opts@Options{..} = do
+  when optVerbose $ putStrLn $ "Loading ELF file: " P.++ optExecutable
 
-  when verbose $ putStrLn $ "Loading ELF file: " P.++ exePath
-
-  elf <- readElf exePath
+  elf <- readElf optExecutable
   entryOffset <- startAddr elf
 
-  when verbose $ do
+  when optVerbose $ do
     putStrLn $ "Entry point: 0x" P.++ showHex entryOffset ""
-    if secureMemory
+    putStrLn $ "Number of instances: " P.++ show optNumInstances
+    if optSecureMemory
       then putStrLn "Starting execution in SECURE MEMORY mode..."
       else putStrLn "Starting execution in standard mode..."
   
-  leakOutputHandle <- forM leakageOutput (flip openFile WriteMode)
+  leakOutputHandle <- forM optLeakageOutput (flip openFile WriteMode)
   leakDigest <- newIORef (initialize' 20 "leakage checksum")
 
-  if secureMemory
+  if optSecureMemory
     then do
-      -- Run with secure memory tracking (PubSec mode)
-      secureIOMem <- newSecureIOMem elf
-      finalStateRef <- newIORef Nothing
-      _ <- runSecureIOMemT secureIOMem $ do
-        loadSecureProgram elf
-        runElf
-          (secureInstrument verbose leakOutputHandle leakDigest finalStateRef)
-          (simulator @PubSec @(SecureIOMemT IO))
-            { circuitState =
-                (Core.init @PubSec)
-                  { Core.stateFePc = fromIntegral entryOffset
-                  }
-            }
-      -- Check for security violation
-      finalState <- readIORef finalStateRef
-      case finalState of
-        Just state | Core.stateHalt state == Core.SecurityViolation -> do
-          putStrLn "Program aborted due to security violation"
-        _ -> pure ()
+      if optNumInstances == 1
+        then do
+          secureIOMem <- newSecureIOMem elf
+          finalStateRef <- newIORef Nothing
+          _ <- runSecureIOMemT secureIOMem $ do
+            loadSecureProgram elf
+            runElf
+              (secureInstrument optVerbose leakOutputHandle leakDigest finalStateRef)
+              (simulator @PubSec @(SecureIOMemT IO))
+                { circuitState =
+                    (Core.init @PubSec)
+                      { Core.stateFePc = fromIntegral entryOffset
+                      }
+                }
+          finalState <- readIORef finalStateRef
+          case finalState of
+            Just state | Core.stateHalt state == Core.SecurityViolation -> do
+              putStrLn "Program aborted due to security violation"
+            _ -> pure ()
+        else do
+          putStrLn "Secure memory mode with multiple instances not yet implemented"
     else do
-      -- Run with standard memory (Identity mode)
-      ioMem <- newIOMem elf
-      finalStateRef <- newIORef Nothing
-      runIOMemT ioMem $ do
-        loadProgram elf
-        runElf
-          (generalInstrument verbose leakOutputHandle leakDigest finalStateRef)
-          (simulator @Identity @(IOMemT IO))
-            { circuitState =
-                (Core.init @Identity)
-                  { Core.stateFePc = fromIntegral entryOffset
-                  }
-            }
+      newIORef Nothing >>= runNormalMemory opts elf entryOffset leakOutputHandle leakDigest
 
   forM_ leakOutputHandle hClose
 
-  when verbose $ putStrLn "Execution completed successfully"
+  when optVerbose $ putStrLn "Execution completed successfully"
 
   digest <- finalize 20 <$> readIORef leakDigest
   putStr "Leakage digest: "
