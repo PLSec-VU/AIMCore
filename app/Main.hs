@@ -31,7 +31,7 @@ import Data.Binary (encode, Binary (..), Get)
 import Data.IORef
 import Crypto.Hash.BLAKE2.BLAKE2b (initialize', BLAKE2bState, update, finalize)
 import qualified Data.ByteString as BS
-import qualified Data.Binary.Builder as BS
+import Data.Binary.Builder
 import qualified Data.ByteString.Builder as BS
 
 instance (KnownNat n) => Binary (Unsigned n) where
@@ -159,11 +159,10 @@ generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput
     Just True -> handleSyscall
     _ -> pure True
 
-generalInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity m
-generalInstrument = generalizedInstrument
+generalInstrument f = generalizedInstrument
   Leak.PC.proj
   Leak.PC.leak
-  (BS.toStrict . encode)
+  f
   "STANDARD"
 
 secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument PubSec m
@@ -201,7 +200,10 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
           (s', o) <- step i s
           mi' <- next o
           
-          let instr = generalInstrument optVerbose leakOutputHandle leakDigest finalStateRef
+          let serialize = if idx == 0
+              then BS.toStrict . encode
+              else const BS.empty
+          let instr = generalInstrument serialize optVerbose leakOutputHandle leakDigest finalStateRef
           cont <- instr i s' o stepCount
           
           pure (s', o, mi', cont)
