@@ -196,7 +196,10 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
       
       -- Execute one step for each instance in its own memory context
       results <- forM (P.zip instances [(0::Int)..]) $ \((mem, sim@(CircuitSim i s step next)), idx) -> do
-        (s', _o, mi', cont) <- runIOMemT mem $ do
+        (s', _o, mi', cont, leakOutput) <- runIOMemT mem $ do
+          let (leakState, _) = Leak.PC.proj s
+          let (_, leakOutput) = Leak.PC.leak leakState i
+
           (s', o) <- step i s
           mi' <- next o
           
@@ -206,14 +209,12 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
           let instr = generalInstrument serialize optVerbose leakOutputHandle leakDigest finalStateRef
           cont <- instr i s' o stepCount
           
-          pure (s', o, mi', cont)
+          pure (s', o, mi', cont, leakOutput)
         
         when optVerbose $ do
           putStrLn $ "Instance " P.++ show idx P.++ ":"
           putStrLn $ "  PC: 0x" P.++ showHex (Core.stateExPc s') ""
         
-        let (leakState, _) = Leak.PC.proj s'
-        let (_, leakOutput) = Leak.PC.leak leakState i
         let newSim = sim { circuitInput = fromMaybe i mi', circuitState = s' }
         pure StepResult
           { stepMem = mem
