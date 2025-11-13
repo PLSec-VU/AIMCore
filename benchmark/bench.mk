@@ -11,16 +11,20 @@ INCLUDE_DIR = $(INSTALL_PREFIX)/include
 LIB_DIR = $(INSTALL_PREFIX)/lib
 
 # Compiler flags (32-bit RISC-V)
-CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -fPIC
+CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -I./wolfSSL -fPIC
 LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
+# WolfSSL specific flags for ECDSA benchmark
+WOLFSSL_CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I./wolfSSL -fPIC -DWOLFSSL_USER_SETTINGS
+WOLFSSL_LDFLAGS = -march=rv32i -mabi=ilp32 -L. -lwolfssl_minimal
+
 # Benchmark sources and targets
-BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_memcmp bench_sodium_memcmp bench_random bench_secure_memory
+BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_memcmp bench_sodium_memcmp bench_random bench_secure_memory bench_ecdsa_sha256
 SOURCES = $(addsuffix .c, $(BENCHMARKS))
 OBJECTS = $(addsuffix .o, $(BENCHMARKS))
 
 # Secure memory library and getrandom
-SECURE_MEMORY_OBJS = secure_memory.o getrandom.o
+SECURE_MEMORY_OBJS = secure_memory.o getrandom.o custom_rng.o
 
 # Default target
 all: $(BENCHMARKS)
@@ -50,12 +54,19 @@ bench_random: bench_random.c secure_memory.o
 bench_secure_memory: bench_secure_memory.c secure_memory.o
 	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
 
+bench_ecdsa_sha256: bench_ecdsa_sha256.c secure_memory.o getrandom.o custom_rng.o
+	$(CC) $(WOLFSSL_CFLAGS) -o $@ $< secure_memory.o getrandom.o custom_rng.o $(WOLFSSL_LDFLAGS)
+
 # Build secure memory library
 secure_memory.o: secure_memory.c secure_memory.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Build getrandom library
 getrandom.o: getrandom.c getrandom.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Build custom RNG library
+custom_rng.o: custom_rng.c custom_rng.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Generic rule for all benchmarks

@@ -147,7 +147,7 @@ optNumInstancesParser = option auto
   ( long "num-instances"
   <> short 'n'
   <> metavar "N"
-  <> value 2
+  <> value 1
   <> help "Number of instances to run concurrently (default: 1)" )
 
 -- | Complete options parser

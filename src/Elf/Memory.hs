@@ -54,7 +54,7 @@ runIOMemT iomem (IOMemT m) = runReaderT m iomem
 
 newIOMem :: MonadIO m => Elf -> m IOMem
 newIOMem elf = do
-  let memSize = 0x4000000
+  let memSize = 0xf000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
   let sp = base + memSize - 0x1000000
   rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF

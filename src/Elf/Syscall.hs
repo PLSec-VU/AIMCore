@@ -65,6 +65,7 @@ handleSyscall = regRead 17 >>= \case
         regWrite 10 (bitCoerce count)
     pure True
   57 -> do -- close
+    regWrite 10 0
     pure True
   214 -> do -- brk
     regWrite 10 (-1)
