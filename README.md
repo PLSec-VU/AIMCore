@@ -35,6 +35,9 @@ stack run -- --secure-memory benchmark/bench_secure_memory
 # Output leakage traces to a file
 stack run -- --leakage-output traces.txt benchmark/bench_x25519
 
+# Leakage divergence check
+stack run -- -n2 bench_ecdsa_sha256_O0
+
 # Run test suite
 stack test
 ```
