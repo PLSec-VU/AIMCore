@@ -1,181 +1,106 @@
-# Makefile for building libsodium for RISC-V
-# This Makefile cross-compiles libsodium using RISC-V toolchain
+# RISC-V toolchain configuration (32-bit using 64-bit toolchain)
+RISCV_PREFIX = riscv64-unknown-elf
+CC = $(RISCV_PREFIX)-gcc
+OBJDUMP = $(RISCV_PREFIX)-objdump
 
-# Configuration variables
-RISCV_PREFIX ?= riscv64-unknown-elf
-RISCV_TOOLCHAIN_PATH ?= /opt/homebrew
-LIBSODIUM_DIR = libsodium
-BUILD_DIR = build-riscv
+# Paths
 INSTALL_PREFIX = $(PWD)/install-riscv
+INCLUDE_DIR = $(INSTALL_PREFIX)/include
+LIB_DIR = $(INSTALL_PREFIX)/lib
 
-# Toolchain configuration
-CC = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-gcc
-CXX = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-g++
-AR = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-ar
-RANLIB = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-ranlib
-STRIP = $(RISCV_TOOLCHAIN_PATH)/bin/$(RISCV_PREFIX)-strip
+# Compiler flags (32-bit RISC-V)
+CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -I./wolfSSL -fPIC
+LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
-# Build flags (32-bit RISC-V)
-CFLAGS ?= -march=rv32i -mabi=ilp32 -O2 -g
-CPPFLAGS ?=
-LDFLAGS ?=
+# WolfSSL specific flags for ECDSA benchmark
+WOLFSSL_CFLAGS_O0 = -march=rv32i -mabi=ilp32 -O0 -g -I./wolfSSL -fPIC -DWOLFSSL_USER_SETTINGS
+WOLFSSL_CFLAGS_O3 = -march=rv32i -mabi=ilp32 -O3 -g -I./wolfSSL -fPIC -DWOLFSSL_USER_SETTINGS
+WOLFSSL_LDFLAGS_O0 = -march=rv32i -mabi=ilp32 -L. -lwolfssl_minimal_O0
+WOLFSSL_LDFLAGS_O3 = -march=rv32i -mabi=ilp32 -L. -lwolfssl_minimal_O3
 
-# Number of parallel jobs
-NPROC = $(shell nproc 2>/dev/null || echo 4)
+# Benchmark sources and targets
+BENCHMARKS = bench_chacha20 bench_x25519 bench_sha256 bench_blake2b bench_vuln_memcmp bench_sodium_memcmp bench_random bench_secure_memory bench_ecdsa_sha256_O0 bench_ecdsa_sha256_O3
+SOURCES = $(addsuffix .c, $(BENCHMARKS))
+OBJECTS = $(addsuffix .o, $(BENCHMARKS))
+
+# Secure memory library and getrandom
+SECURE_MEMORY_OBJS = secure_memory.o getrandom.o custom_rng.o
 
 # Default target
-.PHONY: all
-all: libsodium
+all: $(BENCHMARKS)
 
-# Help target
-.PHONY: help
-help:
-	@echo "Makefile for building libsodium for RISC-V"
-	@echo ""
-	@echo "Available targets:"
-	@echo "  all              - Build libsodium (default)"
-	@echo "  libsodium        - Build libsodium"
-	@echo "  configure        - Configure libsodium for RISC-V"
-	@echo "  autogen          - Run autogen.sh to generate configure script"
-	@echo "  clean            - Clean build artifacts"
-	@echo "  distclean        - Clean all generated files"
-	@echo "  install          - Install libsodium to INSTALL_PREFIX"
-	@echo "  test             - Run libsodium tests (requires RISC-V emulator)"
-	@echo "  help             - Show this help message"
-	@echo ""
-	@echo "Configuration variables:"
-	@echo "  RISCV_PREFIX     - RISC-V toolchain prefix (default: $(RISCV_PREFIX))"
-	@echo "  RISCV_TOOLCHAIN_PATH - Path to RISC-V toolchain (default: $(RISCV_TOOLCHAIN_PATH))"
-	@echo "  INSTALL_PREFIX   - Installation prefix (default: $(INSTALL_PREFIX))"
-	@echo "  CFLAGS           - C compiler flags (default: $(CFLAGS))"
-	@echo ""
-	@echo "Example usage:"
-	@echo "  make RISCV_TOOLCHAIN_PATH=/usr/local/riscv"
-	@echo "  make RISCV_PREFIX=riscv32-unknown-elf"
+# Build individual benchmarks
+bench_chacha20: bench_chacha20.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
 
-# Check if toolchain exists
-.PHONY: check-toolchain
-check-toolchain:
-	@if [ ! -x "$(CC)" ]; then \
-		echo "Error: RISC-V toolchain not found at $(CC)"; \
-		echo "Please set RISCV_TOOLCHAIN_PATH to the correct path"; \
-		echo "Current setting: RISCV_TOOLCHAIN_PATH=$(RISCV_TOOLCHAIN_PATH)"; \
+bench_x25519: bench_x25519.c secure_memory.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+
+bench_sha256: bench_sha256.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
+
+bench_blake2b: bench_blake2b.c secure_memory.o getrandom.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o getrandom.o $(LDFLAGS)
+
+bench_vuln_memcmp: bench_vuln_memcmp.c secure_memory.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+
+bench_sodium_memcmp: bench_sodium_memcmp.c secure_memory.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+
+bench_random: bench_random.c secure_memory.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+
+bench_secure_memory: bench_secure_memory.c secure_memory.o
+	$(CC) $(CFLAGS) -o $@ $< secure_memory.o $(LDFLAGS)
+
+bench_ecdsa_sha256_O0: bench_ecdsa_sha256.c secure_memory.o getrandom.o custom_rng.o
+	$(CC) $(WOLFSSL_CFLAGS_O0) -o $@ $< secure_memory.o getrandom.o custom_rng.o $(WOLFSSL_LDFLAGS_O0)
+
+bench_ecdsa_sha256_O3: bench_ecdsa_sha256.c secure_memory.o getrandom.o custom_rng.o
+	$(CC) $(WOLFSSL_CFLAGS_O3) -o $@ $< secure_memory.o getrandom.o custom_rng.o $(WOLFSSL_LDFLAGS_O3)
+
+# Build secure memory library
+secure_memory.o: secure_memory.c secure_memory.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Build getrandom library
+getrandom.o: getrandom.c getrandom.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Build custom RNG library
+custom_rng.o: custom_rng.c custom_rng.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Generic rule for all benchmarks
+%: %.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# Show objdump info for a benchmark
+objdump-%: %
+	$(OBJDUMP) -f $<
+
+# Clean targets
+clean:
+	rm -f $(BENCHMARKS) $(OBJECTS) $(SECURE_MEMORY_OBJS)
+	rm -f *.core
+
+# Show configuration
+show-config:
+	@echo "RISC-V Benchmark Configuration:"
+	@echo "  CC:           $(CC)"
+	@echo "  CFLAGS:       $(CFLAGS)"
+	@echo "  LDFLAGS:      $(LDFLAGS)"
+	@echo "  INCLUDE_DIR:  $(INCLUDE_DIR)"
+	@echo "  LIB_DIR:      $(LIB_DIR)"
+	@echo "  BENCHMARKS:   $(BENCHMARKS)"
+
+# Check if libsodium is built
+check-deps:
+	@if [ ! -f "$(LIB_DIR)/libsodium.a" ]; then \
+		echo "Error: libsodium not found. Run 'make install' first."; \
 		exit 1; \
 	fi
-	@echo "Using RISC-V toolchain: $(CC)"
+	@echo "Dependencies OK"
 
-# Run autogen.sh to generate configure script
-.PHONY: autogen
-autogen:
-	@echo "Running autogen.sh..."
-	cd $(LIBSODIUM_DIR) && ./autogen.sh
-
-# Configure libsodium for RISC-V cross-compilation
-.PHONY: configure
-configure: check-toolchain autogen
-	@echo "Configuring libsodium for RISC-V..."
-	@mkdir -p $(BUILD_DIR)
-	cd $(LIBSODIUM_DIR) && \
-	./configure \
-		--host=$(RISCV_PREFIX) \
-		--prefix=$(INSTALL_PREFIX) \
-		--disable-shared \
-		--enable-static \
-		--disable-pie \
-		--disable-soname-versions \
-		CC="$(CC)" \
-		CXX="$(CXX)" \
-		AR="$(AR)" \
-		RANLIB="$(RANLIB)" \
-		STRIP="$(STRIP)" \
-		CFLAGS="$(CFLAGS)" \
-		CPPFLAGS="$(CPPFLAGS)" \
-		LDFLAGS="$(LDFLAGS)"
-
-# Build libsodium
-.PHONY: libsodium
-libsodium: configure
-	@echo "Building libsodium for RISC-V..."
-	cd $(LIBSODIUM_DIR) && $(MAKE) -j$(NPROC)
-
-# Install libsodium
-.PHONY: install
-install: libsodium
-	@echo "Installing libsodium to $(INSTALL_PREFIX)..."
-	cd $(LIBSODIUM_DIR) && $(MAKE) install
-	@echo "Installation complete!"
-	@echo "Headers: $(INSTALL_PREFIX)/include"
-	@echo "Library: $(INSTALL_PREFIX)/lib/libsodium.a"
-
-# Run tests (requires RISC-V emulator like QEMU)
-.PHONY: test
-test: libsodium
-	@echo "Running libsodium tests..."
-	@echo "Note: This requires a RISC-V emulator (e.g., qemu-riscv64) in your PATH"
-	cd $(LIBSODIUM_DIR) && $(MAKE) check
-
-# Clean build artifacts
-.PHONY: clean
-clean:
-	@echo "Cleaning build artifacts..."
-	-cd $(LIBSODIUM_DIR) && $(MAKE) clean
-	-rm -rf $(BUILD_DIR)
-
-# Clean all generated files
-.PHONY: distclean
-distclean:
-	@echo "Cleaning all generated files..."
-	-cd $(LIBSODIUM_DIR) && $(MAKE) distclean
-	-rm -rf $(BUILD_DIR) $(INSTALL_PREFIX)
-	-cd $(LIBSODIUM_DIR) && rm -f configure config.h.in aclocal.m4
-	-cd $(LIBSODIUM_DIR) && rm -rf autom4te.cache build-aux m4/libtool.m4 m4/lt*.m4
-
-# Show current configuration
-.PHONY: show-config
-show-config:
-	@echo "Current configuration:"
-	@echo "  RISCV_PREFIX:        $(RISCV_PREFIX)"
-	@echo "  RISCV_TOOLCHAIN_PATH: $(RISCV_TOOLCHAIN_PATH)"
-	@echo "  CC:                  $(CC)"
-	@echo "  INSTALL_PREFIX:      $(INSTALL_PREFIX)"
-	@echo "  CFLAGS:              $(CFLAGS)"
-	@echo "  NPROC:               $(NPROC)"
-
-# Minimal build (smaller library with fewer features)
-.PHONY: minimal
-minimal: check-toolchain autogen
-	@echo "Configuring libsodium for RISC-V (minimal build)..."
-	cd $(LIBSODIUM_DIR) && \
-	./configure \
-		--host=$(RISCV_PREFIX) \
-		--prefix=$(INSTALL_PREFIX) \
-		--disable-shared \
-		--enable-static \
-		--enable-minimal \
-		--disable-pie \
-		--disable-soname-versions \
-		CC="$(CC)" \
-		CXX="$(CXX)" \
-		AR="$(AR)" \
-		RANLIB="$(RANLIB)" \
-		STRIP="$(STRIP)" \
-		CFLAGS="$(CFLAGS)" \
-		CPPFLAGS="$(CPPFLAGS)" \
-		LDFLAGS="$(LDFLAGS)"
-	@echo "Building minimal libsodium for RISC-V..."
-	cd $(LIBSODIUM_DIR) && $(MAKE) -j$(NPROC)
-
-# Debug build
-.PHONY: debug
-debug:
-	$(MAKE) libsodium CFLAGS="-O0 -g3 -DDEBUG"
-
-# Release build with optimizations
-.PHONY: release
-release:
-	$(MAKE) libsodium CFLAGS="-O3 -DNDEBUG -flto"
-
-# Show libsodium version
-.PHONY: version
-version:
-	@cd $(LIBSODIUM_DIR) && grep "AC_INIT" configure.ac | head -1
+.PHONY: all clean show-config check-deps

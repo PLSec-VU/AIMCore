@@ -1,0 +1,28 @@
+# RISC-V Cryptographic Benchmarks
+
+This directory contains a collection of cryptographic RISC-V programs.
+
+## Prerequisites
+
+### RISC-V Toolchain
+
+You need a RISC-V cross-compilation toolchain:
+#### Installing RISC-V Toolchain
+
+**MacOS:**
+```bash
+brew tap riscv-software-src/riscv
+brew install riscv-tools
+```
+
+### Build
+```bash
+# Build libsodium for RISC-V
+make -f sodium_build.mk all
+
+# Build WolfSSL libraries
+make -f wolfSSL_build.mk all
+
+# Build the programs
+make all
+```
