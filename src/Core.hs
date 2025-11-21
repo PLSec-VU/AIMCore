@@ -365,8 +365,8 @@ decode = do
   ctrl <- gets stateCtrl
 
   let stall =
-          -- First cycle = gibberish from memory, so we stall.
-          ctrlFirstCycle ctrl
+        -- First cycle = gibberish from memory, so we stall.
+        ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
           || isJust (ctrlExBranch ctrl)
@@ -420,9 +420,10 @@ execute = do
         Instruction.IType Jump _ _ imm -> do
           pc <- gets $ pure . pack . stateExPc
           r1 <- rs1
-          let branchAddr = unpack <$> alu True ADD r1 (pure $ signExtend imm)
-          setLines $
-            \c -> c {ctrlExBranch = fromPublic branchAddr}
+          lift $ noSecrets r1 () $ \r1' -> do
+            let branchAddr = unpack <$> alu True ADD r1' (pure $ signExtend imm)
+            setLines $
+              \c -> c {ctrlExBranch = fromPublic branchAddr}
           pure
             (ADD, pc, pure 4)
         Instruction.IType op _ _ imm -> do
