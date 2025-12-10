@@ -1,45 +1,40 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.PC.SimplePC
-  ( obs,
-    -- comment them out to disable Pantomime checks for faster compilation
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
-  )
+module Leak.SimplePC.PC (
+  obs,
+  -- comment them out to disable Pantomime checks for faster compilation
+  tickStateCorrespondence,
+  projectionCoherence,
+)
 where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
-import Control.Monad.RWS
-import Control.Monad.State
-import Core (Input (..), MemAccess (..), Output (..), initInput)
+import Core (Input (..), MemAccess (..), Output (..))
 import qualified Core
+import Data.Bifunctor (second)
+import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
-import Instruction (Instruction)
-import qualified Leak.PC.Leak as Leak
-import qualified Leak.PC.Sim as Sim
-import RegFile
-import qualified Simulate
-import Types
-import Util
-import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified Leak.SimplePC.Sim as Sim
+import qualified Leak.SimplePC.SimpleLeak as Leak
 import qualified Pantomime as P
-import qualified Pantomime.Clash as Clash
 import qualified Pantomime.Base as Base
-import Data.Bifunctor (second)
-import Data.Composition
+import qualified Pantomime.Clash as Clash
+import Types
+import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference   (Core.State Identity)   Leak.State   Sim.State   (Input Identity)   Leak.Out   (Maybe Address)
-circuits = P.NonInterference
-  { P.implementation = second obs' .: implementation
-  , P.leakage = leak
-  , P.projection = proj
-  }
+circuits :: P.NonInterference (Core.State Identity) ((), Core.State Identity) Sim.State (Input Identity) (Leak.Instr, Maybe Address) (Maybe Address)
+circuits =
+  P.NonInterference
+    { P.implementation = second obs' .: implementation
+    , P.leakage = Leak.leakCircuit Leak.leakPC
+    , P.projection = proj
+    }
 
 {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
@@ -61,62 +56,36 @@ obs' o_sim = do
   guard $ memIsInstr mem
   pure $ memAddress mem
 
-leak :: Leak.State -> Input Identity -> (Leak.State, Leak.Out)
-leak = Leak.circuit
-
-proj :: Core.State Identity -> (Leak.State, Sim.State)
+proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
 proj s = (ts, ss)
-  where
-    ts =
-      Leak.State
-        { Leak.stateFePc = Core.stateFePc s,
-          Leak.stateDePc = Core.stateDePc s,
-          Leak.stateExPc = Core.stateExPc s,
-          Leak.stateExInstr = Core.stateExInstr s,
-          Leak.stateMemInstr = Core.stateMemInstr s,
-          Leak.stateMemRes = runIdentity $ Core.stateMemRes s,
-          Leak.stateWbInstr = Core.stateWbInstr s,
-          Leak.stateWbRes = runIdentity $ Core.stateWbRes s,
-          Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
-          Leak.stateStallDecode = toStallDecode $ Core.stateCtrl s,
-          Leak.stateHalt = Core.stateHalt s /= Core.Running,
-          Leak.stateMeRegFwd = fmap (fmap runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
-          Leak.stateWbRegFwd = fmap (fmap runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
-          Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
-          Leak.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
-        }
-    ss =
-      Sim.State
-        { Sim.stateFePc = Core.stateFePc s,
-          Sim.stateDePc = Core.stateDePc s,
-          Sim.stateExPc = Core.stateExPc s,
-          Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
-          Sim.stateHalt = Core.stateHalt s /= Core.Running,
-          Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
-          Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
-          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
-          Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
-        }
+ where
+  ts = Leak.leakProject Leak.leakPC s
+  ss =
+    Sim.State
+      { Sim.stateFePc = Core.stateFePc s
+      , Sim.stateDePc = Core.stateDePc s
+      , Sim.stateExPc = Core.stateExPc s
+      , Sim.stateExInstr = Leak.toLeakInstr $ Core.stateExInstr s
+      , Sim.stateMemInstr = killJump $ Leak.toLeakInstr $ Core.stateMemInstr s
+      , Sim.stateWbInstr = killJump $ Leak.toLeakInstr $ Core.stateWbInstr s
+      , Sim.stateHalt = Core.stateHalt s /= Core.Running
+      , Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s
+      , Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s
+      , Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s
+      , Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
+      }
 
-    killJump :: Leak.Instr -> Leak.Instr
-    killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
-    killJump i = i
+  killJump :: Leak.Instr -> Leak.Instr
+  killJump (Leak.Instr (Leak.Jump'{}) _ _) = Leak.nop'
+  killJump i = i
 
-    toLeakInstr :: Instruction -> Leak.Instr
-    toLeakInstr instr =
-      Leak.Instr
-        (Leak.mkInstr instr)
-        (Leak.mkDeps instr)
+  toStallFetch :: Core.Control Identity -> Bool
+  toStallFetch ctrl =
+    Core.ctrlDecodeLoad ctrl
+      || Core.ctrlMemOutputActive ctrl
+      || isJust (Core.ctrlExBranch ctrl)
 
-    toStallFetch :: Core.Control Identity -> Bool
-    toStallFetch ctrl =
-      Core.ctrlDecodeLoad ctrl
-        || Core.ctrlMemOutputActive ctrl
-        || isJust (Core.ctrlExBranch ctrl)
-
-    toStallDecode :: Core.Control Identity -> Bool
-    toStallDecode ctrl =
-      Core.ctrlFirstCycle ctrl
-        || isJust (Core.ctrlExBranch ctrl)
+  toStallDecode :: Core.Control Identity -> Bool
+  toStallDecode ctrl =
+    Core.ctrlFirstCycle ctrl
+      || isJust (Core.ctrlExBranch ctrl)

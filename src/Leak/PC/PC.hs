@@ -8,7 +8,7 @@ module Leak.PC.PC
     proj,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
+    -- theory,
     -- tickStateCorrespondence,
     -- projectionCoherence,
   )

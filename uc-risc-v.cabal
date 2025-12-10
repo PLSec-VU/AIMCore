@@ -50,6 +50,7 @@ library
       Util
   other-modules:
       Leak.SimplePC.PC
+      Leak.SimplePC.Sim
       Leak.SimplePC.SimpleLeak
       Paths_uc_risc_v
   autogen-modules:
