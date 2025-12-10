@@ -420,8 +420,8 @@ execute = do
         Instruction.IType Jump _ _ imm -> do
           pc <- gets $ pure . pack . stateExPc
           r1 <- rs1
-          lift $ noSecrets r1 () $ \r1' -> do
-            let branchAddr = unpack <$> alu True ADD r1' (pure $ signExtend imm)
+          lift $ noSecrets r1 () $ \_ -> do
+            let branchAddr = unpack <$> alu True ADD r1 (pure $ signExtend imm)
             setLines $
               \c -> c {ctrlExBranch = fromPublic branchAddr}
           pure

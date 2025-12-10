@@ -49,6 +49,8 @@ library
       Types
       Util
   other-modules:
+      Leak.SimplePC.PC
+      Leak.SimplePC.SimpleLeak
       Paths_uc_risc_v
   autogen-modules:
       Paths_uc_risc_v

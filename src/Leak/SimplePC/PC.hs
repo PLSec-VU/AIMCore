@@ -1,14 +1,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.PC.PC
+module Leak.PC.SimplePC
   ( obs,
-    leak,
-    sim,
-    circuit,
-    proj,
-    implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
     -- tickStateCorrespondence,
     -- projectionCoherence,
   )
@@ -36,16 +30,6 @@ import qualified Pantomime.Clash as Clash
 import qualified Pantomime.Base as Base
 import Data.Bifunctor (second)
 import Data.Composition
-
-{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State Identity -> Input Identity -> Bool
-theory = P.pantomime P.Pantomime
-  { observation = obs'
-  , implementation = implementation
-  , leakage = leak
-  , simulator = sim
-  , projection = proj
-  }
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
@@ -79,18 +63,6 @@ obs' o_sim = do
 
 leak :: Leak.State -> Input Identity -> (Leak.State, Leak.Out)
 leak = Leak.circuit
-
-sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
-sim = Sim.circuit
-
-circuit ::
-  (Leak.State, Sim.State) ->
-  Input Identity ->
-  ((Leak.State, Sim.State), Maybe Address)
-circuit (ts, ss) input = ((ts', ss'), addr)
-  where
-    (ts', o_leak) = leak ts input
-    (ss', addr) = sim ss o_leak
 
 proj :: Core.State Identity -> (Leak.State, Sim.State)
 proj s = (ts, ss)
