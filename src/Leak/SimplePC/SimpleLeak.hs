@@ -5,7 +5,7 @@ module Leak.SimplePC.SimpleLeak (
   Instr (..),
   BaseInstr (..),
   toLeakInstr,
-  nop'
+  nop',
 )
 where
 
@@ -17,8 +17,8 @@ import Types
 -- A leakage is a mealy machine with state sl, input ii, output ol,
 -- equipped with a state projection from si to sl.
 data Leakage si ii sl ol = Leakage
-  { leakCircuit :: (sl -> ii -> (sl, ol)),
-    leakProject :: si -> sl
+  { leakCircuit :: (sl -> ii -> (sl, ol))
+  , leakProject :: si -> sl
   }
 
 -- Combine two leakages into a leakage that leaks both.
@@ -35,7 +35,7 @@ leakPC = leakInstructionType ^&^ leakJumpAddress
 
 data BaseInstr
   = Jump'
-  | Load' RegIdx
+  | Load'
   | Store'
   | Other'
   | Call'
@@ -46,26 +46,22 @@ data Instr = Instr BaseInstr (Maybe RegIdx) (Maybe RegIdx)
   deriving (Show, Eq)
 
 toLeakInstr :: Instruction -> Instr
-toLeakInstr input = Instr (mkInstr input) (getRs1 input >>= nonZero) (getRs2 input >>= nonZero)
-  where
-    nonZero :: RegIdx -> Maybe RegIdx
-    nonZero 0 = Nothing
-    nonZero r = Just r
-    mkInstr :: Instruction -> BaseInstr
-    mkInstr instr =
-      case instr of
-        RType{} -> Other'
-        IType iop rd _ _ -> case iop of
-          Arith{} -> Other'
-          Load{} -> Load' rd
-          Jump -> Jump'
-          Env Break -> Break'
-          Env Call -> Call'
-        SType{} -> Store'
-        BType{} -> Jump'
-        UType Zero _ _ -> Other'
-        UType PC _ _ -> Other'
-        JType{} -> Jump'
+toLeakInstr input = Instr (mkInstr input) (getRs1 input) (getRs2 input)
+ where
+  mkInstr :: Instruction -> BaseInstr
+  mkInstr instr = case instr of
+    RType{} -> Other'
+    IType iop _ _ _ -> case iop of
+      Arith{} -> Other'
+      Load{} -> Load'
+      Jump -> Jump'
+      Env Break -> Break'
+      Env Call -> Call'
+    SType{} -> Store'
+    BType{} -> Jump'
+    UType Zero _ _ -> Other'
+    UType PC _ _ -> Other'
+    JType{} -> Jump'
 
 nop' :: Instr
 nop' = toLeakInstr nop
@@ -79,6 +75,6 @@ leakInstructionType = Leakage (\() i -> ((), leak i)) (const ())
 
 leakJumpAddress :: Leakage (Core.State Identity) (Core.Input Identity) (Core.State Identity) (Maybe Address)
 leakJumpAddress = Leakage leak id
-  where
-    leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Maybe Address)
-    leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExBranch $ Core.stateCtrl s')
+ where
+  leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Maybe Address)
+  leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExBranch $ Core.stateCtrl s')
