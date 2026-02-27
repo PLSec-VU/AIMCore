@@ -1,11 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/options.h>
 #include <wolfssl/wolfcrypt/ecc.h>
-#include <wolfssl/wolfcrypt/sha256.h>
-#include <wolfssl/wolfcrypt/random.h>
-#include <wolfssl/wolfcrypt/error-crypt.h>
-#include <wolfssl/wolfcrypt/integer.h>
 #include "secure_memory.h"
 #include "getrandom.h"
 #include "custom_rng.h"

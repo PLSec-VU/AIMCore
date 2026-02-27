@@ -1,12 +1,11 @@
-#define WOLFSSL_HAVE_SP_ECC
-#define WOLFSSL_SP_MATH_ALL
-#define WOLFSSL_SP_32BIT
-#define NO_RSA
+/* Map wolfSSL RNG to your custom functions */
+#define WOLFSSL_NO_GETPID
+#define WOLFSSL_NO_MALLOC
+#define WC_NO_HASHDRBG
+#define WC_RESEED_INTERVAL (1000000)
 
-#define WOLFSSL_SP_ASM
-#define TFM_TIMING_RESISTANT
-#define ECC_TIMING_RESISTANT
+#define CUSTOM_RAND_GENERATE_BLOCK custom_rand_generate_block
+#define CUSTOM_RAND_GENERATE_SEED custom_rand_generate_seed
 
-#define SINGLE_THREADED
-#define NO_FILESYSTEM
-#define WOLFCRYPT_ONLY
+extern int custom_rand_generate_block(unsigned char* output, unsigned int sz);
+extern int custom_rand_generate_seed(unsigned char* seed, unsigned int sz);
