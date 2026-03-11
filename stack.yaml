@@ -1,16 +1,15 @@
-resolver: lts-24.00
+resolver: nightly-2025-02-20
 
 packages:
-  - .
+- .
 
 extra-deps:
-  - ../pantomime
-  - parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
-  - clash-prelude-1.8.4@sha256:181d9564bca862d3cd19189702634370c98b817abc048fa0cdcbee1cf2fb6c78,18384
-  - sbv-13.5@sha256:00aea86ad09dcefb5d5286dd68bfb894709d2874052bcdadf80af3add9596af7,26690
-  - blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
+- ../pantomime
+- blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
+- grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
 
 allow-newer-deps:
+- pantomime
 - blake2
 
-allow-newer: false
+allow-newer: true

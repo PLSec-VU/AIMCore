@@ -24,51 +24,48 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
-import Data.Bifunctor (second)
-import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
 import Instruction (Instruction)
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
-import qualified Pantomime as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
 import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified Pantomime as P
+import qualified Pantomime.Clash as Clash
+import qualified Pantomime.Base as Base
+import Data.Bifunctor (second)
+import Data.Composition
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State Identity -> Input Identity -> Bool
-theory =
-  P.pantomime
-    P.Pantomime
-      { observation = obs',
-        implementation = implementation,
-        leakage = leak,
-        simulator = sim,
-        projection = proj
-      }
+theory = P.pantomime P.Pantomime
+  { observation = obs'
+  , implementation = implementation
+  , leakage = leak
+  , simulator = sim
+  , projection = proj
+  }
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
-circuits =
-  P.NonInterference
-    { P.implementation = second obs' .: implementation,
-      P.leakage = leak,
-      P.projection = proj
-    }
+circuits :: P.NonInterference   (Core.State Identity)   Leak.State   Sim.State   (Input Identity)   Leak.Out   (Maybe Address)
+circuits = P.NonInterference
+  { P.implementation = second obs' .: implementation
+  , P.leakage = leak
+  , P.projection = proj
+  }
 
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
 projectionCoherence = P.projectionCoherence circuits
 
@@ -126,14 +123,18 @@ proj s = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
+          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s /= Core.Running,
           Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
           Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
           Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
+
+    killJump :: Leak.Instr -> Leak.Instr
+    killJump (Leak.Instr (Leak.Jump {}) _) = Leak.nop
+    killJump i = i
 
     toLeakInstr :: Instruction -> Leak.Instr
     toLeakInstr instr =
@@ -144,20 +145,18 @@ proj s = (ts, ss)
     toStallFetch :: Core.Control Identity -> Bool
     toStallFetch ctrl =
       Core.ctrlDecodeLoad ctrl
-        || Core.ctrlMeOutputActive ctrl
+        || Core.ctrlMemOutputActive ctrl
         || isJust (Core.ctrlExBranch ctrl)
 
     toStallDecode :: Core.Control Identity -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
-        || Core.ctrlMeBranch ctrl
-        || Core.ctrlExLoad ctrl
-        || Core.ctrlWbMemInstr ctrl
 
 simulator ::
   forall m.
-  (MonadState ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) m) =>
+  ( MonadState ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) m
+  ) =>
   CircuitSim m (Input Identity) (Leak.State, Sim.State) (Maybe Address, Maybe Address)
 simulator =
   CircuitSim

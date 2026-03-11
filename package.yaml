@@ -58,7 +58,7 @@ dependencies:
 - bytestring
 - exceptions
 - entropy
-- pantomime
+- uc-plugin
 
 ghc-options:
 - -Wall
@@ -128,3 +128,4 @@ tests:
     - melf
     - bytestring
     - exceptions
+

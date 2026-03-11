@@ -48,7 +48,7 @@ data Instr = Instr
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
-isLoad (Instr Call _) = True -- syscalls behaves like load to a0
+isLoad (Instr Call _) = True -- syscalls behaves like load to a0 
 isLoad _ = False
 
 loadHazard :: Instr -> Instr -> Bool
@@ -102,8 +102,7 @@ init =
 data Out = Out
   { outInstr :: First Instr,
     outJumpAddr :: First Address
-  }
-  deriving (Show, Eq, Generic)
+  } deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
   Out i1 a1 <> Out i2 a2 = Out (i1 <> i2) (a1 <> a2)
@@ -122,12 +121,19 @@ outputNothing = tell mempty
 
 fetch :: LeakM ()
 fetch = do
-  stall <- gets stateStallFetch
-  modify $ \s ->
-    s
-      { stateFePc = fromMaybe (if stall then stateFePc s else stateFePc s + 4) (stateJumpAddr s),
-        stateDePc = stateFePc s
-      }
+  ifM
+    (gets stateStallFetch)
+    ( modify $ \s ->
+        s
+          { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
+          }
+    )
+    ( modify $ \s ->
+        s
+          { stateFePc = fromMaybe (stateFePc s + 4) (stateJumpAddr s),
+            stateDePc = stateFePc s
+          }
+    )
 
 decode :: LeakM ()
 decode = do
@@ -245,10 +251,6 @@ execute = do
         Interp _ (Just addr) _ ->
           informJumpAddr addr
         _ -> pure ()
-    Core.IType Core.Load {} _ _ _ ->
-      stallDecode
-    Core.IType (Core.Env Core.Call) _ _ _ ->
-      stallDecode
     _ -> pure ()
 
   modify $ \s -> s {stateMemRes = interpRes interp_res}
@@ -283,12 +285,6 @@ memory = do
       stallFetch
     Core.SType {} ->
       stallFetch
-    Core.IType Core.Jump {} _ _ _ ->
-      stallDecode
-    Core.BType {} ->
-      stallDecode
-    Core.JType {} ->
-      stallDecode
     _ -> pure ()
 
   modify $ \s ->
@@ -325,12 +321,8 @@ writeback = do
     Core.IType (Core.Load size sign) rd _ _ -> do
       let val = Core.loadExtend size sign input
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
-      stallDecode
     Core.IType (Core.Env Core.Call) _ _ _ -> do
       modify $ \s -> s {stateWbRegFwd = pure (10, input)}
-      stallDecode
-    Core.SType {} ->
-      stallDecode
     _ -> pure ()
 
 pipe :: LeakM ()

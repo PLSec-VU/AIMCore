@@ -27,11 +27,11 @@ import Data.Functor.Identity (Identity)
 import Data.Maybe (isJust)
 import Data.Monoid (First (..), getFirst)
 import Instruction (Instruction)
-import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
 import qualified Pantomime as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
+import qualified Leak.Existence as Existence
 import RegFile
 import qualified Simulate
 import Types
@@ -40,7 +40,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 type SimState = Core.State PubSec
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State PubSec -> Input PubSec -> Bool
 theory =
   P.pantomime
@@ -63,11 +63,11 @@ circuits =
       P.projection = proj
     }
 
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State PubSec -> Input PubSec -> Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
 projectionCoherence = P.projectionCoherence circuits
 
