@@ -5,22 +5,36 @@
 
 packages:
 - completed:
+    hackage: parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
+    pantry-tree:
+      sha256: 53a621c99658b84edf55cdbf8bbd74126d9cec6a2a0e6db3f5bef393cbe653ee
+      size: 392
+  original:
+    hackage: parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
+- completed:
+    hackage: clash-prelude-1.8.4@sha256:181d9564bca862d3cd19189702634370c98b817abc048fa0cdcbee1cf2fb6c78,18384
+    pantry-tree:
+      sha256: 5dd9e46574ab2e78f5b31a1b9b0db6b347bce98c39f0be326674e62d0d54c7c6
+      size: 13730
+  original:
+    hackage: clash-prelude-1.8.4@sha256:181d9564bca862d3cd19189702634370c98b817abc048fa0cdcbee1cf2fb6c78,18384
+- completed:
+    hackage: sbv-13.5@sha256:00aea86ad09dcefb5d5286dd68bfb894709d2874052bcdadf80af3add9596af7,26690
+    pantry-tree:
+      sha256: 65d23f68088ce549e8aa8ae77a35f2ec7c6491facbc4aeae8c2317101d9ddcda
+      size: 93933
+  original:
+    hackage: sbv-13.5@sha256:00aea86ad09dcefb5d5286dd68bfb894709d2874052bcdadf80af3add9596af7,26690
+- completed:
     hackage: blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
     pantry-tree:
       sha256: b67d23f207499a8060d195212c3cf6c1486eae7e230d9554fcfb3a42158f5b64
       size: 2133
   original:
     hackage: blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
-- completed:
-    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
-    pantry-tree:
-      sha256: a1eff3f311b09c3aa568a07040a42456787c4a60ec7f16878d8fb688453a220b
-      size: 29396
-  original:
-    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
 snapshots:
 - completed:
-    sha256: 6de673d789fcf2a5605736233090d24271257b4031c59f93e40f6632b7568301
-    size: 654476
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/nightly/2025/2/20.yaml
-  original: nightly-2025-02-20
+    sha256: 3f59fb01f884a786c64e247ffe145df5f6045d929b1d2752b5ce768e37fd44e5
+    size: 724510
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/0.yaml
+  original: lts-24.0
