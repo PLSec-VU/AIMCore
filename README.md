@@ -1,3 +1,3 @@
-# AIMcore
+# AIMCore
 
 A RISC-V core.
