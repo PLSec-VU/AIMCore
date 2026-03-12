@@ -1,0 +1,206 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.38.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           aimcore
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/aimcore#readme>
+homepage:       https://github.com/githubuser/aimcore#readme
+bug-reports:    https://github.com/githubuser/aimcore/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2024 Author name here
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/aimcore
+
+library
+  exposed-modules:
+      Access
+      Core
+      Elf.ElfLoader
+      Elf.Memory
+      Elf.Syscall
+      HardwareSim
+      Instruction
+      Interp
+      ISA
+      Leak.Arch.Arch
+      Leak.PC.ISA
+      Leak.PC.Leak
+      Leak.PC.PC
+      Leak.PC.Sim
+      Leak.PCWithState.PCWithState
+      Leak.SecretPC.Leak
+      Leak.SecretPC.PC
+      Leak.Existence
+      Pretty
+      RegFile
+      Simulate
+      Types
+      Util
+  other-modules:
+      Paths_aimcore
+  autogen-modules:
+      Paths_aimcore
+  hs-source-dirs:
+      src
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -fplugin Pantomime
+  build-depends:
+      array
+    , base >=4.7 && <5
+    , bytestring
+    , clash-prelude >=1.8.1
+    , composition
+    , containers
+    , entropy
+    , exceptions
+    , ghc-typelits-natnormalise
+    , melf
+    , mtl >=2.2.2
+    , pantomime
+    , pretty
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , transformers
+  default-language: Haskell2010
+
+executable aimcore-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_aimcore
+  autogen-modules:
+      Paths_aimcore
+  hs-source-dirs:
+      app
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -fplugin Pantomime -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aimcore
+    , array
+    , base >=4.7 && <5
+    , binary
+    , blake2
+    , bytestring
+    , clash-prelude >=1.8.1
+    , composition
+    , containers
+    , entropy
+    , exceptions
+    , ghc-typelits-natnormalise
+    , melf
+    , mtl >=2.2.2
+    , optparse-applicative
+    , pantomime
+    , pretty
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , transformers
+  default-language: Haskell2010
+
+test-suite aimcore-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      BenchmarkSpec
+      InstructionSpec
+      TheoremSpec
+      Paths_aimcore
+  autogen-modules:
+      Paths_aimcore
+  hs-source-dirs:
+      test
+  default-extensions:
+      BinaryLiterals
+      DataKinds
+      ExplicitNamespaces
+      FlexibleContexts
+      FlexibleInstances
+      LambdaCase
+      NumericUnderscores
+      OverloadedStrings
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeOperators
+      DeriveAnyClass
+      DeriveGeneric
+      MultiParamTypeClasses
+      AllowAmbiguousTypes
+      PackageImports
+      RecordWildCards
+      GeneralizedNewtypeDeriving
+      DerivingStrategies
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fexpose-all-unfoldings -fplugin GHC.TypeLits.Normalise -fplugin Pantomime -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aimcore
+    , array
+    , base >=4.7 && <5
+    , bytestring
+    , clash-prelude >=1.8.1
+    , composition
+    , containers
+    , entropy
+    , exceptions
+    , ghc-typelits-natnormalise
+    , melf
+    , mtl >=2.2.2
+    , pantomime
+    , pretty
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , transformers
+  default-language: Haskell2010
