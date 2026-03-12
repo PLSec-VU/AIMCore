@@ -13,8 +13,8 @@ module Leak.PC.PC
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
     theory,
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
+    tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -24,42 +24,45 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
+import Data.Bifunctor (second)
+import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
 import Instruction (Instruction)
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
+import qualified Pantomime as P
+import qualified Pantomime.Base as Base
+import qualified Pantomime.Clash as Clash
 import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
-import qualified Pantomime as P
-import qualified Pantomime.Clash as Clash
-import qualified Pantomime.Base as Base
-import Data.Bifunctor (second)
-import Data.Composition
 
 {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State Identity -> Input Identity -> Bool
-theory = P.pantomime P.Pantomime
-  { observation = obs'
-  , implementation = implementation
-  , leakage = leak
-  , simulator = sim
-  , projection = proj
-  }
+theory =
+  P.pantomime
+    P.Pantomime
+      { observation = obs',
+        implementation = implementation,
+        leakage = leak,
+        simulator = sim,
+        projection = proj
+      }
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference   (Core.State Identity)   Leak.State   Sim.State   (Input Identity)   Leak.Out   (Maybe Address)
-circuits = P.NonInterference
-  { P.implementation = second obs' .: implementation
-  , P.leakage = leak
-  , P.projection = proj
-  }
+circuits :: P.NonInterference (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
+circuits =
+  P.NonInterference
+    { P.implementation = second obs' .: implementation,
+      P.leakage = leak,
+      P.projection = proj
+    }
 
 {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
@@ -155,8 +158,7 @@ proj s = (ts, ss)
 
 simulator ::
   forall m.
-  ( MonadState ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) m
-  ) =>
+  (MonadState ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) m) =>
   CircuitSim m (Input Identity) (Leak.State, Sim.State) (Maybe Address, Maybe Address)
 simulator =
   CircuitSim

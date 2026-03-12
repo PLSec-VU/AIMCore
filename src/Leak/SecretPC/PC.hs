@@ -10,8 +10,8 @@ module Leak.SecretPC.PC
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
     theory,
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
+    tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -27,11 +27,11 @@ import Data.Functor.Identity (Identity)
 import Data.Maybe (isJust)
 import Data.Monoid (First (..), getFirst)
 import Instruction (Instruction)
+import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
 import qualified Pantomime as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
-import qualified Leak.Existence as Existence
 import RegFile
 import qualified Simulate
 import Types
