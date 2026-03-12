@@ -32,7 +32,7 @@ circuits :: P.NonInterference (Core.State Identity) ((), Core.State Identity) Si
 circuits =
   P.NonInterference
     { P.implementation = second obs' .: implementation
-    , P.leakage = Leak.leakCircuit Leak.leakPC
+    , P.leakage = Leak.leakCircuit Leak.monitorPC
     , P.projection = proj
     }
 
@@ -59,7 +59,7 @@ obs' o_sim = do
 proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
 proj s = (ts, ss)
  where
-  ts = Leak.leakProject Leak.leakPC s
+  ts = Leak.leakProject Leak.monitorPC s
   ss =
     Sim.State
       { Sim.stateFePc = Core.stateFePc s
