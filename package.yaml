@@ -94,6 +94,9 @@ library:
     - Leak.PCWithState.PCWithState
     - Leak.SecretPC.Leak
     - Leak.SecretPC.PC
+    - Leak.MonitorPC.MonitorLeak
+    - Leak.MonitorPC.PC
+    - Leak.MonitorPC.Sim
     - Leak.Existence
     - Pretty
     - RegFile
