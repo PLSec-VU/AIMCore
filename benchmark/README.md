@@ -21,7 +21,7 @@ brew install riscv-tools
 make -f sodium_build.mk all
 
 # Build WolfSSL libraries
-make -f wolfSSL_build.mk all
+./wolfSSL_build.sh
 
 # Build the programs
 make all

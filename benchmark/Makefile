@@ -13,8 +13,8 @@ CFLAGS = -march=rv32i -mabi=ilp32 -O3 -g -I$(INCLUDE_DIR) -I./wolfSSL -fPIC
 LDFLAGS = -march=rv32i -mabi=ilp32 -L$(LIB_DIR) -lsodium
 
 # WolfSSL specific flags for ECDSA benchmark
-WOLFSSL_CFLAGS_O0 = -march=rv32i -mabi=ilp32 -O0 -g -I./wolfSSL -fPIC -DWOLFSSL_USER_SETTINGS
-WOLFSSL_CFLAGS_O3 = -march=rv32i -mabi=ilp32 -O3 -g -I./wolfSSL -fPIC -DWOLFSSL_USER_SETTINGS
+WOLFSSL_CFLAGS_O0 = -march=rv32i -mabi=ilp32 -O0 -g -I./wolfSSL/build-O0/ -I./wolfSSL/ -fPIC -DWOLFSSL_USER_SETTINGS
+WOLFSSL_CFLAGS_O3 = -march=rv32i -mabi=ilp32 -O3 -g -I./wolfSSL/build-O3/ -I./wolfSSL/ -fPIC -DWOLFSSL_USER_SETTINGS
 WOLFSSL_LDFLAGS_O0 = -march=rv32i -mabi=ilp32 -L. -lwolfssl_minimal_O0
 WOLFSSL_LDFLAGS_O3 = -march=rv32i -mabi=ilp32 -L. -lwolfssl_minimal_O3
 

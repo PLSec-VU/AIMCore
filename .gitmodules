@@ -1,9 +1,6 @@
 [submodule "benchmark/libsodium"]
 	path = benchmark/libsodium
 	url = git@github.com:jedisct1/libsodium.git
-[submodule "uc-plugin"]
-	path = uc-plugin
-	url = git@github.com:PLSec-VU/uc-plugin.git
 [submodule "benchmark/wolfSSL"]
 	path = benchmark/wolfSSL
-	url = https://github.com/wolfSSL/wolfssl.git
+	url = https://github.com/SparkiDev/wolfssl.git
