@@ -1,6 +1,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Leak.SimplePC.PC (
+module Leak.MonitorPC.PC (
   obs,
   -- comment them out to disable Pantomime checks for faster compilation
   tickStateCorrespondence,
@@ -17,8 +17,8 @@ import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
-import qualified Leak.SimplePC.Sim as Sim
-import qualified Leak.SimplePC.SimpleLeak as Leak
+import qualified Leak.MonitorPC.Sim as Sim
+import qualified Leak.MonitorPC.MonitorLeak as Leak
 import qualified Pantomime as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash

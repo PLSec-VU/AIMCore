@@ -1,7 +1,7 @@
-module Leak.SimplePC.Sim where
+module Leak.MonitorPC.Sim where
 
 import Types
-import Leak.SimplePC.SimpleLeak as Leak
+import Leak.MonitorPC.MonitorLeak as Leak
 
 data State = State
   { stateFePc :: Address,

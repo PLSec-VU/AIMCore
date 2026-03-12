@@ -1,5 +1,5 @@
-module Leak.SimplePC.SimpleLeak (
-  Leakage (..),
+module Leak.MonitorPC.MonitorLeak (
+  LeakMonitor (..),
   (^&^),
   leakPC,
   Instr (..),
@@ -16,21 +16,21 @@ import Types
 
 -- A leakage is a mealy machine with state sl, input ii, output ol,
 -- equipped with a state projection from si to sl.
-data Leakage si ii sl ol = Leakage
+data LeakMonitor si ii sl ol = LeakMonitor
   { leakCircuit :: (sl -> ii -> (sl, ol))
   , leakProject :: si -> sl
   }
 
 -- Combine two leakages into a leakage that leaks both.
-(^&^) :: Leakage si ii sl1 ol1 -> Leakage si ii sl2 ol2 -> Leakage si ii (sl1, sl2) (ol1, ol2)
-(Leakage f1 p1) ^&^ (Leakage f2 p2) = Leakage leak (\s -> (p1 s, p2 s))
+(^&^) :: LeakMonitor si ii sl1 ol1 -> LeakMonitor si ii sl2 ol2 -> LeakMonitor si ii (sl1, sl2) (ol1, ol2)
+(LeakMonitor f1 p1) ^&^ (LeakMonitor f2 p2) = LeakMonitor leak (\s -> (p1 s, p2 s))
  where
   leak (sl1, sl2) i = ((sl1', sl2'), (o1, o2))
    where
     (sl1', o1) = f1 sl1 i
     (sl2', o2) = f2 sl2 i
 
-leakPC :: Leakage (Core.State Identity) (Core.Input Identity) ((), Core.State Identity) (Instr, Maybe Address)
+leakPC :: LeakMonitor (Core.State Identity) (Core.Input Identity) ((), Core.State Identity) (Instr, Maybe Address)
 leakPC = leakInstructionType ^&^ leakJumpAddress
 
 data BaseInstr
@@ -66,15 +66,15 @@ toLeakInstr input = Instr (mkInstr input) (getRs1 input) (getRs2 input)
 nop' :: Instr
 nop' = toLeakInstr nop
 
-leakInstructionType :: Leakage (Core.State Identity) (Core.Input Identity) () Instr
-leakInstructionType = Leakage (\() i -> ((), leak i)) (const ())
+leakInstructionType :: LeakMonitor (Core.State Identity) (Core.Input Identity) () Instr
+leakInstructionType = LeakMonitor (\() i -> ((), leak i)) (const ())
  where
   leak :: Core.Input Identity -> Instr
   leak input | Core.inputIsInstr input = toLeakInstr $ decode' $ runIdentity $ Core.inputMem input
   leak _ = nop'
 
-leakJumpAddress :: Leakage (Core.State Identity) (Core.Input Identity) (Core.State Identity) (Maybe Address)
-leakJumpAddress = Leakage leak id
+leakJumpAddress :: LeakMonitor (Core.State Identity) (Core.Input Identity) (Core.State Identity) (Maybe Address)
+leakJumpAddress = LeakMonitor leak id
  where
   leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Maybe Address)
   leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExBranch $ Core.stateCtrl s')
