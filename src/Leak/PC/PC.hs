@@ -6,9 +6,13 @@ module Leak.PC.PC
     sim,
     circuit,
     proj,
+    Leak.PC.PC.simulator,
+    runSimulator,
+    watchSim,
+    pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    -- theory,
+    theory,
     -- tickStateCorrespondence,
     -- projectionCoherence,
   )
@@ -148,3 +152,58 @@ proj s = (ts, ss)
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
+
+simulator ::
+  forall m.
+  ( MonadState ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) m
+  ) =>
+  CircuitSim m (Input Identity) (Leak.State, Sim.State) (Maybe Address, Maybe Address)
+simulator =
+  CircuitSim
+    { circuitInput = initInput,
+      circuitState = (Leak.init, Sim.init),
+      circuitStep = step,
+      circuitNext = next
+    }
+  where
+    step ::
+      Input Identity ->
+      (Leak.State, Sim.State) ->
+      m ((Leak.State, Sim.State), (Maybe Address, Maybe Address))
+    step i s = do
+      ((s_sim, _), mem) <- get
+      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
+      put (res_sim, mem')
+      let (s', o) = circuit s i
+      pure (s', (o, obs' o_sim))
+
+    next :: (Maybe Address, Maybe Address) -> m (Maybe (Input Identity))
+    next (_o, _addr_sim) = do
+      ((_, o_sim), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+      modify $ \(s, _mem) -> (s, mem')
+      pure mi
+
+runSimulator ::
+  ( CircuitSim
+      (State ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES))
+      (Input Identity)
+      (Leak.State, Sim.State)
+      (Maybe Address, Maybe Address) ->
+    State ((Core.State Identity, Output Identity), Simulate.Mem MEM_SIZE_BYTES) a
+  ) ->
+  Vec PROG_SIZE Word ->
+  a
+runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
+  where
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
+
+watchSim ::
+  Vec PROG_SIZE Word ->
+  [((Leak.State, Sim.State), (Maybe Address, Maybe Address), Maybe (Input Identity))]
+watchSim = runSimulator watch
+
+pcsEqual :: Vec PROG_SIZE Word -> Bool
+pcsEqual = all check . watchSim
+  where
+    check (_, (o, o'), _) = o == o'
