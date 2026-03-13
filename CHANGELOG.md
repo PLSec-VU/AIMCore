@@ -1,4 +1,4 @@
-# Changelog for `uc-risc-v`
+# Changelog for `aimcore`
 
 All notable changes to this project will be documented in this file.
 

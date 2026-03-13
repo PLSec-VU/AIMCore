@@ -164,12 +164,12 @@ programInfo :: ParserInfo Options
 programInfo = info (optionsParser <**> helper)
   ( fullDesc
   <> progDesc "Execute RISC-V ELF binaries"
-  <> header "uc-risc-v - RISC-V Simulator"
+  <> header "aimcore - RISC-V Simulator"
   <> footer "Examples:\n\
-            \  uc-risc-v benchmark/bench_chacha20\n\
-            \  uc-risc-v --verbose benchmark/bench_blake2b\n\
-            \  uc-risc-v --secure-memory benchmark/bench_secure_memory\n\
-            \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
+            \  aimcore benchmark/bench_chacha20\n\
+            \  aimcore --verbose benchmark/bench_blake2b\n\
+            \  aimcore --secure-memory benchmark/bench_secure_memory\n\
+            \  aimcore --test-suite test/rv32ui/rv32ui-p-add" )
 
 generalizedInstrument ::
   (Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
