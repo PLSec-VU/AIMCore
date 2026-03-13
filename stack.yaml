@@ -12,8 +12,3 @@ allow-newer-deps:
 - blake2
 
 allow-newer: true
-
-nix:
-  enable: true
-  packages:
-  - z3
