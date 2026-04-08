@@ -144,7 +144,9 @@ data State f = State
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state
-    stateHalt :: HaltState
+    stateHalt :: HaltState,
+    -- | Load hazard in `memory`?
+    stateLoadHazardLastCycle :: Bool
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -160,7 +162,7 @@ data Control f = Control
   { -- | `True` during the first step of execution.
     ctrlFirstCycle :: Bool,
     -- | `True` when the instruction in the `decode` stage is a load.
-    ctrlDecodeLoad :: Bool,
+    ctrlDecodeCall :: Bool,
     -- | `True` when the instruction in the `memory` stage results in a read/write.
     ctrlMeOutputActive :: Bool,
     -- | Forwards the rd register from the `memory` stage to the `execute`
@@ -177,10 +179,12 @@ data Control f = Control
     ctrlExBranch :: Maybe Address,
     -- | Is the instruction in the `memory` stage a branch?
     ctrlMeBranch :: Bool,
-    -- | Is the instruction in `execute` a load (or call)?
-    ctrlExLoad :: Bool,
+    -- | Is the instruction in `execute` a call?
+    ctrlExCall :: Bool,
     -- | `True` when the instruction in the `Wb` stage results in a read/write.
-    ctrlWbMemInstr :: Bool
+    ctrlWbMemInstr :: Bool,
+    -- | Ex instruction; needed for load hazard detection.
+    ctrlExInstr :: Maybe Instruction
   }
 
 -- \| Need propagate whether a branch instruction is in the `memory` stage
@@ -287,7 +291,8 @@ init =
       stateWbInstr = nop,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
-      stateHalt = Running
+      stateHalt = Running,
+      stateLoadHazardLastCycle = False
     }
 
 -- | Initial control lines.
@@ -295,14 +300,15 @@ initCtrl :: (Access f) => Control f
 initCtrl =
   Control
     { ctrlFirstCycle = True,
-      ctrlDecodeLoad = False,
+      ctrlDecodeCall = False,
       ctrlMeOutputActive = False,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
       ctrlExBranch = Nothing,
       ctrlMeBranch = False,
-      ctrlExLoad = False,
-      ctrlWbMemInstr = False
+      ctrlExCall = False,
+      ctrlWbMemInstr = False,
+      ctrlExInstr = Nothing
     }
 
 -- | The control lines need to be reset every tick.
@@ -335,10 +341,9 @@ fetch = do
   mBranchAddr <- gets $ ctrlExBranch . stateCtrl
 
   let stall =
-        -- Have to always stall incrementing the program counter on any load
-        -- instruction because we cannot tell early enough if there's actually a
-        -- load hazard since that occurs in the `decode` stage.
-        ctrlDecodeLoad ctrl
+        -- Have to always stall incrementing the program counter on any call
+        -- instruction
+        ctrlDecodeCall ctrl
           ||
           -- We stall on `ctrlMeOutputActive` because that means next cycle
           -- the memory will be unavailable to read an instruction from, so we
@@ -363,13 +368,17 @@ decode = do
       then noSecrets (inputMem input) nop (pure . Instruction.decode')
       else pure Instruction.nop
 
-  when ((isLoad ir) || (isCall ir)) $
+  when (isCall ir) $
     setLines $
-      \c -> c {ctrlDecodeLoad = True}
+      \c -> c {ctrlDecodeCall = True}
 
   ctrl <- gets stateCtrl
 
-  let stall =
+  load_hazard_last = gets stateLoadHazardLastCycle
+
+  let
+    load_hazard = maybe False (loadHazard ir) (ctrlExInstr ctrl)
+    stall =
         -- First cycle = gibberish from memory, so we stall.
         ctrlFirstCycle ctrl
           -- This means that the branch was taken, so we have to stall and
@@ -378,12 +387,18 @@ decode = do
           -- This means that fetch stalled in the previous cycle, so we need to
           -- stall in this cycle since the instruction is garbage.
           || ctrlMeBranch ctrl
-          -- Instruction in execute is a load or call; we stall the `fetch`
-          -- stage when `decode` has a load or call (`ctrlDecodeLoad`), so
-          -- `decode` has to stall one cycle later.
-          || ctrlExLoad ctrl
+          -- Instruction in execute is call; we stall the `fetch` stage when
+          -- `decode` has a call (`ctrlDecodeCall`), so `decode` has to stall
+          -- one cycle later.
+          || ctrlExCall ctrl
           -- `fetch` stalls on `ctrlMeOutputActive` so we have to stall on `ctrlWbMemInstr`
           || ctrlWbMemInstr ctrl
+          -- Is there a load hazard with the instr in `execute`?
+          || load_hazard
+          -- Was there a load hazard with the instr in `execute` last cycle?
+          || load_hazard_last
+
+  modify $ \s -> s { stateLoadHazardLastCycle = load_hazard }
 
   modify $ \s ->
     if stall
@@ -415,9 +430,11 @@ execute = do
   modify $ \s -> s {stateMemInstr = ir}
 
   -- TODO: Probably integrate this into the pattern match below
-  when ((isLoad ir) || (isCall ir)) $
+  when (isCall ir) $
     setLines $
-      \c -> c {ctrlExLoad = True}
+      \c -> c {ctrlExCall = True}
+
+  setLines $ \c -> c {ctrlExInstr = ir}
 
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
@@ -545,6 +562,7 @@ memory :: (Access f) => CPUM f ()
 memory = do
   res <- gets stateMemRes
   instr <- gets stateMemInstr
+  ex_instr <- gets stateExInstr
 
   -- Store Forwarding
   try $ do

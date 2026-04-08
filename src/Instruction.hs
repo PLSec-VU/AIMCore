@@ -329,7 +329,7 @@ encode' instruction =
 
       -- Note: The first bit of the imm is always 0, so we right-shift by 1
       -- to remove it before storing in the instruction
-      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let immShifted = shiftR imm 1 -- Remove the least significant bit
       let imm4to1 = slice d3 d0 immShifted
       let imm10to5 = slice d9 d4 immShifted
       let imm11 = slice d10 d10 immShifted
@@ -349,7 +349,7 @@ encode' instruction =
 
       -- Note: The first bit of the imm is always 0, so we right-shift by 1
       -- to remove it before storing in the instruction
-      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let immShifted = shiftR imm 1 -- Remove the least significant bit
       let imm10to1 = slice d9 d0 immShifted
       let imm11 = slice d10 d10 immShifted
       let imm19to12 = slice d18 d11 immShifted
