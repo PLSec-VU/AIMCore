@@ -21,8 +21,8 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
 import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
-import "uc-risc-v" Types
-import "uc-risc-v" Util
+import Types
+import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
 
 main :: IO ()

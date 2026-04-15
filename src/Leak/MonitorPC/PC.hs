@@ -3,8 +3,8 @@
 module Leak.MonitorPC.PC (
   obs,
   -- comment them out to disable Pantomime checks for faster compilation
-  tickStateCorrespondence,
-  projectionCoherence,
+  -- tickStateCorrespondence,
+  -- projectionCoherence,
 )
 where
 
