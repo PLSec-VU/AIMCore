@@ -161,8 +161,8 @@ data Control f = Control
   -- ^ `True` during the first step of execution.
   , ctrlDecodeLoad :: Bool
   -- ^ `True` when the instruction in the `decode` stage is a load.
-  , ctrlMemOutputActive :: Bool
-  -- ^ `True` when the instruction in the `execute` stage is a load.
+  , ctrlMeOutputActive :: Bool
+  -- ^ `True` when the instruction in the `memory` stage results in a read/write.
   , ctrlMeRegFwd :: Maybe (RegIdx, f Word)
   -- ^ Forwards the rd register from the `memory` stage to the `execute`
   -- stage.  The `RegIdx` payload is necessary to know what the destination
@@ -175,6 +175,12 @@ data Control f = Control
   , ctrlExBranch :: Maybe Address
   -- ^ The result of a branch computation. Set in the `execute` stage and
   -- contains the new PC.
+  , ctrlMeBranch :: Bool
+  -- ^ `True` when the instruction in the `memory` stage is a branch.
+  , ctrlExLoad :: Bool
+  -- ^ `True` when the instruction in the `execute` stage is a load or call.
+  , ctrlWbMemInstr :: Bool
+  -- ^ `True` when the instruction in the `writeback` stage is a load or call.
   }
 
 -- \| Need propagate whether a branch instruction is in the `memory` stage
@@ -291,10 +297,13 @@ initCtrl =
   Control
     { ctrlFirstCycle = True
     , ctrlDecodeLoad = False
-    , ctrlMemOutputActive = False
+    , ctrlMeOutputActive = False
     , ctrlMeRegFwd = Nothing
     , ctrlWbRegFwd = Nothing
     , ctrlExBranch = Nothing
+    , ctrlMeBranch = False
+    , ctrlExLoad = False
+    , ctrlWbMemInstr = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -330,10 +339,10 @@ fetch = do
         -- load hazard since that occurs in the `decode` stage.
         ctrlDecodeLoad ctrl
           ||
-          -- We stall on `ctrlMemOutputActive` because that means next cycle
+          -- We stall on `ctrlMeOutputActive` because that means next cycle
           -- the memory will be unavailable to read an instruction from, so we
           -- shouldn't increment the program counter.
-          ctrlMemOutputActive ctrl
+          ctrlMeOutputActive ctrl
           || isJust mBranchAddr
 
   if stall
@@ -371,6 +380,15 @@ decode = do
           -- This means that the branch was taken, so we have to stall and
           -- wait until the next cycle to get the correct instruction.
           || isJust (ctrlExBranch ctrl)
+          -- This means that fetch stalled in the previous cycle, so we need to
+          -- stall in this cycle since the instruction is garbage.
+          || ctrlMeBranch ctrl
+          -- Instruction in execute is a load or call; we stall the `fetch`
+          -- stage when `decode` has a load or call (`ctrlDecodeLoad`), so
+          -- `decode` has to stall one cycle later.
+          || ctrlExLoad ctrl
+          -- `fetch` stalls on `ctrlMeOutputActive` so we have to stall on `ctrlWbMemInstr`
+          || ctrlWbMemInstr ctrl
 
   modify $ \s ->
     if stall
@@ -401,13 +419,18 @@ execute = do
   ir <- gets stateExInstr
   modify $ \s -> s{stateMemInstr = ir}
 
+  -- TODO: Probably integrate this into the pattern match below
+  when ((isLoad ir) || (isCall ir)) $
+    setLines $
+      \c -> c {ctrlExLoad = True}
+
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
 
   modify $ \s ->
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
-        res = alu (isIType ir) op lhs rhs
+        res = alu op lhs rhs
      in s{stateMemRes = res}
  where
   fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
@@ -422,7 +445,7 @@ execute = do
         pc <- gets $ pure . pack . stateExPc
         r1 <- rs1
         lift $ noSecrets r1 () $ \_ -> do
-          let branchAddr = unpack <$> alu True ADD r1 (pure $ signExtend imm)
+          let branchAddr = unpack <$> alu ADD r1 (pure $ signExtend imm)
           setLines $
             \c -> c{ctrlExBranch = fromPublic branchAddr}
         pure
@@ -447,7 +470,7 @@ execute = do
         pc <- gets $ pack . stateExPc
         let doBranch = branch cmp r1 r2
             branchAddr :: f Address
-            branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
+            branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
         lift $ noSecrets doBranch () $ \doBranch' ->
           if doBranch'
             then setLines $
@@ -463,7 +486,7 @@ execute = do
       Instruction.JType _ imm -> do
         pc <- gets $ pack . stateExPc
         let branchAddr :: f Address
-            branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
+            branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
         setLines $
           \c -> c{ctrlExBranch = fromPublic branchAddr}
         pure (ADD, pure pc, pure 4)
@@ -495,8 +518,8 @@ execute = do
     rs <- getR src
     guard $ rd /= 0 && rs == rd
 
-alu :: (Access f) => Bool -> Arith -> f Word -> f Word -> f Word
-alu _ op lhs rhs = case op of
+alu :: (Access f) => Arith -> f Word -> f Word -> f Word
+alu op lhs rhs = case op of
   ADD -> (+) <$> lhs <*> rhs
   SUB -> (-) <$> lhs <*> rhs
   XOR -> (.^.) <$> lhs <*> rhs
@@ -540,14 +563,14 @@ memory = do
         r2 <- gets stateMemVal
         writeRAM (unpack res') size r2
         setLines $ \c ->
-          c{ctrlMemOutputActive = True}
+          c{ctrlMeOutputActive = True}
     Instruction.IType (Load size _) _ _ _ ->
       noSecrets res () $ \res' -> do
         setLines $ \c ->
           c
             { -- Don't forward loads that haven't happened yet
               ctrlMeRegFwd = Nothing
-            , ctrlMemOutputActive = True
+            , ctrlMeOutputActive = True
             }
         readRAM (unpack res') size
     Instruction.IType (Env Call) _ _ _ -> do
@@ -555,9 +578,18 @@ memory = do
         c
           { -- Don't forward syscalls that haven't happened yet
             ctrlMeRegFwd = Nothing
-          , ctrlMemOutputActive = True
+          , ctrlMeOutputActive = True
           }
       readSyscall
+    Instruction.IType Jump _ _ _ ->
+      setLines $ \c ->
+        c {ctrlMeBranch = True}
+    Instruction.BType _ _ _ _ ->
+      setLines $ \c ->
+        c {ctrlMeBranch = True}
+    Instruction.JType _ _ ->
+      setLines $ \c ->
+        c {ctrlMeBranch = True}
     _ -> pure ()
 
   modify $ \s ->
@@ -604,8 +636,14 @@ writeback = do
       setLines $ \c ->
         c
           { ctrlWbRegFwd = pure (rd, val)
+          , ctrlWbMemInstr = True
           }
       writeRF rd val
+    Instruction.SType _ _ _ _ ->
+      setLines $ \c ->
+        c
+          { ctrlWbMemInstr = True
+          }
     Instruction.IType Jump rd _ _ ->
       writeRF rd res
     Instruction.JType rd _ ->
@@ -616,6 +654,7 @@ writeback = do
       setLines $ \c ->
         c
           { ctrlWbRegFwd = pure (rd, val)
+          , ctrlWbMemInstr = True
           }
     _ -> pure ()
  where

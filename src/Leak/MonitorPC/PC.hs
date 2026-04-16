@@ -82,7 +82,7 @@ proj s = (ts, ss)
   toStallFetch :: Core.Control Identity -> Bool
   toStallFetch ctrl =
     Core.ctrlDecodeLoad ctrl
-      || Core.ctrlMemOutputActive ctrl
+      || Core.ctrlMeOutputActive ctrl
       || isJust (Core.ctrlExBranch ctrl)
 
   toStallDecode :: Core.Control Identity -> Bool
