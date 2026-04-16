@@ -98,22 +98,18 @@ tests =
             "PC leak"
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1
-              -- compilation errors im too lazy to fix
-              -- mkPCLeakTest "sumTo 10"
-              --   $ mkProg
-              --   $ sumTo
-              --     10
-              --     testProperty
-              --     "LeakPC Simulator"
-              --   $ withMaxSuccess 500000
-              --   $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs,
-              -- testProperty "Non-interference" $
-              --   withMaxSuccess 500000 $
-              --     nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
-              -- testProperty "SecretPC Non-interference" $
-              --   withMaxSuccess 5000000 $
-              --     nonInterferenceTheorem SecretPC.proj SecretPC.leak SecretPC.implementation SecretPC.obs
+              mkPCLeakTest "test 3" $ mkProg prog3,
+              mkPCLeakTest "sumTo 10" $
+                mkProg $
+                  sumTo
+                    10,
+              testProperty
+                "LeakPC Simulator"
+                $ withMaxSuccess 500000
+                $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs,
+              testProperty "Non-interference" $
+                withMaxSuccess 500000 $
+                  nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
             ],
           testGroup
             "SecretPC leak"
@@ -129,7 +125,10 @@ tests =
                     Leak.SecretPC.leak
                     Leak.SecretPC.sim
                     Core.circuit
-                    Leak.SecretPC.obs
+                    Leak.SecretPC.obs,
+              testProperty "SecretPC Non-interference" $
+                withMaxSuccess 5000000 $
+                  nonInterferenceTheorem Leak.SecretPC.proj Leak.SecretPC.leak Leak.SecretPC.implementation Leak.SecretPC.obs
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."

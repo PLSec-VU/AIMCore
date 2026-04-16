@@ -329,49 +329,36 @@ setSecurityViolation =
 -- | The fetch stage.
 fetch :: (Access f) => CPUM f ()
 fetch = do
-  ctrl <- gets stateCtrl
   pc <- gets stateFePc
+  ctrl <- gets stateCtrl
   mBranchAddr <- gets $ ctrlExBranch . stateCtrl
 
+  -- Use the same logic as the PC update: if a branch is taken, read from the
+  -- branch address; otherwise, read from the current PC.
+  let targetPc = fromMaybe pc mBranchAddr
+
+  -- Always try to read unless the memory bus is taken by another stage
+  -- (Load/Store/Syscall).
+  unless (ctrlMeOutputActive ctrl) $
+    readPC targetPc
+
   let stall =
-        -- Have to always stall incrementing the program counter on any load
-        -- instruction because we cannot tell early enough if there's actually a
-        -- load hazard since that occurs in the `decode` stage.
         ctrlDecodeLoad ctrl
-          ||
-          -- We stall on `ctrlMeOutputActive` because that means next cycle
-          -- the memory will be unavailable to read an instruction from, so we
-          -- shouldn't increment the program counter.
-          ctrlMeOutputActive ctrl
+          || ctrlMeOutputActive ctrl
           || isJust mBranchAddr
 
-  if stall
-    then modify $ \s -> s{stateFePc = fromMaybe pc mBranchAddr}
-    else do
-      -- Fetch the next instruction from memory.  Will only actually happen if no
-      -- other reads/writes occur in subsequent stages.
-      readPC pc
-      modify $ \s ->
-        s
-          { -- Increment program counter for next fetch.
-            stateFePc = fromMaybe (pc + 4) mBranchAddr
-          , -- Propagate program counter to next stage.
-            stateDePc = pc
-          }
+  modify $ \s ->
+    s
+      { -- Increment program counter for next fetch.
+        stateFePc = fromMaybe (if stall then pc else pc + 4) mBranchAddr
+      , -- Propagate program counter to next stage.
+        stateDePc = pc
+      }
 
 -- | Decode stage.
 decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
-  ir <-
-    if (inputIsInstr input)
-      then noSecrets (inputMem input) nop (pure . Instruction.decode')
-      else pure Instruction.nop
-
-  when ((isLoad ir) || (isCall ir)) $
-    setLines $
-      \c -> c{ctrlDecodeLoad = True}
-
   ctrl <- gets stateCtrl
 
   let stall =
@@ -389,6 +376,15 @@ decode = do
           || ctrlExLoad ctrl
           -- `fetch` stalls on `ctrlMeOutputActive` so we have to stall on `ctrlWbMemInstr`
           || ctrlWbMemInstr ctrl
+
+  ir <-
+    if (inputIsInstr input && not stall)
+      then noSecrets (inputMem input) nop (pure . Instruction.decode')
+      else pure Instruction.nop
+
+  when ((isLoad ir) || (isCall ir)) $
+    setLines $
+      \c -> c{ctrlDecodeLoad = True}
 
   modify $ \s ->
     if stall
