@@ -87,9 +87,9 @@ readStringFromMemory addr count = do
   pure $ map chr $ takeWhile (/= 0) bytes
 
 -- | Called on each step of the ELF execution, returning whether to continue execution.
-type Instrument f m = Core.Input f -> Core.State f -> Core.Output f -> Int -> m Bool
+type Instrument m i s o = i -> s -> o -> Int -> m Bool
 
-runElf :: forall f m. (Access f, MonadMemory m) => Instrument f m -> CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m ()
+runElf :: forall m i s o. (MonadMemory m) => Instrument m i s o -> CircuitSim m i s o -> m ()
 runElf instr c = watchWithStep (0 :: Int) c
   where
     watchWithStep stepCount sim@(CircuitSim i s step next) = do

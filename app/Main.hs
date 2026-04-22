@@ -177,7 +177,7 @@ generalizedInstrument ::
   (leakState -> Core.Input f -> (leakState, leakOut)) ->  -- leak function
   (leakOut -> BS.ByteString) ->  -- serialization function
   String ->  -- mode name for logging
-  Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State f)) -> Instrument f m
+  Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State f)) -> Instrument m (Core.Input f) (Core.State f) (Core.Output f)
 generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput leakDigest finalStateRef i s o _step = do
   let pc = Core.stateExPc s
         
@@ -211,7 +211,7 @@ generalInstrument f = generalizedInstrument
   f
   "STANDARD"
 
-secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument PubSec m
+secureInstrument :: (MonadIO m, MonadMemory m) => Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State PubSec)) -> Instrument m (Core.Input PubSec) (Core.State PubSec) (Core.Output PubSec)
 secureInstrument = generalizedInstrument
   SecretLeak.PC.proj
   SecretLeak.PC.leak
@@ -232,7 +232,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
   forM_ memInstances $ \mem -> do
     runIOMemT mem $ loadProgram elf
   
-  let initialSims = P.map (\_ -> simulator @Identity @(IOMemT IO)) [1..optNumInstances]
+  let initialSims = P.map (\_ -> simulator @(Core.State Identity) @(IOMemT IO)) [1..optNumInstances]
   let initialStates = P.map (\sim -> sim { circuitState = (Core.init @Identity) { Core.stateFePc = fromIntegral entryOffset } }) initialSims
   
   go 0 (P.zip memInstances initialStates)
@@ -323,7 +323,7 @@ runExecutable opts@Options{..} = do
             loadSecureProgram elf
             runElf
               (secureInstrument optVerbose leakOutputHandle leakDigest finalStateRef)
-              (simulator @PubSec @(SecureIOMemT IO))
+              (simulator @(Core.State PubSec) @(SecureIOMemT IO))
                 { circuitState =
                     (Core.init @PubSec)
                       { Core.stateFePc = fromIntegral entryOffset

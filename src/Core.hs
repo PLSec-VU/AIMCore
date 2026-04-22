@@ -141,6 +141,10 @@ data State f = State
   -- ^ Instruction register writeback stage
   , stateWbRes :: f Word
   -- ^ ALU result register writeback stage
+  , stateMemPc :: Address
+  -- ^ Program counter memory stage
+  , stateWbPc :: Address
+  -- ^ Program counter writeback stage
   , stateCtrl :: Control f
   -- ^ Control/forwarding lines.
   , stateHalt :: HaltState
@@ -277,9 +281,11 @@ init =
     , stateExPc = 0
     , stateExInstr = nop
     , stateMemInstr = nop
+    , stateMemPc = 0
     , stateMemRes = pure 0
     , stateMemVal = pure 0
     , stateWbInstr = nop
+    , stateWbPc = 0
     , stateWbRes = pure 0
     , stateCtrl = initCtrl
     , stateHalt = Running
@@ -399,7 +405,8 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s{stateMemInstr = ir}
+  pc <- gets stateExPc
+  modify $ \s -> s{stateMemInstr = ir, stateMemPc = pc}
 
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
@@ -563,6 +570,7 @@ memory = do
   modify $ \s ->
     s
       { stateWbInstr = stateMemInstr s
+      , stateWbPc = stateMemPc s
       , stateWbRes = stateMemRes s
       }
 

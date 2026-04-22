@@ -10,7 +10,7 @@ import Instruction
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
-import "uc-risc-v" Types
+import Types
 import Prelude hiding (Ordering (..), Word, break, init, log, not, repeat, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 

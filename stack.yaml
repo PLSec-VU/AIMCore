@@ -1,19 +1,17 @@
 resolver: lts-24.0
 
 packages:
-- .
+  - .
 
 extra-deps:
-- ../pantomime
-- blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
-- grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
+  - blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
+  - sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
+  - github: PLSec-VU/pantomime
+    commit: 6eb8382e56f3ae2e28d9fd4c74aa448a4d4eafcc
+  - github: RobinWebbers/grisette
+    commit: ae4d837886efb2e7838f89271f343d6fa8130388
 
 allow-newer-deps:
-- blake2
+  - blake2
 
 allow-newer: true
-
-nix:
-  enable: true
-  packages:
-  - z3

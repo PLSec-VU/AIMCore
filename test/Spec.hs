@@ -6,10 +6,11 @@ module Main (main) where
 
 import Access
 import BenchmarkSpec (benchmarkTests)
-import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
+import Clash.Prelude hiding (replicate, mapAccumL, concat, foldl, Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Control.Monad.Identity (Identity(..))
+import Data.List (mapAccumL)
 import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
@@ -21,8 +22,8 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
 import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
-import "uc-risc-v" Types
-import "uc-risc-v" Util
+import Types
+import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
 
 main :: IO ()
@@ -322,6 +323,8 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
       <*> genAccessWord
       <*> arbitrary
       <*> genAccessWord
+      <*> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
     where

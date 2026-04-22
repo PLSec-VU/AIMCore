@@ -38,7 +38,7 @@ simulator =
     step :: Input Identity -> Leak.State -> m (Leak.State, Leak.Out)
     step i s = do
       ((s_sim, _), mem) <- get
-      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
+      let (res_sim@(_, o_sim), mem') = runState (circuitStep (Simulate.simulator @(Core.State Identity)) i s_sim) mem
       put (res_sim, mem')
       let (s', leakInstr) = Leak.circuit s i
       pure (s', leakInstr)
@@ -46,7 +46,7 @@ simulator =
     next :: Leak.Out -> m (Maybe (Input Identity))
     next _out = do
       ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+      let (mi, mem') = runState (circuitNext (Simulate.simulator @(Core.State Identity)) o_sim) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 

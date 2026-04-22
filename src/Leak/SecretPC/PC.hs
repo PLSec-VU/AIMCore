@@ -9,7 +9,7 @@ module Leak.SecretPC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
+    -- theory,
     -- tickStateCorrespondence,
     -- projectionCoherence,
   )
@@ -140,7 +140,7 @@ simulator =
       m ((Leak.State, SimState), (Maybe Address, Maybe Address))
     step i s = do
       ((s_sim, _), mem) <- get
-      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
+      let (res_sim@(_, o_sim), mem') = runState (circuitStep (Simulate.simulator @(Core.State PubSec)) i s_sim) mem
       put (res_sim, mem')
       let (s', o) = circuit s i
       pure (s', (o, obs' o_sim))
@@ -148,7 +148,7 @@ simulator =
     next :: (Maybe Address, Maybe Address) -> m (Maybe (Input PubSec))
     next (_o, _addr_sim) = do
       ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+      let (mi, mem') = runState (circuitNext (Simulate.simulator @(Core.State PubSec)) o_sim) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 
