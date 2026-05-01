@@ -12,7 +12,7 @@ import Control.Exception (throw, throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
-import qualified Correctness.Simple as Simple
+import qualified Correctness.MultiCycle as MultiCycle
 import Data.Functor.Identity
 import Instruction (Instruction, nop)
 import Data.Monoid (First (getFirst))
@@ -37,8 +37,8 @@ instance (Access f) => HasStateInfo (Core.State f) where
   getStatePC = Core.stateExPc
   getStateInstr = Core.stateExInstr
 
-instance HasStateInfo Simple.AState where
-  getStatePC = Simple.aPc
+instance HasStateInfo MultiCycle.AState where
+  getStatePC = MultiCycle.aPc
   getStateInstr _ = nop
 
 -- | Data type for benchmark test configuration
@@ -103,8 +103,8 @@ mkBenchmarkTest mkInitState testName _benchmark =
 initPipelined :: Address -> Core.State Identity
 initPipelined entry = (Core.init @Identity) { Core.stateFePc = entry }
 
-initSimple :: Address -> Simple.AState
-initSimple entry = Simple.AState entry Simple.Fetch
+initMultiCycle :: Address -> MultiCycle.AState
+initMultiCycle entry = MultiCycle.AState entry MultiCycle.Fetch
 
 -- | Main benchmark test group
 benchmarkTests :: TestTree
@@ -159,8 +159,8 @@ benchmarkTests =
         "Pipelined Core Test suite benchmark Execution"
         (testSuiteBenchmarks initPipelined),
       testGroup
-        "Simple Core Test suite benchmark Execution"
-        (testSuiteBenchmarks initSimple)
+        "Multi-Cycle Core Test suite benchmark Execution"
+        (testSuiteBenchmarks initMultiCycle)
     ]
 
 testSuiteBenchmarks :: (Machine s, MachineInput s ~ Core.Input Identity, MachineOutput s ~ Core.Output Identity, HasStateInfo s) => (Address -> s) -> [TestTree]

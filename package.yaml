@@ -79,8 +79,8 @@ library:
   exposed-modules:
     - Access
     - Core
-    - Correctness.BurchDill
-    - Correctness.Simple
+    - Correctness.Driver
+    - Correctness.MultiCycle
     - Correctness.Mapping
     - Elf.ElfLoader
     - Elf.Memory

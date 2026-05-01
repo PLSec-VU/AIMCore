@@ -1,7 +1,7 @@
 module Correctness.Mapping where
 
 import Core
-import Correctness.Simple
+import Correctness.MultiCycle
 import Types
 import Instruction
 import Access
@@ -29,7 +29,7 @@ mapCore s = AState (stateFePc s) Fetch :| catMaybes [de, ex, me, wb]
          else Just $ AState (stateExPc s) (Execute (stateExInstr s))
     
     -- 4. Memory Stage: Memory requests (Loads/Stores) are sent here.
-    -- In Simple.hs, these requests are part of the Execute phase.
+    -- In MultiCycle.hs, these requests are part of the Execute phase.
     me = if stateMemInstr s == nop 
          then Nothing 
          else Just $ AState (stateMemPc s) (Execute (stateMemInstr s))
@@ -37,7 +37,7 @@ mapCore s = AState (stateFePc s) Fetch :| catMaybes [de, ex, me, wb]
     -- 5. Writeback Stage: Results are written back to the register file.
     -- For Loads, this corresponds to the LoadWait phase where the data is arriving.
     -- For other instructions, they have effectively finished their architectural 
-    -- Execute phase, so we don't map them to a distinct phase in Simple.hs.
+    -- Execute phase, so we don't map them to a distinct phase in MultiCycle.hs.
     wb = case stateWbInstr s of
       Instruction.IType (Load size sign) rd _ _ -> 
         Just $ AState (stateWbPc s) (LoadWait rd size sign)

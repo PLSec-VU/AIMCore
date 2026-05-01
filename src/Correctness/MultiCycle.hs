@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-module Correctness.Simple where
+module Correctness.MultiCycle where
 
 import Clash.Prelude hiding (Word, Ordering(..))
 import Prelude hiding (Word, (!!), not, (&&), (||))
