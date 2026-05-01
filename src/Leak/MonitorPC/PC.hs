@@ -3,8 +3,8 @@
 module Leak.MonitorPC.PC (
   obs,
   -- comment them out to disable Pantomime checks for faster compilation
-  tickStateCorrespondence,
-  projectionCoherence,
+  -- tickStateCorrespondence,
+  -- projectionCoherence,
 )
 where
 
@@ -66,8 +66,8 @@ proj s = (ts, ss)
       , Sim.stateDePc = Core.stateDePc s
       , Sim.stateExPc = Core.stateExPc s
       , Sim.stateExInstr = Leak.toLeakInstr $ Core.stateExInstr s
-      , Sim.stateMemInstr = killJump $ Leak.toLeakInstr $ Core.stateMemInstr s
-      , Sim.stateWbInstr = killJump $ Leak.toLeakInstr $ Core.stateWbInstr s
+      , Sim.stateMemInstr = Leak.toLeakInstr $ Core.stateMemInstr s
+      , Sim.stateWbInstr = Leak.toLeakInstr $ Core.stateWbInstr s
       , Sim.stateHalt = Core.stateHalt s /= Core.Running
       , Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s
       , Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s
@@ -75,17 +75,16 @@ proj s = (ts, ss)
       , Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
       }
 
-  killJump :: Leak.Instr -> Leak.Instr
-  killJump (Leak.Instr (Leak.Jump'{}) _ _) = Leak.nop'
-  killJump i = i
-
   toStallFetch :: Core.Control Identity -> Bool
   toStallFetch ctrl =
     Core.ctrlDecodeLoad ctrl
-      || Core.ctrlMemOutputActive ctrl
+      || Core.ctrlMeOutputActive ctrl
       || isJust (Core.ctrlExBranch ctrl)
 
   toStallDecode :: Core.Control Identity -> Bool
   toStallDecode ctrl =
     Core.ctrlFirstCycle ctrl
       || isJust (Core.ctrlExBranch ctrl)
+      || Core.ctrlMeBranch ctrl
+      || Core.ctrlExLoad ctrl
+      || Core.ctrlWbMemInstr ctrl

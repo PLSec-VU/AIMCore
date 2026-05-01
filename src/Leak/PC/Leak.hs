@@ -125,7 +125,8 @@ fetch = do
     (gets stateStallFetch)
     ( modify $ \s ->
         s
-          { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
+          { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s),
+            stateDePc = stateFePc s
           }
     )
     ( modify $ \s ->
@@ -138,10 +139,13 @@ fetch = do
 decode :: LeakM ()
 decode = do
   input <- ask
+  stall <- pure (||) <*> gets stateStallDecode <*> gets stateFirstCycle
+
   let instr
-        | Core.inputIsInstr input =
+        | Core.inputIsInstr input && not stall =
             Core.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Core.nop
+
   when (Core.isLoad instr || Core.isCall instr) $
     stallFetch
   tell $
@@ -154,24 +158,17 @@ decode = do
               }
       }
 
-  ifM
-    ( pure (||)
-        <*> gets stateStallDecode
-        <*> gets stateFirstCycle
-    )
-    ( modify $ \s ->
-        s
-          { stateExInstr = Core.nop,
-            stateExPc = stateDePc s
-          }
-    )
-    ( do
-        modify $ \s ->
-          s
-            { stateExInstr = instr,
-              stateExPc = stateDePc s
-            }
-    )
+  if stall
+    then modify $ \s ->
+           s
+             { stateExInstr = Core.nop,
+               stateExPc = stateDePc s
+             }
+    else modify $ \s ->
+           s
+             { stateExInstr = instr,
+               stateExPc = stateDePc s
+             }
 
 mkDeps :: Core.Instruction -> (Maybe RegIdx, Maybe RegIdx)
 mkDeps instr = (noZero $ Core.getRs1 instr, noZero $ Core.getRs2 instr)
@@ -209,6 +206,10 @@ mkInstr instr =
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
+
+  when (Core.isLoad instr || Core.isCall instr) $
+    stallDecode
+
   let r1M :: LeakM Word
       r1M = regWithFwd Core.getRs1 =<< (runIdentity <$> asks Core.inputRs1)
 
@@ -285,6 +286,12 @@ memory = do
       stallFetch
     Core.SType {} ->
       stallFetch
+    Core.IType Core.Jump _ _ _ ->
+      stallDecode
+    Core.BType {} ->
+      stallDecode
+    Core.JType {} ->
+      stallDecode
     _ -> pure ()
 
   modify $ \s ->
@@ -321,8 +328,12 @@ writeback = do
     Core.IType (Core.Load size sign) rd _ _ -> do
       let val = Core.loadExtend size sign input
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
+      stallDecode
     Core.IType (Core.Env Core.Call) _ _ _ -> do
       modify $ \s -> s {stateWbRegFwd = pure (10, input)}
+      stallDecode
+    Core.SType {} ->
+      stallDecode
     _ -> pure ()
 
 pipe :: LeakM ()

@@ -64,20 +64,22 @@ outputNothing = tell $ pure Nothing
 
 fetch :: SimM ()
 fetch = do
+  targetPc <- gets (\s -> fromMaybe (stateFePc s) (stateJumpAddr s))
+  outputPc targetPc
+
   ifM
     (gets stateStallFetch)
     ( modify $ \s ->
         s
-          { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
+          { stateFePc = targetPc,
+            stateDePc = stateFePc s
           }
     )
-    ( do
-        outputPc =<< gets stateFePc
-        modify $ \s ->
-          s
-            { stateFePc = fromMaybe (stateFePc s + 4) (stateJumpAddr s),
-              stateDePc = stateFePc s
-            }
+    ( modify $ \s ->
+        s
+          { stateFePc = targetPc + 4,
+            stateDePc = stateFePc s
+          }
     )
 
 decode :: SimM ()
@@ -114,12 +116,16 @@ execute = do
         stateMemInstr = instr
       }
 
+  when (Leak.isLoad instr) $
+    stallDecode
+
   case Leak.instrBase instr of
     Leak.Jump -> do
-      modify $ \s -> s {stateMemInstr = Leak.nop}
-      when (isJust mjmpAddr) $ do
+      if isJust mjmpAddr then do
         stallFetch
         stallDecode
+      else do
+        modify $ \s -> s {stateMemInstr = Leak.nop}
     _ -> pure ()
 
 memory :: SimM ()
@@ -136,6 +142,8 @@ memory = do
     Leak.Store -> do
       outputNothing
       stallFetch
+    Leak.Jump -> do
+      stallDecode
     _ -> pure ()
 
 writeback :: SimM ()
@@ -148,6 +156,9 @@ writeback = do
     outputNothing
 
   case Leak.instrBase instr of
+    Leak.Load {} -> stallDecode
+    Leak.Call {} -> stallDecode
+    Leak.Store -> stallDecode
     Leak.Break -> do
       outputNothing
       modify $ \s ->
