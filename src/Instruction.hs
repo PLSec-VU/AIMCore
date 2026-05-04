@@ -112,6 +112,8 @@ data Reason4Stall
     FirstCycle
   | -- | Failed to decode an instruction.
     DecodeFail
+  | -- | Security violation.
+    SecurityViolation.
   deriving (Eq, Show, Generic, NFDataX)
 
 -- | Decoded instructions
