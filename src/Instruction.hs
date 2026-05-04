@@ -1,5 +1,6 @@
 module Instruction
   ( Instruction (..),
+    Reason4Stall,
     decode,
     decode',
     encode,
