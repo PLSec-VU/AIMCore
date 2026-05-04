@@ -335,26 +335,29 @@ setSecurityViolation =
 fetch :: (Access f) => CPUM f ()
 fetch = do
   pc <- gets stateFePc
-  readPC pc
-
   ctrl <- gets stateCtrl
-  mBranchAddr <- gets $ ctrlExBranch . stateCtrl
 
+  -- Always try to read unless the instruction in the `memory` stage is a load, a store, or a syscall.
+  unless (ctrlMeMemInstr ctrl) $
+    readPC pc
+ 
   let stall =
-        -- Have to always stall incrementing the program counter on any call
-        -- instruction
-        ctrlDecodeCall ctrl
-          ||
-          -- We stall on `ctrlMeOutputActive` because that means next cycle
-          -- the memory will be unavailable to read an instruction from, so we
-          -- shouldn't increment the program counter.
-          ctrlMeOutputActive ctrl
-          || isJust mBranchAddr
+    -- We stall if the instruction in the `decode` stage is a syscall.
+    ctrlDeCall ctrl ||
+    -- We stall if the instruction in the `memory` stage is a load, a store, or a syscall.
+    ctrlMeMemInstr ctrl
+
+  let next_pc =
+    fromMaybe
+      (fromMaybe
+         (if stall then pc else pc + 4) $
+           ctrlDeLoadHazard ctrl) $
+        ctrlExBranch ctrl
 
   modify $ \s ->
     s
       { -- Increment program counter for next fetch.
-        stateFePc = fromMaybe (if stall then pc else pc + 4) mBranchAddr,
+        stateFePc = nextPC,
         -- Propagate program counter to next stage.
         stateDePc = pc
       }
@@ -394,11 +397,11 @@ decode = do
   when load_hazard_current_cycle $ do
     pc <- gets stateDePc
     setLines $
-      \c -> c {ctrlDecodeLoadHazard = Just pc}
+      \c -> c {ctrlDeLoadHazard = Just pc}
   
   when (isCall ir') $
     setLines $
-      \c -> c {ctrlDecodeCall = True}
+      \c -> c {ctrlDeCall = True}
 
   modify $ \s ->
     s { stateExInstr = ir',
