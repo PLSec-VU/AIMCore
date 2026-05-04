@@ -4,7 +4,6 @@ module Instruction
     decode',
     encode,
     encode',
-    nop,
     IOperation (..),
     Arith (..),
     Env (..),
@@ -95,6 +94,26 @@ data IOperation
   | Jump
   deriving (Eq, Show, Generic, NFDataX)
 
+-- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
+data Reason4Stall
+  = -- | We took a branch 1 cycle ago.
+    Branch1stCycle
+  | -- | We took a branch 2 cycles ago.
+    Branch2ndCycle
+  | -- | A load hazard occurred 1 cycle ago.
+    LoadHazard1stCycle
+  | -- | A load hazard occurred 2 cycles ago.
+    LoadHazard2ndCycle
+  | -- | A syscall occurred 1 cycle ago.
+    Syscall1stCycle
+  | -- | No instruction read because of memory bus overload.
+    MemoryBusBusy
+  | -- | Garbage from memory during first cycle.
+    FirstCycleGarbage
+  | -- | Failed to decode an instruction.
+    DecodeFail
+  deriving (Eq, Show, Generic, NFDataX)
+
 -- | Decoded instructions
 data Instruction
   = -- | RType op rd rs1 rs2
@@ -109,13 +128,15 @@ data Instruction
     UType UBase RegIdx UImm
   | -- | JType rd imm
     JType RegIdx JImm
+  | -- | nop
+    Nop Reason4Stall
   deriving (Eq, Show, Generic, NFDataX)
 
 {-# INLINE decode' #-}
 decode' :: Word -> Instruction
 decode' word = case decode word of
   Just instr -> instr
-  Nothing -> nop
+  Nothing -> Nop DecodeFail
 
 -- | Decode a word to an instruction.
 --
@@ -361,9 +382,6 @@ encode' instruction =
 encode :: Instruction -> Word
 encode instr =
   fromMaybe (error $ "Incorrect instruction: " <> show instr) $ encode' instr
-
-nop :: Instruction
-nop = RType ADD 0 0 0
 
 -- | Get the destination register of an instruction, if any.
 getRd :: (Alternative f) => Instruction -> f RegIdx
