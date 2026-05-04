@@ -422,12 +422,6 @@ execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
   modify $ \s -> s {stateMemInstr = ir}
-
-  -- TODO: Probably integrate this into the pattern match below
-  when (isCall ir) $
-    setLines $
-      \c -> c {ctrlExCall = True}
-
   setLines $ \c -> c {ctrlExInstr = ir}
 
   -- Fetch alu operands
@@ -442,11 +436,15 @@ execute = do
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
       case ir of
-        Instruction.IType Env {} _ _ _ -> empty
         Instruction.RType op _ _ _ -> do
           r1 <- rs1
           r2 <- rs2
           pure (op, r1, r2)
+        Instruction.IType (Env Break) _ _ _ -> empty
+        Instruction.IType (Env Call) _ _ _ -> do
+          setLines $
+            \c -> c {ctrlExCall = True}
+          empty
         Instruction.IType Jump _ _ imm -> do
           pc <- gets $ pure . pack . stateExPc
           r1 <- rs1
@@ -454,13 +452,12 @@ execute = do
             let branchAddr = unpack <$> alu ADD r1 (pure $ signExtend imm)
             setLines $
               \c -> c {ctrlExBranch = fromPublic branchAddr}
-          pure
-            (ADD, pc, pure 4)
+          pure (ADD, pc, pure 4)
         Instruction.IType op _ _ imm -> do
-          -- Do addition for non arithmetic operations.
+          -- Do addition for load instructions.
           let op' = case op of
-                Arith arith -> arith
-                _ -> ADD
+            Arith arith -> arith
+            _ -> ADD
           r1 <- rs1
           let imm' = signExtend imm
           pure (op', r1, pure imm')
@@ -511,17 +508,15 @@ execute = do
     regWithFwd getR def = do
       ir <- gets stateExInstr
       let checkForFwd line = do
-            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . stateCtrl
-            guard (hazardRW getR ir fwdIdx)
-            pure fwdVal
-      fmap
-        (fromMaybe def)
-        $ runMaybeT
-        $ checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
+        let (fwdIdx, fwdVal) = line . stateCtrl
+        guard (hazardRW getR ir fwdIdx)
+        pure fwdVal
+      fmap (fromMaybe def) $ runMaybeT $
+        checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
 
     hazardRW :: (Instruction -> Maybe RegIdx) -> Instruction -> RegIdx -> Bool
-    hazardRW getR src rd = isJust $ do
-      rs <- getR src
+    hazardRW getR ir rd = isJust $ do
+      rs <- getR ir
       guard $ rd /= 0 && rs == rd
 
 alu :: (Access f) => Arith -> f Word -> f Word -> f Word
