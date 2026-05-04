@@ -260,7 +260,7 @@ decode word = do
     0b110_1111 -> pure $ JType rd immJ
     _ -> empty
 
--- | Decode a word to an instruction.
+-- | Encode an instruction to a word.
 --
 -- https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
 encode' :: Instruction -> Maybe Word
@@ -279,7 +279,6 @@ encode' instruction =
             SRA -> (0x5, 0x20)
             SLT -> (0x2, 0x00)
             SLTU -> (0x3, 0x00)
-
       let rd' = pack rd
       let rs1' = pack rs1
       let rs2' = pack rs2
@@ -342,7 +341,6 @@ encode' instruction =
       pure $ immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
     BType cmp imm rs1 rs2 -> do
       let opcode = 0b110_0011 :: BitVector 7
-
       let funct3 :: BitVector 3 = case cmp of
             EQ -> 0x0
             NE -> 0x1
@@ -381,6 +379,8 @@ encode' instruction =
 
       let rd' = pack rd
       pure $ imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
+    Nop _ ->
+      encode' $ RType ADD 0 0 0
 
 encode :: Instruction -> Word
 encode instr =
@@ -394,6 +394,7 @@ getRd = \case
   Instruction.IType _ rd _ _ -> pure rd
   Instruction.UType _ rd _ -> pure rd
   Instruction.JType rd _ -> pure rd
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the first source register of an instruction, if any.
@@ -404,6 +405,7 @@ getRs1 = \case
   Instruction.IType _ _ rs1 _ -> pure rs1
   Instruction.SType _ _ rs1 _ -> pure rs1
   Instruction.BType _ _ rs1 _ -> pure rs1
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the second source register of an instruction, if any.
@@ -412,6 +414,7 @@ getRs2 = \case
   Instruction.RType _ _ _ rs2 -> pure rs2
   Instruction.SType _ _ _ rs2 -> pure rs2
   Instruction.BType _ _ _ rs2 -> pure rs2
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 isBreak :: Instruction -> Bool
