@@ -1,6 +1,7 @@
 module Instruction
   ( Instruction (..),
     Reason4Stall,
+    nop,
     decode,
     decode',
     encode,
@@ -134,6 +135,9 @@ data Instruction
   | -- | nop
     Nop Reason4Stall
   deriving (Eq, Show, Generic, NFDataX)
+
+nop :: Instruction
+nop = RType ADD 0 0 0
 
 {-# INLINE decode' #-}
 decode' :: Word -> Instruction
@@ -380,7 +384,7 @@ encode' instruction =
       let rd' = pack rd
       pure $ imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
     Nop _ ->
-      encode' $ RType ADD 0 0 0
+      encode' nop
 
 encode :: Instruction -> Word
 encode instr =
