@@ -429,6 +429,18 @@ isCall :: Instruction -> Bool
 isCall (IType (Env Call) _ _ _) = True
 isCall _ = False
 
+isLoad :: Instruction -> Bool
+isLoad (IType Load {} _ _ _) = True
+isLoad _ = False
+
+isNopBranchFirstCycle :: Instruction -> Bool
+isNopBranchFirstCycle (Nop BranchFirstCycle) = True
+isNopBranchFirstCycle _ = False
+
+isNopLoadHazardFirstCycle :: Instruction -> Bool
+isNopLoadHazardFirstCycle (Nop LoadHazardFirstCycle) = True
+isNopLoadHazardFirstCycle _ = False
+
 break :: Instruction
 break = IType (Env Break) 0 0 0
 
@@ -443,10 +455,6 @@ loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
     noZero (Just 0) = Nothing
     noZero r = r
 loadHazard _ _ = False
-
-isLoad :: Instruction -> Bool
-isLoad (IType Load {} _ _ _) = True
-isLoad _ = False
 
 loadExtend :: Size -> Sign -> Word -> Word
 loadExtend Byte Signed = signExtend . slice d7 d0
