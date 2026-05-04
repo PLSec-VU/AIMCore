@@ -254,7 +254,7 @@ circuit = flip $ execRWS pipe
 --    ├── memory
 --    ├── execute
 --    ├── decode
---    └── etch
+--    └── fetch
 --
 -- i.e., `stateWbRes` becomes part of the pipeline registers between the `memory` and
 -- `writeback` stages. These dependencies implicitly define the ordering of the
@@ -370,25 +370,28 @@ decode = do
 
   ctrl <- gets stateCtrl
 
-  let load_hazard = maybe False (loadHazard ir) (ctrlExInstr ctrl)
+  let branch_first_cycle = maybe False isNopBranchFirstCycle (ctrlExInstr ctrl)
+  let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
+  let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
+  let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
 
-  let ir' =    
+  let ir' =
     -- If a branch was taken in this cycle, we stall.
     if isJust (ctrlExBranch ctrl) then Nop BranchFirstCycle
     -- If a branch was taken in the previous cycle, we stall.
-    else if isNopBranchFirstCycle (ctrlExInstr ctrl) then Nop BranchSecondCycle
+    else if nop_branch_first_cycle then Nop BranchSecondCycle
     -- If there is a load hazard with the instruction executed in this cycle, we stall.
-    else if load_hazard then Nop LoadHazardFirstCycle
-    -- If there is a load hazard with the instruction executed in the previous cycle, we stall.
-    else if isNopLoadHazardFirstCycle (ctrlExInstr ctrl) then Nop LoadHazardSecondCycle
+    else if load_hazard_current_cycle then Nop LoadHazardFirstCycle
+    -- If there was a load hazard in the previous cycle, we stall.
+    else if load_hazard_first_cycle then Nop LoadHazardSecondCycle
     -- If a syscall is executed in this cycle, we stall.
-    else if isCall (ctrlExInstr ctrl) then Nop SyscallFirstCycle
+    else if call_current_cycle then Nop SyscallFirstCycle
     -- If this is the first cycle, the instruction to decode is gibberish from memory.
     else if ctrlFirstCycle ctrl then Nop FirstCycle
     -- Otherwise we process the decoded instruction.
     else ir
 
-  when load_hazard $ do
+  when load_hazard_current_cycle $ do
     pc <- gets stateDePc
     setLines $
       \c -> c {ctrlDecodeLoadHazard = Just pc}
