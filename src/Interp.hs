@@ -45,3 +45,5 @@ interp instr r1 r2 pc =
        in Interp (pack pc + imm') Nothing Nothing
     JType rd imm ->
       Interp (pack $ pc + 4) (Just $ pc + unpack (signExtend imm)) Nothing
+    Nop _ ->
+      interp (RType ADD 0 0 0) r1 r2 pc
