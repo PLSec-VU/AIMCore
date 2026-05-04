@@ -284,11 +284,11 @@ init =
     { stateFePc = initPc,
       stateDePc = 0,
       stateExPc = 0,
-      stateExInstr = Nop FirstCycle,
-      stateMemInstr = Nop FirstCycle,
+      stateExInstr = Nop Reason4Stall.FirstCycle,
+      stateMemInstr = Nop Reason4Stall.FirstCycle,
       stateMemRes = pure 0,
       stateMemVal = pure 0,
-      stateWbInstr = Nop FirstCycle,
+      stateWbInstr = Nop Reason4Stall.FirstCycle,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
       stateHalt = Running,
@@ -365,8 +365,8 @@ decode = do
   input <- ask
   ir <-
     if (inputIsInstr input)
-      then noSecrets (inputMem input) nop (pure . Instruction.decode')
-      else pure Instruction.nop
+      then noSecrets (inputMem input) (Nop Reason4Stall.SecurityViolation) (pure . decode')
+      else pure $ Nop Reason4Stall.MemoryBusBusy
 
   when (isCall ir) $
     setLines $
