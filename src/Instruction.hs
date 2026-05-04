@@ -97,15 +97,15 @@ data IOperation
 -- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
 data Reason4Stall
   = -- | We took a branch 1 cycle ago.
-    Branch1stCycle
+    BranchFirstCycle
   | -- | We took a branch 2 cycles ago.
-    Branch2ndCycle
+    BranchSecondCycle
   | -- | A load hazard occurred 1 cycle ago.
-    LoadHazard1stCycle
+    LoadHazardFirstCycle
   | -- | A load hazard occurred 2 cycles ago.
-    LoadHazard2ndCycle
+    LoadHazardSecondCycle
   | -- | A syscall occurred 1 cycle ago.
-    Syscall1stCycle
+    SyscallFirstCycle
   | -- | No instruction read because of memory bus overload.
     MemoryBusBusy
   | -- | First cycle.
