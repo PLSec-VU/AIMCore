@@ -2,7 +2,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Core
-  ( initInput,
+  ( initInput,f
     init,
     initCtrl,
     withCtrlReset,
@@ -368,53 +368,41 @@ decode = do
       then noSecrets (inputMem input) (Nop Reason4Stall.SecurityViolation) (pure . decode')
       else pure $ Nop Reason4Stall.MemoryBusBusy
 
-  when (isCall ir) $
+  ctrl <- gets stateCtrl
+
+  let load_hazard = maybe False (loadHazard ir) (ctrlExInstr ctrl)
+
+  let ir' =    
+    -- If a branch was taken in this cycle, we stall.
+    if isJust (ctrlExBranch ctrl) then Nop BranchFirstCycle
+    -- If a branch was taken in the previous cycle, we stall.
+    else if isNopBranchFirstCycle (ctrlExInstr ctrl) then Nop BranchSecondCycle
+    -- If there is a load hazard with the instruction executed in this cycle, we stall.
+    else if load_hazard then Nop LoadHazardFirstCycle
+    -- If there is a load hazard with the instruction executed in the previous cycle, we stall.
+    else if isNopLoadHazardFirstCycle (ctrlExInstr ctrl) then Nop LoadHazardSecondCycle
+    -- If a syscall is executed in this cycle, we stall.
+    else if isCall (ctrlExInstr ctrl) then Nop SyscallFirstCycle
+    -- If this is the first cycle, the instruction to decode is gibberish from memory.
+    else if ctrlFirstCycle ctrl then Nop FirstCycle
+    -- Otherwise we process the decoded instruction.
+    else ir
+
+  when load_hazard $ do
+    pc <- gets stateDePc
+    setLines $
+      \c -> c {ctrlDecodeLoadHazard = Just pc}
+  
+  when (isCall ir') $
     setLines $
       \c -> c {ctrlDecodeCall = True}
 
-  ctrl <- gets stateCtrl
-
-  load_hazard_last = gets stateLoadHazardLastCycle
-
-  let
-    load_hazard = maybe False (loadHazard ir) (ctrlExInstr ctrl)
-    stall =
-        -- First cycle = gibberish from memory, so we stall.
-        ctrlFirstCycle ctrl
-          -- This means that the branch was taken, so we have to stall and
-          -- wait until the next cycle to get the correct instruction.
-          || isJust (ctrlExBranch ctrl)
-          -- This means that fetch stalled in the previous cycle, so we need to
-          -- stall in this cycle since the instruction is garbage.
-          || ctrlMeBranch ctrl
-          -- Instruction in execute is call; we stall the `fetch` stage when
-          -- `decode` has a call (`ctrlDecodeCall`), so `decode` has to stall
-          -- one cycle later.
-          || ctrlExCall ctrl
-          -- `fetch` stalls on `ctrlMeOutputActive` so we have to stall on `ctrlWbMemInstr`
-          || ctrlWbMemInstr ctrl
-          -- Is there a load hazard with the instr in `execute`?
-          || load_hazard
-          -- Was there a load hazard with the instr in `execute` last cycle?
-          || load_hazard_last
-
-  modify $ \s -> s { stateLoadHazardLastCycle = load_hazard }
-
   modify $ \s ->
-    if stall
-      then
-        s
-          { stateExInstr = nop,
-            stateExPc = stateDePc s
-          }
-      else
-        s
-          { stateExInstr = ir,
-            stateExPc = stateDePc s
-          }
+    s { stateExInstr = ir',
+        stateExPc = stateDePc s
+      }
 
-  unless stall $
-    readRF ir
+  readRF ir'
   where
     readRF ir =
       tell $
