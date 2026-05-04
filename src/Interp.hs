@@ -19,13 +19,13 @@ interp :: (Access f) => Instruction -> f Word -> f Word -> Address -> Interp
 interp instr r1 r2 pc =
   case instr of
     RType op rd _ _ ->
-      Interp (unAccess $ alu op r1 r2) Nothing Nothing
+      Interp (unAccess $ alu False op r1 r2) Nothing Nothing
     IType iop rd _ imm ->
       let op =
             case iop of
               Arith op' -> op'
               _ -> ADD
-          alu_res = alu op r1 (pure $ signExtend imm)
+          alu_res = alu True op r1 (pure $ signExtend imm)
        in case iop of
             Arith {} -> Interp (unAccess alu_res) Nothing Nothing
             Load size sign -> Interp (unpack $ unAccess alu_res) Nothing Nothing
