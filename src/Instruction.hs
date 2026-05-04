@@ -108,8 +108,8 @@ data Reason4Stall
     Syscall1stCycle
   | -- | No instruction read because of memory bus overload.
     MemoryBusBusy
-  | -- | Garbage from memory during first cycle.
-    FirstCycleGarbage
+  | -- | First cycle.
+    FirstCycle
   | -- | Failed to decode an instruction.
     DecodeFail
   deriving (Eq, Show, Generic, NFDataX)
