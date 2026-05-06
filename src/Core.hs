@@ -159,12 +159,13 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 data Control f = Control
   { -- | `True` during the first cycle.
     ctrlFirstCycle :: Bool,
-    -- | Stores `stateDePc` when the instruction in the `decode` stage has
-    --   a load hazard with the instruction in the `execute` stage.
+    -- | Forwards `stateDePc` from the `decode` stage to the `fetch` stage when
+    -- the instruction in the `decode` stage has a load hazard with the instruction
+    -- in the `execute` stage.
     ctrlDeLoadHazard :: Maybe Address,
     -- | `True` when the instruction in the `decode` stage is a syscall.
     ctrlDeCall :: Bool,
-    -- | Stores the instruction in the `execute` stage.
+    -- | Forwards the instruction in the `execute` stage to the `decode` stage.
     ctrlExInstr :: Maybe Instruction,
     -- | Stores the new PC if the instruction in the `execute` stage results in a jump.
     ctrlExAddress :: Maybe Address,
