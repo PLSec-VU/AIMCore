@@ -178,7 +178,7 @@ data Control f = Control
     ctrlMeRegFwd :: (RegIdx, f Word), 
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
-    ctrlWbRegFwd :: Maybe (RegIdx, f Word),
+    ctrlWbRegFwd :: (RegIdx, f Word),
   }
 
 deriving instance (Show (f Word)) => Show (Control f)
@@ -282,8 +282,7 @@ init =
       stateWbInstr = Nop Reason4Stall.FirstCycle,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
-      stateHalt = Running,
-      stateLoadHazardLastCycle = False
+      stateHalt = Running
     }
 
 -- | Initial control lines.
@@ -291,15 +290,13 @@ initCtrl :: (Access f) => Control f
 initCtrl =
   Control
     { ctrlFirstCycle = True,
-      ctrlDecodeCall = False,
-      ctrlMeOutputActive = False,
-      ctrlMeRegFwd = Nothing,
-      ctrlWbRegFwd = Nothing,
-      ctrlExBranch = Nothing,
-      ctrlMeBranch = False,
-      ctrlExCall = False,
-      ctrlWbMemInstr = False,
-      ctrlExInstr = Nothing
+      ctrlDeLoadHazard = Nothing,
+      ctrlDeCall = False,      
+      ctrlExInstr = Nothing,
+      ctrlExAddress = Nothing,
+      ctrlMeMemInstr = False,
+      ctrlMeRegFwd = (0, pure 0),
+      ctrlWbRegFwd = (0, pure 0)
     }
 
 -- | The control lines need to be reset every tick.
@@ -343,7 +340,7 @@ fetch = do
       (fromMaybe
          (if stall then pc else pc + 4) $
            ctrlDeLoadHazard ctrl) $
-        ctrlExBranch ctrl
+        ctrlExAddress ctrl
 
   modify $ \s ->
     s
@@ -371,7 +368,7 @@ decode = do
 
   let ir' =
     -- If a branch was taken in this cycle, we stall.
-    if isJust (ctrlExBranch ctrl) then Nop BranchFirstCycle
+    if isJust (ctrlExAddress ctrl) then Nop BranchFirstCycle
     -- If a branch was taken in the previous cycle, we stall.
     else if nop_branch_first_cycle then Nop BranchSecondCycle
     -- If there is a load hazard with the instruction executed in this cycle, we stall.
@@ -455,14 +452,14 @@ execute = do
               let branchAddr :: f Address
                   branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
               setLines $
-                \c -> c {ctrlExBranch = fromPublic branchAddr}
+                \c -> c {ctrlExAddress = fromPublic branchAddr}
           empty
         Instruction.JType _ imm -> do
           pc <- gets $ pack . stateExPc
           let jumpAddr :: f Address
               jumpAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
           setLines $
-            \c -> c {ctrlExBranch = fromPublic jumpAddr}
+            \c -> c {ctrlExAddress = fromPublic jumpAddr}
           pure (ADD, pure pc, pure 4)
         Instruction.IType Jump _ _ imm -> do
           r1 <- rs1
@@ -471,7 +468,7 @@ execute = do
             let jumpAddr :: f Address
                 jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
             setLines $
-              \c -> c {ctrlExBranch = fromPublic jumpAddr}
+              \c -> c {ctrlExAddress = fromPublic jumpAddr}
           pure (ADD, pure pc, pure 4)
         Instruction.UType base _ imm -> do
           base' <- case base of
@@ -479,10 +476,7 @@ execute = do
             PC -> gets $ pack . stateExPc
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
-        Instruction.IType (Env Call) _ _ _ -> do
-          setLines $
-            \c -> c {ctrlExCall = True}
-          empty    
+        Instruction.IType (Env Call) _ _ _ -> empty
         Instruction.IType (Env Break) _ _ _ -> empty
         Instruction.Nop _ -> empty
 
