@@ -447,7 +447,7 @@ execute = do
           r2 <- rs2
           pc <- gets $ pack . stateExPc
           let doBranch = branch cmp r1 r2
-          lift $ noSecrets doBranch () $ \doBranch' ->
+          noSecrets doBranch () $ \doBranch' ->
             when doBranch' $
               let branchAddr :: f Address
                   branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
@@ -464,7 +464,7 @@ execute = do
         Instruction.IType Jump _ _ imm -> do
           r1 <- rs1
           pc <- gets $ pack . stateExPc
-          lift $ noSecrets r1 () $ \r1' -> do
+          noSecrets r1 () $ \r1' -> do
             let jumpAddr :: f Address
                 jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
             setLines $
@@ -531,56 +531,42 @@ branch op lhs rhs = case op of
 
 memory :: (Access f) => CPUM f ()
 memory = do
+  ir <- gets stateMemInstr
   res <- gets stateMemRes
-  instr <- gets stateMemInstr
-  ex_instr <- gets stateExInstr
+  val <- gets stateMemVal
 
-  -- Store Forwarding
-  try $ do
-    rd <- getRd instr
-    me_res <- lift $ gets stateMemRes
-    lift $ setLines $ \c -> c {ctrlMeRegFwd = pure (rd, me_res)}
+  modify $ \s ->
+    s { stateWbInstr = ir, stateWbRes = res }
 
-  case instr of
-    Instruction.SType size _ _ _ ->
-      noSecrets res () $ \res' -> do
-        r2 <- gets stateMemVal
-        writeRAM (unpack res') size r2
-        setLines $ \c ->
-          c {ctrlMeOutputActive = True}
+  -- Default register forwarding.
+  setLines $ \c -> c {ctrlMeRegFwd = (0, pure 0)}
+
+  case ir of
+    Instruction.RType _ rd _ _ ->
+      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+    Instruction.IType (Arith _) rd _ _ ->
+      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
     Instruction.IType (Load size _) _ _ _ ->
       noSecrets res () $ \res' -> do
         setLines $ \c ->
-          c
-            { -- Don't forward loads that haven't happened yet
-              ctrlMeRegFwd = Nothing,
-              ctrlMeOutputActive = True
-            }
+          c { ctrlMeMemInstr = True }
         readRAM (unpack res') size
+    Instruction.SType size _ _ _ ->
+      noSecrets res () $ \res' -> do
+        setLines $ \c ->
+          c {ctrlMeMemInstr = True}
+        writeRAM (unpack res') size val
+    Instruction.JType rd _ ->
+      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+    Instruction.IType Jump rd _ _ ->
+      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+    Instruction.UType _ rd _ ->
+      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
     Instruction.IType (Env Call) _ _ _ -> do
       setLines $ \c ->
-        c
-          { -- Don't forward syscalls that haven't happened yet
-            ctrlMeRegFwd = Nothing,
-            ctrlMeOutputActive = True
-          }
+        c { ctrlMeMemInstr = True }
       readSyscall
-    Instruction.IType Jump _ _ _ ->
-      setLines $ \c ->
-        c {ctrlMeBranch = True}
-    Instruction.BType _ _ _ _ ->
-      setLines $ \c ->
-        c {ctrlMeBranch = True}
-    Instruction.JType _ _ ->
-      setLines $ \c ->
-        c {ctrlMeBranch = True}
     _ -> pure ()
-
-  modify $ \s ->
-    s
-      { stateWbInstr = stateMemInstr s,
-        stateWbRes = stateMemRes s
-      }
 
 -- | Commit computations to the register file.
 writeback :: (Access f) => CPUM f ()
