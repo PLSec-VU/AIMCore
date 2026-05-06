@@ -159,13 +159,12 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 data Control f = Control
   { -- | `True` during the first cycle.
     ctrlFirstCycle :: Bool,
-    -- | Forwards `stateDePc` from the `decode` stage to the `fetch` stage when
-    -- the instruction in the `decode` stage has a load hazard with the instruction
-    -- in the `execute` stage.
+    -- | Stores `stateDePc` when the instruction in the `decode` stage has
+    --   a load hazard with the instruction in the `execute` stage.
     ctrlDeLoadHazard :: Maybe Address,
     -- | `True` when the instruction in the `decode` stage is a syscall.
     ctrlDeCall :: Bool,
-    -- | Forwards the instruction in the `execute` stage to the `decode` stage.
+    -- | Stores the instruction in the `execute` stage.
     ctrlExInstr :: Maybe Instruction,
     -- | Stores the new PC if the instruction in the `execute` stage results in a jump.
     ctrlExAddress :: Maybe Address,
@@ -304,21 +303,21 @@ initCtrl =
 withCtrlReset :: (Access f) => CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
   firstCycle <- gets $ ctrlFirstCycle . stateCtrl
-  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = firstCycle}}
+  modify $ \s -> s { stateCtrl = initCtrl { ctrlFirstCycle = firstCycle } }
   m
   ctrl <- gets stateCtrl
-  modify $ \s -> s {stateCtrl = (stateCtrl s) {ctrlFirstCycle = False}}
+  modify $ \s -> s { stateCtrl = (stateCtrl s) { ctrlFirstCycle = False } }
   pure ctrl
 
 -- | Stop the CPU.
 halt :: (Access f) => CPUM f ()
 halt =
-  modify $ \s -> s {stateHalt = EBreak}
+  modify $ \s -> s { stateHalt = EBreak }
 
 -- | Set security violation flag.
 setSecurityViolation :: (Access f) => CPUM f ()
 setSecurityViolation =
-  modify $ \s -> s {stateHalt = SecurityViolation}
+  modify $ \s -> s { stateHalt = SecurityViolation }
 
 -- | The fetch stage.
 fetch :: (Access f) => CPUM f ()
@@ -344,8 +343,7 @@ fetch = do
         ctrlExAddress ctrl
 
   modify $ \s ->
-    s
-      { -- Increment program counter for next fetch.
+    s { -- Increment program counter for next fetch.
         stateFePc = nextPC,
         -- Propagate program counter to next stage.
         stateDePc = pc
@@ -386,11 +384,11 @@ decode = do
   when load_hazard_current_cycle $ do
     pc <- gets stateDePc
     setLines $
-      \c -> c {ctrlDeLoadHazard = Just pc}
+      \c -> c { ctrlDeLoadHazard = Just pc }
   
   when (isCall ir') $
     setLines $
-      \c -> c {ctrlDeCall = True}
+      \c -> c { ctrlDeCall = True }
 
   modify $ \s ->
     s { stateExInstr = ir',
@@ -410,8 +408,8 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s {stateMemInstr = ir, stateMemVal = pure 0}
-  setLines $ \c -> c {ctrlExInstr = Just ir}
+  modify $ \s -> s { stateMemInstr = ir, stateMemVal = pure 0 }
+  setLines $ \c -> c { ctrlExInstr = Just ir }
     
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
@@ -420,7 +418,7 @@ execute = do
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
-    in s {stateMemRes = res}
+    in s { stateMemRes = res }
   where
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
@@ -441,7 +439,7 @@ execute = do
           r1 <- rs1
           r2 <- rs2
           let imm' = signExtend imm
-          modify $ \s -> s {stateMemVal = r2}
+          modify $ \s -> s { stateMemVal = r2 }
           pure (ADD, r1, pure imm')
         Instruction.BType cmp imm _ _ -> do
           r1 <- rs1
@@ -453,14 +451,14 @@ execute = do
               let branchAddr :: f Address
                   branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
               setLines $
-                \c -> c {ctrlExAddress = fromPublic branchAddr}
+                \c -> c { ctrlExAddress = fromPublic branchAddr }
           empty
         Instruction.JType _ imm -> do
           pc <- gets $ pack . stateExPc
           let jumpAddr :: f Address
               jumpAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
           setLines $
-            \c -> c {ctrlExAddress = fromPublic jumpAddr}
+            \c -> c { ctrlExAddress = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
         Instruction.IType Jump _ _ imm -> do
           r1 <- rs1
@@ -469,7 +467,7 @@ execute = do
             let jumpAddr :: f Address
                 jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
             setLines $
-              \c -> c {ctrlExAddress = fromPublic jumpAddr}
+              \c -> c { ctrlExAddress = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
         Instruction.UType base _ imm -> do
           base' <- case base of
@@ -540,13 +538,13 @@ memory = do
     s { stateWbInstr = ir, stateWbRes = res }
 
   -- Default register forwarding.
-  setLines $ \c -> c {ctrlMeRegFwd = (0, pure 0)}
+  setLines $ \c -> c { ctrlMeRegFwd = (0, pure 0) }
 
   case ir of
     Instruction.RType _ rd _ _ ->
-      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.IType (Arith _) rd _ _ ->
-      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.IType (Load size _) _ _ _ ->
       noSecrets res () $ \res' -> do
         setLines $ \c ->
@@ -555,82 +553,73 @@ memory = do
     Instruction.SType size _ _ _ ->
       noSecrets res () $ \res' -> do
         setLines $ \c ->
-          c {ctrlMeMemInstr = True}
+          c { ctrlMeMemInstr = True }
         writeRAM (unpack res') size val
     Instruction.JType rd _ ->
-      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.IType Jump rd _ _ ->
-      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.UType _ rd _ ->
-      setLines $ \c -> c {ctrlMeRegFwd = (rd, res)}
+      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.IType (Env Call) _ _ _ -> do
-      setLines $ \c ->
-        c { ctrlMeMemInstr = True }
+      setLines $ \c -> c { ctrlMeMemInstr = True }
       readSyscall
     _ -> pure ()
 
 -- | Commit computations to the register file.
 writeback :: (Access f) => CPUM f ()
 writeback = do
-  input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbRes
+  input <- asks inputMem
 
   haltState <- gets stateHalt
 
   when (haltState /= Running) $ do
     tell $
-      mempty {outHalt = pure True}
+      mempty { outHalt = pure True }
     readRAM 0 Types.Word
 
   when (isBreak ir) $ do
     -- Flush the pipeline
     modify $ \s ->
-      s
-        { stateMemInstr = nop,
+      s { stateMemInstr = nop,
           stateExInstr = nop
         }
     readRAM 0 Types.Word
     halt
 
-  try $ do
-    rd <- getRd ir
-    lift $ setLines $ \c ->
-      c {ctrlWbRegFwd = pure (rd, res)}
-
   case ir of
-    Instruction.RType _ rd _ _ -> writeRF rd res
-    Instruction.IType (Arith _) rd _ _ -> writeRF rd res
-    Instruction.UType _ rd _ -> writeRF rd res
+    Instruction.RType _ rd _ _ -> do
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+      writeRF rd res
+    Instruction.IType (Arith _) rd _ _ -> do
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+      writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
       let val = loadExtend size sign <$> input
-      setLines $ \c ->
-        c
-          { ctrlWbRegFwd = pure (rd, val),
-            ctrlWbMemInstr = True
-          }
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, val) }
       writeRF rd val
-    Instruction.SType _ _ _ _ ->
-      setLines $ \c ->
-        c
-          { ctrlWbMemInstr = True
-          }
-    Instruction.IType Jump rd _ _ ->
-      writeRF rd res
     Instruction.JType rd _ ->
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+      writeRF rd res
+    Instruction.IType Jump rd _ _ ->
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+      writeRF rd res
+    Instruction.UType _ rd _ ->
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
       writeRF rd res
     Instruction.IType (Env Call) _ _ _ -> do
       let val = input
       let rd = 10 -- a0
-      setLines $ \c ->
-        c
-          { ctrlWbRegFwd = pure (rd, val),
-            ctrlWbMemInstr = True
-          }
-    _ -> pure ()
+      setLines $ \c -> c { ctrlWbRegFwd = (rd, val) }
+    _ -> do
+      setLines $ \c -> c { ctrlWbRegFwd = (0, pure 0) }
+      writeRF 0 (pure 0)
+
   where
     writeRF idx val =
-      tell $ mempty {outRd = pure (idx, val)}
+      tell $ mempty { outRd = pure (idx, val) }
 
 readPC :: (Access f, MonadWriter (Output f) m) => Address -> m ()
 readPC addr =
@@ -677,10 +666,10 @@ writeRAM addr size val =
 readSyscall :: (Access f, MonadWriter (Output f) m) => m ()
 readSyscall =
   tell $
-    mempty {outSyscall = pure True}
+    mempty { outSyscall = pure True }
 
 setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
-setLines f = modify $ \s -> s {stateCtrl = f $ stateCtrl s}
+setLines f = modify $ \s -> s { stateCtrl = f $ stateCtrl s }
 
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
