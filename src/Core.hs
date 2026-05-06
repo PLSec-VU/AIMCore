@@ -432,7 +432,7 @@ execute = do
           r1 <- rs1
           let imm' = signExtend imm
           pure (op, r1, pure imm')
-        Instruction.IType Load {} _ _ imm -> do
+        Instruction.IType (Load _ _) _ _ imm -> do
           r1 <- rs1
           let imm' = signExtend imm
           pure (ADD, r1, pure imm')       
