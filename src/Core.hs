@@ -421,9 +421,9 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s {stateMemInstr = ir}
-  setLines $ \c -> c {ctrlExInstr = ir}
-
+  modify $ \s -> s {stateMemInstr = ir, stateMemVal = pure 0}
+  setLines $ \c -> c {ctrlExInstr = Just ir}
+    
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
 
@@ -431,7 +431,7 @@ execute = do
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
-     in s {stateMemRes = res}
+    in s {stateMemRes = res}
   where
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
@@ -440,27 +440,14 @@ execute = do
           r1 <- rs1
           r2 <- rs2
           pure (op, r1, r2)
-        Instruction.IType (Env Break) _ _ _ -> empty
-        Instruction.IType (Env Call) _ _ _ -> do
-          setLines $
-            \c -> c {ctrlExCall = True}
-          empty
-        Instruction.IType Jump _ _ imm -> do
-          pc <- gets $ pure . pack . stateExPc
-          r1 <- rs1
-          lift $ noSecrets r1 () $ \_ -> do
-            let branchAddr = unpack <$> alu ADD r1 (pure $ signExtend imm)
-            setLines $
-              \c -> c {ctrlExBranch = fromPublic branchAddr}
-          pure (ADD, pc, pure 4)
-        Instruction.IType op _ _ imm -> do
-          -- Do addition for load instructions.
-          let op' = case op of
-            Arith arith -> arith
-            _ -> ADD
+        Instruction.IType (Arith op) _ _ imm -> do
           r1 <- rs1
           let imm' = signExtend imm
-          pure (op', r1, pure imm')
+          pure (op, r1, pure imm')
+        Instruction.IType Load {} _ _ imm -> do
+          r1 <- rs1
+          let imm' = signExtend imm
+          pure (ADD, r1, pure imm')       
         Instruction.SType _ imm _ _ -> do
           r1 <- rs1
           r2 <- rs2
@@ -472,31 +459,41 @@ execute = do
           r2 <- rs2
           pc <- gets $ pack . stateExPc
           let doBranch = branch cmp r1 r2
-              branchAddr :: f Address
-              branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
           lift $ noSecrets doBranch () $ \doBranch' ->
-            if doBranch'
-              then setLines $
+            when doBranch' $
+              let branchAddr :: f Address
+                  branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
+              setLines $
                 \c -> c {ctrlExBranch = fromPublic branchAddr}
-              else modify $ \s -> s {stateMemInstr = nop}
           empty
+        Instruction.JType _ imm -> do
+          pc <- gets $ pack . stateExPc
+          let jumpAddr :: f Address
+              jumpAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
+          setLines $
+            \c -> c {ctrlExBranch = fromPublic jumpAddr}
+          pure (ADD, pure pc, pure 4)
+        Instruction.IType Jump _ _ imm -> do
+          r1 <- rs1
+          pc <- gets $ pack . stateExPc
+          lift $ noSecrets r1 () $ \r1' -> do
+            let jumpAddr :: f Address
+                jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
+            setLines $
+              \c -> c {ctrlExBranch = fromPublic jumpAddr}
+          pure (ADD, pure pc, pure 4)
         Instruction.UType base _ imm -> do
           base' <- case base of
             Zero -> pure 0
             PC -> gets $ pack . stateExPc
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
-        Instruction.JType _ imm -> do
-          pc <- gets $ pack . stateExPc
-          let branchAddr :: f Address
-              branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
+        Instruction.IType (Env Call) _ _ _ -> do
           setLines $
-            \c -> c {ctrlExBranch = fromPublic branchAddr}
-          pure (ADD, pure pc, pure 4)
-
-    isIType :: Instruction -> Bool
-    isIType (Instruction.IType {}) = True
-    isIType _ = False
+            \c -> c {ctrlExCall = True}
+          empty    
+        Instruction.IType (Env Break) _ _ _ -> empty
+        Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
     rs1 = lift $ regWithFwd getRs1 =<< asks inputRs1
