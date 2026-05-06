@@ -144,9 +144,7 @@ data State f = State
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state
-    stateHalt :: HaltState,
-    -- | Load hazard in `memory`?
-    stateLoadHazardLastCycle :: Bool
+    stateHalt :: HaltState
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -159,36 +157,29 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
 data Control f = Control
-  { -- | `True` during the first step of execution.
+  { -- | `True` during the first cycle.
     ctrlFirstCycle :: Bool,
-    -- | `True` when the instruction in the `decode` stage is a load.
-    ctrlDecodeCall :: Bool,
-    -- | `True` when the instruction in the `memory` stage results in a read/write.
-    ctrlMeOutputActive :: Bool,
-    -- | Forwards the rd register from the `memory` stage to the `execute`
-    -- stage.  The `RegIdx` payload is necessary to know what the destination
+    -- | Stores `stateDePc` when the instruction in the `decode` stage has
+    --   a load hazard with the instruction in the `execute` stage.
+    ctrlDeLoadHazard :: Maybe Address,
+    -- | `True` when the instruction in the `decode` stage is a syscall.
+    ctrlDeCall :: Bool,
+    -- | Stores the instruction in the `execute` stage.
+    ctrlExInstr :: Maybe Instruction,
+    -- | Stores the new PC if the instruction in the `execute` stage results in a jump.
+    ctrlExAddress :: Maybe Address,
+    -- | `True` when the instruction in the `memory` stage is a store, a load, or a syscall.
+    ctrlMeMemInstr :: Bool,
+    -- | Forwards the `rd` register from the `memory` stage to the `execute`
+    -- stage. The `RegIdx` payload is necessary to know what the destination
     -- register is for the instruction in the `memory` stage: it's too late to
     -- check this in the `execute` stage because it will already have been
     -- overwritten with the instruction for the next cycle.
-    ctrlMeRegFwd :: Maybe (RegIdx, f Word),
+    ctrlMeRegFwd :: (RegIdx, f Word), 
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
     ctrlWbRegFwd :: Maybe (RegIdx, f Word),
-    -- | The result of a branch computation. Set in the `execute` stage and
-    -- contains the new PC.
-    ctrlExBranch :: Maybe Address,
-    -- | Is the instruction in the `memory` stage a branch?
-    ctrlMeBranch :: Bool,
-    -- | Is the instruction in `execute` a call?
-    ctrlExCall :: Bool,
-    -- | `True` when the instruction in the `Wb` stage results in a read/write.
-    ctrlWbMemInstr :: Bool,
-    -- | Ex instruction; needed for load hazard detection.
-    ctrlExInstr :: Maybe Instruction
   }
-
--- \| Need propagate whether a branch instruction is in the `memory` stage
--- so we can stall the decode stall another cycle.
 
 deriving instance (Show (f Word)) => Show (Control f)
 
