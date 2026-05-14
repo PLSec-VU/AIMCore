@@ -168,8 +168,7 @@ interp' instr
            in Reg rd $ pcF $ \pc -> bitCoerce pc + imm'
         Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
-        Instruction.Nop _ ->
-          interp' Instruction.nop
+        Instruction.Nop _ -> Nop
   where
     constF :: a -> Func a
     constF a =
