@@ -161,10 +161,10 @@ interp' instr
               addr_comp = pcF (+ bitCoerce (signExtend imm))
            in Branch branched_comp addr_comp
         Instruction.UType Instruction.Zero rd imm ->
-          let imm' = imm ++# 0 `shiftL` 12
+          let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ constF imm'
         Instruction.UType Instruction.PC rd imm -> do
-          let imm' = imm ++# 0 `shiftL` 12
+          let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ pcF $ \pc -> bitCoerce pc + imm'
         Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
