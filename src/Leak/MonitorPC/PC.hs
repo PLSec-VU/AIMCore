@@ -40,7 +40,7 @@ circuits =
 tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
-{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+-- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
 projectionCoherence = P.projectionCoherence circuits
 

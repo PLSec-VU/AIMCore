@@ -62,6 +62,7 @@ toLeakInstr input = Instr (mkInstr input) (getRs1 input) (getRs2 input)
     UType Zero _ _ -> Other'
     UType PC _ _ -> Other'
     JType{} -> Jump'
+    Nop _ -> Other'
 
 nop' :: Instr
 nop' = toLeakInstr nop

@@ -418,9 +418,13 @@ execute = do
   modify $ \s ->
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
-        res = alu op lhs rhs
+        res = alu (isIType ir) op lhs rhs
     in s { stateMemRes = res }
   where
+    isIType :: Instruction -> Bool
+    isIType (Instruction.IType{}) = True
+    isIType _ = False
+
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
       case ir of
@@ -450,14 +454,14 @@ execute = do
           lift $ noSecrets doBranch () $ \doBranch' ->
             when doBranch' $ do
               let branchAddr :: f Address
-                  branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
+                  branchAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
               setLines $
                 \c -> c { ctrlExBranch = fromPublic branchAddr }
           empty
         Instruction.JType _ imm -> do
           pc <- gets $ pack . stateExPc
           let jumpAddr :: f Address
-              jumpAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
+              jumpAddr = unpack <$> alu False ADD (pure pc) (pure $ signExtend imm)
           lift $ setLines $
             \c -> c { ctrlExBranch = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
@@ -466,7 +470,7 @@ execute = do
           pc <- gets $ pack . stateExPc
           lift $ noSecrets r1 () $ \r1' -> do
             let jumpAddr :: f Address
-                jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
+                jumpAddr = unpack <$> alu True ADD (pure r1') (pure $ signExtend imm)
             setLines $
               \c -> c { ctrlExBranch = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
@@ -501,8 +505,8 @@ execute = do
       rs <- getR ir
       guard $ rd /= 0 && rs == rd
 
-alu :: (Access f) => Arith -> f Word -> f Word -> f Word
-alu op lhs rhs = case op of
+alu :: (Access f) => Bool -> Arith -> f Word -> f Word -> f Word
+alu _ op lhs rhs = case op of
   ADD -> (+) <$> lhs <*> rhs
   SUB -> (-) <$> lhs <*> rhs
   XOR -> (.^.) <$> lhs <*> rhs
