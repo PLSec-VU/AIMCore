@@ -292,9 +292,6 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
       <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
     where
       genAccessWord = do
         isSecret <- arbitrary
@@ -324,6 +321,8 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
       <*> genAccessWord
       <*> arbitrary
       <*> genAccessWord
+      <*> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
     where

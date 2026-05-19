@@ -2,7 +2,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Core
-  ( initInput,f
+  ( initInput,
     init,
     initCtrl,
     withCtrlReset,
@@ -141,6 +141,10 @@ data State f = State
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
     stateWbRes :: f Word,
+    -- | Program counter memory stage
+    stateMemPc :: Address,
+    -- | Program counter writeback stage
+    stateWbPc :: Address,
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state
@@ -157,28 +161,23 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
 data Control f = Control
-  { -- | `True` during the first cycle.
-    ctrlFirstCycle :: Bool,
-    -- | Stores `stateDePc` when the instruction in the `decode` stage has
-    --   a load hazard with the instruction in the `execute` stage.
-    ctrlDeLoadHazard :: Maybe Address,
-    -- | `True` when the instruction in the `decode` stage is a syscall.
-    ctrlDeCall :: Bool,
-    -- | Stores the instruction in the `execute` stage.
-    ctrlExInstr :: Maybe Instruction,
-    -- | Stores the new PC if the instruction in the `execute` stage results in a jump.
-    ctrlExAddress :: Maybe Address,
-    -- | `True` when the instruction in the `memory` stage is a store, a load, or a syscall.
-    ctrlMeMemInstr :: Bool,
-    -- | Forwards the `rd` register from the `memory` stage to the `execute`
-    -- stage. The `RegIdx` payload is necessary to know what the destination
+  { ctrlFirstCycle :: Bool,
+    -- | `True` when the instruction in the `decode` stage is a load.
+    ctrlDecodeLoad :: Bool,
+    -- | `True` when the instruction in the `execute` stage is a load.
+    ctrlMemOutputActive :: Bool,
+    -- | Forwards the rd register from the `memory` stage to the `execute`
+    -- stage.  The `RegIdx` payload is necessary to know what the destination
     -- register is for the instruction in the `memory` stage: it's too late to
     -- check this in the `execute` stage because it will already have been
     -- overwritten with the instruction for the next cycle.
-    ctrlMeRegFwd :: (RegIdx, f Word), 
+    ctrlMeRegFwd :: Maybe (RegIdx, f Word),
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
-    ctrlWbRegFwd :: (RegIdx, f Word),
+    ctrlWbRegFwd :: Maybe (RegIdx, f Word),
+    -- | The result of a branch computation. Set in the `execute` stage and
+    -- contains the new PC.
+    ctrlExBranch :: Maybe Address
   }
 
 deriving instance (Show (f Word)) => Show (Control f)
@@ -275,11 +274,13 @@ init =
     { stateFePc = initPc,
       stateDePc = 0,
       stateExPc = 0,
-      stateExInstr = Nop Reason4Stall.FirstCycle,
-      stateMemInstr = Nop Reason4Stall.FirstCycle,
+      stateExInstr = Nop FirstCycle,
+      stateMemInstr = Nop FirstCycle,
+      stateMemPc = 0,
       stateMemRes = pure 0,
       stateMemVal = pure 0,
-      stateWbInstr = Nop Reason4Stall.FirstCycle,
+      stateWbInstr = Nop FirstCycle,
+      stateWbPc = 0,
       stateWbRes = pure 0,
       stateCtrl = initCtrl,
       stateHalt = Running
@@ -290,13 +291,11 @@ initCtrl :: (Access f) => Control f
 initCtrl =
   Control
     { ctrlFirstCycle = True,
-      ctrlDeLoadHazard = Nothing,
-      ctrlDeCall = False,      
-      ctrlExInstr = Nothing,
-      ctrlExAddress = Nothing,
-      ctrlMeMemInstr = False,
-      ctrlMeRegFwd = (0, pure 0),
-      ctrlWbRegFwd = (0, pure 0)
+      ctrlDecodeLoad = False,
+      ctrlMemOutputActive = False,
+      ctrlMeRegFwd = Nothing,
+      ctrlWbRegFwd = Nothing,
+      ctrlExBranch = Nothing
     }
 
 -- | The control lines need to be reset every tick.
@@ -317,37 +316,40 @@ halt =
 -- | Set security violation flag.
 setSecurityViolation :: (Access f) => CPUM f ()
 setSecurityViolation =
-  modify $ \s -> s { stateHalt = SecurityViolation }
+  modify $ \s -> s { stateHalt = Core.SecurityViolation }
 
 -- | The fetch stage.
 fetch :: (Access f) => CPUM f ()
 fetch = do
-  pc <- gets stateFePc
   ctrl <- gets stateCtrl
+  pc <- gets stateFePc
+  let mBranchAddr = ctrlExBranch ctrl
 
-  -- Always try to read unless the instruction in the `memory` stage is a load, a store, or a syscall.
-  unless (ctrlMeMemInstr ctrl) $
-    readPC pc
- 
   let stall =
-    -- We stall if the instruction in the `decode` stage is a syscall.
-    ctrlDeCall ctrl ||
-    -- We stall if the instruction in the `memory` stage is a load, a store, or a syscall.
-    ctrlMeMemInstr ctrl
+        -- Have to always stall incrementing the program counter on any load
+        -- instruction because we cannot tell early enough if there's actually a
+        -- load hazard since that occurs in the `decode` stage.
+        ctrlDecodeLoad ctrl
+          ||
+          -- We stall on `ctrlMemOutputActive` because that means next cycle
+          -- the memory will be unavailable to read an instruction from, so we
+          -- shouldn't increment the program counter.
+          ctrlMemOutputActive ctrl
+          || isJust mBranchAddr
 
-  let next_pc =
-    fromMaybe
-      (fromMaybe
-         (if stall then pc else pc + 4) $
-           ctrlDeLoadHazard ctrl) $
-        ctrlExAddress ctrl
-
-  modify $ \s ->
-    s { -- Increment program counter for next fetch.
-        stateFePc = nextPC,
-        -- Propagate program counter to next stage.
-        stateDePc = pc
-      }
+  if stall
+    then modify $ \s -> s { stateFePc = fromMaybe pc mBranchAddr }
+    else do
+      -- Fetch the next instruction from memory.  Will only actually happen if no
+      -- other reads/writes occur in subsequent stages.
+      readPC pc
+      modify $ \s ->
+        s
+          { -- Increment program counter for next fetch.
+            stateFePc = fromMaybe (pc + 4) mBranchAddr,
+            -- Propagate program counter to next stage.
+            stateDePc = pc
+          }
 
 -- | Decode stage.
 decode :: (Access f) => CPUM f ()
@@ -355,40 +357,36 @@ decode = do
   input <- ask
   ir <-
     if (inputIsInstr input)
-      then noSecrets (inputMem input) (Nop Reason4Stall.SecurityViolation) (pure . decode')
-      else pure $ Nop Reason4Stall.MemoryBusBusy
+      then noSecrets (inputMem input) (Nop Instruction.SecurityViolation) (pure . decode')
+      else pure $ Nop MemoryBusBusy
+
+  when (isLoad ir || isCall ir) $
+    setLines $
+      \c -> c { ctrlDecodeLoad = True }
 
   ctrl <- gets stateCtrl
+  exInstr <- gets stateExInstr
 
-  let branch_first_cycle = maybe False isNopBranchFirstCycle (ctrlExInstr ctrl)
-  let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
-  let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
-  let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
+  let branch_first_cycle = isNopBranchFirstCycle exInstr
+  let load_hazard_current_cycle = loadHazard ir exInstr
+  let load_hazard_first_cycle = isNopLoadHazardFirstCycle exInstr
+  let call_current_cycle = isCall exInstr
 
   let ir' =
-    -- If a branch was taken in this cycle, we stall.
-    if isJust (ctrlExAddress ctrl) then Nop BranchFirstCycle
-    -- If a branch was taken in the previous cycle, we stall.
-    else if nop_branch_first_cycle then Nop BranchSecondCycle
-    -- If there is a load hazard with the instruction executed in this cycle, we stall.
-    else if load_hazard_current_cycle then Nop LoadHazardFirstCycle
-    -- If there was a load hazard in the previous cycle, we stall.
-    else if load_hazard_first_cycle then Nop LoadHazardSecondCycle
-    -- If a syscall is executed in this cycle, we stall.
-    else if call_current_cycle then Nop SyscallFirstCycle
-    -- If this is the first cycle, the instruction to decode is gibberish from memory.
-    else if ctrlFirstCycle ctrl then Nop FirstCycle
-    -- Otherwise we process the decoded instruction.
-    else ir
-
-  when load_hazard_current_cycle $ do
-    pc <- gets stateDePc
-    setLines $
-      \c -> c { ctrlDeLoadHazard = Just pc }
-  
-  when (isCall ir') $
-    setLines $
-      \c -> c { ctrlDeCall = True }
+        -- If a branch was taken in this cycle, we stall.
+        if isJust (ctrlExBranch ctrl) then Nop BranchFirstCycle
+        -- If a branch was taken in the previous cycle, we stall.
+        else if branch_first_cycle then Nop BranchSecondCycle
+        -- If there is a load hazard with the instruction executed in this cycle, we stall.
+        else if load_hazard_current_cycle then Nop LoadHazardFirstCycle
+        -- If there was a load hazard in the previous cycle, we stall.
+        else if load_hazard_first_cycle then Nop LoadHazardSecondCycle
+        -- If a syscall is executed in this cycle, we stall.
+        else if call_current_cycle then Nop SyscallFirstCycle
+        -- If this is the first cycle, the instruction to decode is gibberish from memory.
+        else if ctrlFirstCycle ctrl then Nop FirstCycle
+        -- Otherwise we process the decoded instruction.
+        else ir
 
   modify $ \s ->
     s { stateExInstr = ir',
@@ -408,8 +406,11 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s { stateMemInstr = ir, stateMemVal = pure 0 }
-  setLines $ \c -> c { ctrlExInstr = Just ir }
+  pc <- gets stateExPc
+  modify $ \s -> s { stateMemInstr = ir, stateMemPc = pc, stateMemVal = pure 0 }
+
+  when (isLoad ir || isStore ir || isCall ir) $
+    setLines $ \c -> c { ctrlMemOutputActive = True }
     
   -- Fetch alu operands
   aluInputs <- runMaybeT $ fetchALUOperands ir
@@ -446,28 +447,28 @@ execute = do
           r2 <- rs2
           pc <- gets $ pack . stateExPc
           let doBranch = branch cmp r1 r2
-          noSecrets doBranch () $ \doBranch' ->
-            when doBranch' $
+          lift $ noSecrets doBranch () $ \doBranch' ->
+            when doBranch' $ do
               let branchAddr :: f Address
                   branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
               setLines $
-                \c -> c { ctrlExAddress = fromPublic branchAddr }
+                \c -> c { ctrlExBranch = fromPublic branchAddr }
           empty
         Instruction.JType _ imm -> do
           pc <- gets $ pack . stateExPc
           let jumpAddr :: f Address
               jumpAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
-          setLines $
-            \c -> c { ctrlExAddress = fromPublic jumpAddr }
+          lift $ setLines $
+            \c -> c { ctrlExBranch = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
-        Instruction.IType Jump _ _ imm -> do
+        Instruction.IType Jump rd rs imm -> do
           r1 <- rs1
           pc <- gets $ pack . stateExPc
-          noSecrets r1 () $ \r1' -> do
+          lift $ noSecrets r1 () $ \r1' -> do
             let jumpAddr :: f Address
                 jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
             setLines $
-              \c -> c { ctrlExAddress = fromPublic jumpAddr }
+              \c -> c { ctrlExBranch = fromPublic jumpAddr }
           pure (ADD, pure pc, pure 4)
         Instruction.UType base _ imm -> do
           base' <- case base of
@@ -489,9 +490,9 @@ execute = do
     regWithFwd getR def = do
       ir <- gets stateExInstr
       let checkForFwd line = do
-        let (fwdIdx, fwdVal) = line . stateCtrl
-        guard (hazardRW getR ir fwdIdx)
-        pure fwdVal
+            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . stateCtrl
+            guard (hazardRW getR ir fwdIdx)
+            pure fwdVal
       fmap (fromMaybe def) $ runMaybeT $
         checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
 
@@ -530,41 +531,46 @@ branch op lhs rhs = case op of
 
 memory :: (Access f) => CPUM f ()
 memory = do
-  ir <- gets stateMemInstr
   res <- gets stateMemRes
-  val <- gets stateMemVal
+  instr <- gets stateMemInstr
 
-  modify $ \s ->
-    s { stateWbInstr = ir, stateWbRes = res }
+  -- Store Forwarding
+  void $ runMaybeT $ do
+    rd <- getRd instr
+    lift $ setLines $ \c -> c { ctrlMeRegFwd = Just (rd, res) }
 
-  -- Default register forwarding.
-  setLines $ \c -> c { ctrlMeRegFwd = (0, pure 0) }
-
-  case ir of
-    Instruction.RType _ rd _ _ ->
-      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
-    Instruction.IType (Arith _) rd _ _ ->
-      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
+  case instr of
+    Instruction.SType size _ _ _ ->
+      noSecrets res () $ \res' -> do
+        r2 <- gets stateMemVal
+        writeRAM (unpack res') size r2
+        setLines $ \c ->
+          c { ctrlMemOutputActive = True }
     Instruction.IType (Load size _) _ _ _ ->
       noSecrets res () $ \res' -> do
         setLines $ \c ->
-          c { ctrlMeMemInstr = True }
+          c
+            { -- Don't forward loads that haven't happened yet
+              ctrlMeRegFwd = Nothing,
+              ctrlMemOutputActive = True
+            }
         readRAM (unpack res') size
-    Instruction.SType size _ _ _ ->
-      noSecrets res () $ \res' -> do
-        setLines $ \c ->
-          c { ctrlMeMemInstr = True }
-        writeRAM (unpack res') size val
-    Instruction.JType rd _ ->
-      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
-    Instruction.IType Jump rd _ _ ->
-      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
-    Instruction.UType _ rd _ ->
-      setLines $ \c -> c { ctrlMeRegFwd = (rd, res) }
     Instruction.IType (Env Call) _ _ _ -> do
-      setLines $ \c -> c { ctrlMeMemInstr = True }
+      setLines $ \c ->
+        c
+          { -- Don't forward syscalls that haven't happened yet
+            ctrlMeRegFwd = Nothing,
+            ctrlMemOutputActive = True
+          }
       readSyscall
     _ -> pure ()
+
+  modify $ \s ->
+    s
+      { stateWbInstr = stateMemInstr s,
+        stateWbPc = stateMemPc s,
+        stateWbRes = stateMemRes s
+      }
 
 -- | Commit computations to the register file.
 writeback :: (Access f) => CPUM f ()
@@ -572,6 +578,11 @@ writeback = do
   ir <- gets stateWbInstr
   res <- gets stateWbRes
   input <- asks inputMem
+
+  -- Store Forwarding
+  void $ runMaybeT $ do
+    rd <- getRd ir
+    lift $ setLines $ \c -> c { ctrlWbRegFwd = Just (rd, res) }
 
   haltState <- gets stateHalt
 
@@ -591,31 +602,30 @@ writeback = do
 
   case ir of
     Instruction.RType _ rd _ _ -> do
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
       writeRF rd res
     Instruction.IType (Arith _) rd _ _ -> do
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
       writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
       let val = loadExtend size sign <$> input
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, val) }
+      setLines $ \c ->
+        c
+          { ctrlWbRegFwd = Just (rd, val)
+          }
       writeRF rd val
-    Instruction.JType rd _ ->
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+    Instruction.JType rd _ -> do
       writeRF rd res
-    Instruction.IType Jump rd _ _ ->
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+    Instruction.IType Jump rd _ _ -> do
       writeRF rd res
-    Instruction.UType _ rd _ ->
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, res) }
+    Instruction.UType _ rd _ -> do
       writeRF rd res
     Instruction.IType (Env Call) _ _ _ -> do
       let val = input
       let rd = 10 -- a0
-      setLines $ \c -> c { ctrlWbRegFwd = (rd, val) }
-    _ -> do
-      setLines $ \c -> c { ctrlWbRegFwd = (0, pure 0) }
-      writeRF 0 (pure 0)
+      setLines $ \c ->
+        c
+          { ctrlWbRegFwd = Just (rd, val)
+          }
+    _ -> pure ()
 
   where
     writeRF idx val =

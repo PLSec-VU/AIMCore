@@ -1,6 +1,6 @@
 module Instruction
   ( Instruction (..),
-    Reason4Stall,
+    Reason4Stall (..),
     nop,
     decode,
     decode',
@@ -17,9 +17,12 @@ module Instruction
     getRs2,
     isBreak,
     isCall,
+    isNopBranchFirstCycle,
+    isNopLoadHazardFirstCycle,
     break,
     loadHazard,
     isLoad,
+    isStore,
     loadExtend,
   )
 where
@@ -115,7 +118,7 @@ data Reason4Stall
   | -- | Failed to decode an instruction.
     DecodeFail
   | -- | Security violation.
-    SecurityViolation.
+    SecurityViolation
   deriving (Eq, Show, Generic, NFDataX)
 
 -- | Decoded instructions
@@ -432,6 +435,10 @@ isCall _ = False
 isLoad :: Instruction -> Bool
 isLoad (IType Load {} _ _ _) = True
 isLoad _ = False
+
+isStore :: Instruction -> Bool
+isStore (SType {}) = True
+isStore _ = False
 
 isNopBranchFirstCycle :: Instruction -> Bool
 isNopBranchFirstCycle (Nop BranchFirstCycle) = True

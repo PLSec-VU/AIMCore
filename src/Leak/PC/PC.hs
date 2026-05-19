@@ -115,8 +115,8 @@ proj s = (ts, ss)
           Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
           Leak.stateStallDecode = toStallDecode $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s /= Core.Running,
-          Leak.stateMeRegFwd = fmap (fmap runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
-          Leak.stateWbRegFwd = fmap (fmap runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
+          Leak.stateMeRegFwd = fmap (second runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
+          Leak.stateWbRegFwd = fmap (second runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
           Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
           Leak.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
@@ -144,16 +144,13 @@ proj s = (ts, ss)
     toStallFetch :: Core.Control Identity -> Bool
     toStallFetch ctrl =
       Core.ctrlDecodeLoad ctrl
-        || Core.ctrlMeOutputActive ctrl
+        || Core.ctrlMemOutputActive ctrl
         || isJust (Core.ctrlExBranch ctrl)
 
     toStallDecode :: Core.Control Identity -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlExBranch ctrl)
-        || Core.ctrlMeBranch ctrl
-        || Core.ctrlExLoad ctrl
-        || Core.ctrlWbMemInstr ctrl
 
 simulator ::
   forall m.
