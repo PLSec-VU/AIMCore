@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 module Instruction
   ( Instruction (..),
     Reason4Stall (..),
@@ -29,6 +32,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, break)
 import Control.Monad
+import Data.Binary (Binary)
 import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined)
@@ -119,7 +123,7 @@ data Reason4Stall
     DecodeFail
   | -- | Security violation.
     SecurityViolation
-  deriving (Eq, Show, Generic, NFDataX)
+  deriving (Eq, Show, Generic, NFDataX, Binary)
 
 -- | Decoded instructions
 data Instruction

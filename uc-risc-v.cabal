@@ -79,6 +79,7 @@ library
   build-depends:
       array
     , base >=4.7 && <5
+    , binary
     , bytestring
     , clash-prelude >=1.8.1
     , composition
@@ -187,6 +188,7 @@ test-suite uc-risc-v-test
   build-depends:
       array
     , base >=4.7 && <5
+    , binary
     , bytestring
     , clash-prelude >=1.8.1
     , composition

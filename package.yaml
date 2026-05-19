@@ -58,6 +58,7 @@ dependencies:
 - bytestring
 - exceptions
 - entropy
+- binary
 - pantomime
 
 ghc-options:

@@ -40,7 +40,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 type SimState = Core.State PubSec
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State PubSec -> Input PubSec -> Bool
 theory =
   P.pantomime

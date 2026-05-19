@@ -13,8 +13,9 @@ module Leak.PC.PC
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
     theory,
-    -- tickStateCorrespondence,
-    -- projectionCoherence,
+    circuits,
+    tickStateCorrespondence,
+    projectionCoherence,
   )
 where
 
@@ -27,9 +28,8 @@ import qualified Core
 import Data.Bifunctor (second)
 import Data.Composition
 import Data.Functor.Identity
-import Data.Maybe (isJust)
 import Data.Monoid
-import Instruction (Instruction)
+import qualified Instruction as Instr
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
 import qualified Pantomime as P
@@ -41,7 +41,7 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
 theory :: Core.State Identity -> Input Identity -> Bool
 theory =
   P.pantomime
@@ -64,11 +64,11 @@ circuits =
       P.projection = proj
     }
 
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
 projectionCoherence = P.projectionCoherence circuits
 
@@ -88,15 +88,17 @@ leak :: Leak.State -> Input Identity -> (Leak.State, Leak.Out)
 leak = Leak.circuit
 
 sim :: Sim.State -> Leak.Out -> (Sim.State, Maybe Address)
-sim = Sim.circuit
+sim ss l_out =
+  let (ss', addr) = Sim.circuit ss l_out
+   in (ss', join (getFirst addr))
 
 circuit ::
   (Leak.State, Sim.State) ->
   Input Identity ->
   ((Leak.State, Sim.State), Maybe Address)
-circuit (ts, ss) input = ((ts', ss'), addr)
+circuit (ts, ss) i = ((ts', ss'), addr)
   where
-    (ts', o_leak) = leak ts input
+    (ts', o_leak) = leak ts i
     (ss', addr) = sim ss o_leak
 
 proj :: Core.State Identity -> (Leak.State, Sim.State)
@@ -112,8 +114,10 @@ proj s = (ts, ss)
           Leak.stateMemRes = runIdentity $ Core.stateMemRes s,
           Leak.stateWbInstr = Core.stateWbInstr s,
           Leak.stateWbRes = runIdentity $ Core.stateWbRes s,
-          Leak.stateStallFetch = toStallFetch $ Core.stateCtrl s,
-          Leak.stateStallDecode = toStallDecode $ Core.stateCtrl s,
+          Leak.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
+          Leak.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
+          Leak.stateStallFetch = False,
+          Leak.stateStallDecode = False,
           Leak.stateHalt = Core.stateHalt s /= Core.Running,
           Leak.stateMeRegFwd = fmap (second runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
           Leak.stateWbRegFwd = fmap (second runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
@@ -129,28 +133,19 @@ proj s = (ts, ss)
           Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
           Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s /= Core.Running,
-          Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
-          Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
+          Sim.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
+          Sim.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
+          Sim.stateStallFetch = False,
+          Sim.stateStallDecode = False,
           Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
           Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
 
-    toLeakInstr :: Instruction -> Leak.Instr
+    toLeakInstr :: Instr.Instruction -> Leak.Instr
     toLeakInstr instr =
       Leak.Instr
         (Leak.mkInstr instr)
         (Leak.mkDeps instr)
-
-    toStallFetch :: Core.Control Identity -> Bool
-    toStallFetch ctrl =
-      Core.ctrlDecodeLoad ctrl
-        || Core.ctrlMemOutputActive ctrl
-        || isJust (Core.ctrlExBranch ctrl)
-
-    toStallDecode :: Core.Control Identity -> Bool
-    toStallDecode ctrl =
-      Core.ctrlFirstCycle ctrl
-        || isJust (Core.ctrlExBranch ctrl)
 
 simulator ::
   forall m.
@@ -168,17 +163,29 @@ simulator =
       Input Identity ->
       (Leak.State, Sim.State) ->
       m ((Leak.State, Sim.State), (Maybe Address, Maybe Address))
-    step i s = do
-      ((s_sim, _), mem) <- get
-      let (res_sim@(_, o_sim), mem') = runState (circuitStep Simulate.simulator i s_sim) mem
-      put (res_sim, mem')
-      let (s', o) = circuit s i
-      pure (s', (o, obs' o_sim))
+    step i (ts, ss) = do
+      ((s_core_old, _), mem) <- get
+      let (s_core', o_core) = implementation s_core_old i
+
+      -- Update memory and register file manually
+      let mem' = case getFirst (outMem o_core) of
+            Just (MemAccess _ addr size (Just val)) ->
+              mem {Simulate.memRAM = write size addr (runIdentity val) (Simulate.memRAM mem)}
+            _ -> mem
+      let mem'' = case getFirst (outRd o_core) of
+            Just (idx, val) ->
+              mem' {Simulate.memRF = modifyRF idx (runIdentity val) (Simulate.memRF mem')}
+            _ -> mem'
+
+      put ((s_core', o_core), mem'')
+
+      let ((ts', ss'), addr) = circuit (ts, ss) i
+      pure ((ts', ss'), (obs' o_core, addr))
 
     next :: (Maybe Address, Maybe Address) -> m (Maybe (Input Identity))
     next (_o, _addr_sim) = do
-      ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+      ((_, o_core), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator o_core) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 
@@ -195,6 +202,9 @@ runSimulator ::
 runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
     s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
+    initRF = RegFile.initRF
+    mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
+    mkRAM prog = Util.mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
 
 watchSim ::
   Vec PROG_SIZE Word ->
