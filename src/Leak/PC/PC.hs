@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
+-- touch to force rebuild
 
 module Leak.PC.PC
   ( obs,
@@ -118,7 +119,7 @@ proj s = (ts, ss)
           Leak.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Leak.stateStallFetch = False,
           Leak.stateStallDecode = False,
-          Leak.stateHalt = Core.stateHalt s /= Core.Running,
+          Leak.stateHalt = Core.stateHalt s,
           Leak.stateMeRegFwd = fmap (second runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
           Leak.stateWbRegFwd = fmap (second runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
           Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
@@ -132,7 +133,7 @@ proj s = (ts, ss)
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
           Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
           Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
-          Sim.stateHalt = Core.stateHalt s /= Core.Running,
+          Sim.stateHalt = Core.stateHalt s,
           Sim.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
           Sim.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Sim.stateStallFetch = False,

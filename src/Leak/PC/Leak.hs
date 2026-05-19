@@ -18,7 +18,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Core (Input)
+import Core (Input, HaltState (..))
 import qualified Core
 import Data.Functor.Identity
 import Data.Maybe (fromMaybe, isJust)
@@ -74,7 +74,7 @@ data State = State
     stateMemOutputActive :: Bool,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
-    stateHalt :: Bool,
+    stateHalt :: HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
     stateJumpAddr :: Maybe Address,
@@ -95,7 +95,7 @@ init =
       stateWbRes = 0,
       stateDecodeLoad = False,
       stateMemOutputActive = False,
-      stateHalt = False,
+      stateHalt = Running,
       stateStallFetch = False,
       stateStallDecode = False,
       stateMeRegFwd = Nothing,
@@ -205,8 +205,9 @@ mkDeps instr = (noZero $ Core.getRs1 instr, noZero $ Core.getRs2 instr)
     noZero r = r
 
 mkInstr :: Core.Instruction -> BaseInstr
-mkInstr instr =
-  case instr of
+mkInstr instr
+  | instr == Core.nop = Nop Core.FirstCycle
+  | otherwise = case instr of
     Core.RType {} -> Other
     Core.IType iop rd _ _ ->
       case iop of
@@ -328,7 +329,7 @@ writeback = do
   res <- gets stateWbRes
 
   when
-    stateHalted
+    (stateHalted /= Running)
     outputNothing
 
   when (Core.isBreak instr) $ do
@@ -336,7 +337,7 @@ writeback = do
       s
         { stateMemInstr = Core.nop,
           stateExInstr = Core.nop,
-          stateHalt = True
+          stateHalt = EBreak
         }
     outputNothing
 

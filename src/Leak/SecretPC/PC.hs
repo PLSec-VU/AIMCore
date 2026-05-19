@@ -63,13 +63,14 @@ circuits =
       P.projection = proj
     }
 
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 tickStateCorrespondence :: Core.State PubSec -> Input PubSec -> Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
 projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
 projectionCoherence = P.projectionCoherence circuits
+
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)

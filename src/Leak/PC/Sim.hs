@@ -30,7 +30,7 @@ data State = State
     stateMemOutputActive :: Bool,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
-    stateHalt :: Bool,
+    stateHalt :: AimCore.HaltState,
     stateFirstCycle :: Bool
   }
   deriving (Show, Eq)
@@ -44,7 +44,7 @@ init =
       stateExInstr = Leak.nop,
       stateMemInstr = Leak.nop,
       stateWbInstr = Leak.nop,
-      stateHalt = False,
+      stateHalt = AimCore.Running,
       stateDecodeLoad = False,
       stateMemOutputActive = False,
       stateStallFetch = False,
@@ -187,7 +187,7 @@ writeback = do
   halted <- gets stateHalt
 
   when
-    halted
+    (halted /= AimCore.Running)
     outputNothing
 
   case Leak.instrBase instr of
@@ -197,7 +197,7 @@ writeback = do
         s
           { stateMemInstr = Leak.nop,
             stateExInstr = Leak.nop,
-            stateHalt = True
+            stateHalt = AimCore.EBreak
           }
     _ -> pure ()
 
