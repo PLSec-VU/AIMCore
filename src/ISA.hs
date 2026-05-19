@@ -126,13 +126,13 @@ interp' instr
   | otherwise =
       case instr of
         Instruction.RType op rd r1 r2 ->
-          Reg rd $ binaryF r1 r2 $ \w1 w2 -> unAccess $ alu op (Identity w1) (Identity w2)
+          Reg rd $ binaryF r1 r2 $ \w1 w2 -> unAccess $ alu False op (Identity w1) (Identity w2)
         Instruction.IType iop rd r1 imm ->
           let op =
                 case iop of
                   Instruction.Arith op' -> op'
                   _ -> Instruction.ADD
-              alu_res = unaryF r1 $ \w -> unAccess $ alu op (Identity w) (Identity $ signExtend imm)
+              alu_res = unaryF r1 $ \w -> unAccess $ alu True op (Identity w) (Identity $ signExtend imm)
            in case iop of
                 Instruction.Arith {} ->
                   Reg rd alu_res
