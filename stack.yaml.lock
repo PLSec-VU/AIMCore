@@ -12,12 +12,34 @@ packages:
   original:
     hackage: blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
 - completed:
-    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
+    hackage: sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
     pantry-tree:
-      sha256: a1eff3f311b09c3aa568a07040a42456787c4a60ec7f16878d8fb688453a220b
-      size: 29396
+      sha256: fdf9578d9a43daff4fc8f8023f8ceac6eb2f4563797a4b03888c06e289952aa5
+      size: 116009
   original:
-    hackage: grisette-0.13.0.1@sha256:10c3078bfcfc6acdfc89fb321782a907ca34082cdb7f5cef1d5923c2c3b499b7,22407
+    hackage: sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
+- completed:
+    name: pantomime
+    pantry-tree:
+      sha256: bd1875ab1734487f97fd6958a31ed8011627d419596d9c8fd4085b6845fc7b8a
+      size: 4228
+    sha256: d354abd61ae1a1ae749f2d4e2c52da291bf49f4c2bf58b0d3b586dd9ddb40bfb
+    size: 100186
+    url: https://github.com/PLSec-VU/pantomime/archive/6eb8382e56f3ae2e28d9fd4c74aa448a4d4eafcc.tar.gz
+    version: 0.1.0.0
+  original:
+    url: https://github.com/PLSec-VU/pantomime/archive/6eb8382e56f3ae2e28d9fd4c74aa448a4d4eafcc.tar.gz
+- completed:
+    name: grisette
+    pantry-tree:
+      sha256: ac978bcc6a35ee65677dbe41373c2799759457dedee85c6888a2cb7b362a2068
+      size: 31883
+    sha256: 46de15734b258feee28ccc47c60a36a12fd3e975077615e8c31291b9d8ca79ef
+    size: 555460
+    url: https://github.com/RobinWebbers/grisette/archive/ae4d837886efb2e7838f89271f343d6fa8130388.tar.gz
+    version: 0.13.0.1
+  original:
+    url: https://github.com/RobinWebbers/grisette/archive/ae4d837886efb2e7838f89271f343d6fa8130388.tar.gz
 snapshots:
 - completed:
     sha256: 3f59fb01f884a786c64e247ffe145df5f6045d929b1d2752b5ce768e37fd44e5

@@ -126,13 +126,13 @@ interp' instr
   | otherwise =
       case instr of
         Instruction.RType op rd r1 r2 ->
-          Reg rd $ binaryF r1 r2 $ \w1 w2 -> unAccess $ alu False op (Identity w1) (Identity w2)
+          Reg rd $ binaryF r1 r2 $ \w1 w2 -> unAccess $ alu op (Identity w1) (Identity w2)
         Instruction.IType iop rd r1 imm ->
           let op =
                 case iop of
                   Instruction.Arith op' -> op'
                   _ -> Instruction.ADD
-              alu_res = unaryF r1 $ \w -> unAccess $ alu True op (Identity w) (Identity $ signExtend imm)
+              alu_res = unaryF r1 $ \w -> unAccess $ alu op (Identity w) (Identity $ signExtend imm)
            in case iop of
                 Instruction.Arith {} ->
                   Reg rd alu_res
@@ -161,13 +161,14 @@ interp' instr
               addr_comp = pcF (+ bitCoerce (signExtend imm))
            in Branch branched_comp addr_comp
         Instruction.UType Instruction.Zero rd imm ->
-          let imm' = imm ++# 0 `shiftL` 12
+          let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ constF imm'
         Instruction.UType Instruction.PC rd imm -> do
-          let imm' = imm ++# 0 `shiftL` 12
+          let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ pcF $ \pc -> bitCoerce pc + imm'
         Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
+        Instruction.Nop _ -> Nop
   where
     constF :: a -> Func a
     constF a =

@@ -71,6 +71,7 @@ tickStateCorrespondence = P.tickStateCorrespondence circuits
 projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
 projectionCoherence = P.projectionCoherence circuits
 
+
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
 

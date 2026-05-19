@@ -1,10 +1,14 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 module Instruction
   ( Instruction (..),
+    Reason4Stall (..),
+    nop,
     decode,
     decode',
     encode,
     encode',
-    nop,
     IOperation (..),
     Arith (..),
     Env (..),
@@ -16,15 +20,19 @@ module Instruction
     getRs2,
     isBreak,
     isCall,
+    isNopBranchFirstCycle,
+    isNopLoadHazardFirstCycle,
     break,
     loadHazard,
     isLoad,
+    isStore,
     loadExtend,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, break)
 import Control.Monad
+import Data.Binary (Binary)
 import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined)
@@ -95,6 +103,28 @@ data IOperation
   | Jump
   deriving (Eq, Show, Generic, NFDataX)
 
+-- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
+data Reason4Stall
+  = -- | We took a branch 1 cycle ago.
+    BranchFirstCycle
+  | -- | We took a branch 2 cycles ago.
+    BranchSecondCycle
+  | -- | A load hazard occurred 1 cycle ago.
+    LoadHazardFirstCycle
+  | -- | A load hazard occurred 2 cycles ago.
+    LoadHazardSecondCycle
+  | -- | A syscall occurred 1 cycle ago.
+    SyscallFirstCycle
+  | -- | No instruction read because of memory bus overload.
+    MemoryBusBusy
+  | -- | First cycle.
+    FirstCycle
+  | -- | Failed to decode an instruction.
+    DecodeFail
+  | -- | Security violation.
+    SecurityViolation
+  deriving (Eq, Show, Generic, NFDataX, Binary)
+
 -- | Decoded instructions
 data Instruction
   = -- | RType op rd rs1 rs2
@@ -109,13 +139,18 @@ data Instruction
     UType UBase RegIdx UImm
   | -- | JType rd imm
     JType RegIdx JImm
+  | -- | nop
+    Nop Reason4Stall
   deriving (Eq, Show, Generic, NFDataX)
+
+nop :: Instruction
+nop = RType ADD 0 0 0
 
 {-# INLINE decode' #-}
 decode' :: Word -> Instruction
 decode' word = case decode word of
   Just instr -> instr
-  Nothing -> nop
+  Nothing -> Nop DecodeFail
 
 -- | Decode a word to an instruction.
 --
@@ -236,7 +271,7 @@ decode word = do
     0b110_1111 -> pure $ JType rd immJ
     _ -> empty
 
--- | Decode a word to an instruction.
+-- | Encode an instruction to a word.
 --
 -- https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
 encode' :: Instruction -> Maybe Word
@@ -255,7 +290,6 @@ encode' instruction =
             SRA -> (0x5, 0x20)
             SLT -> (0x2, 0x00)
             SLTU -> (0x3, 0x00)
-
       let rd' = pack rd
       let rs1' = pack rs1
       let rs2' = pack rs2
@@ -318,7 +352,6 @@ encode' instruction =
       pure $ immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
     BType cmp imm rs1 rs2 -> do
       let opcode = 0b110_0011 :: BitVector 7
-
       let funct3 :: BitVector 3 = case cmp of
             EQ -> 0x0
             NE -> 0x1
@@ -329,7 +362,7 @@ encode' instruction =
 
       -- Note: The first bit of the imm is always 0, so we right-shift by 1
       -- to remove it before storing in the instruction
-      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let immShifted = shiftR imm 1 -- Remove the least significant bit
       let imm4to1 = slice d3 d0 immShifted
       let imm10to5 = slice d9 d4 immShifted
       let imm11 = slice d10 d10 immShifted
@@ -349,7 +382,7 @@ encode' instruction =
 
       -- Note: The first bit of the imm is always 0, so we right-shift by 1
       -- to remove it before storing in the instruction
-      let immShifted = shiftR imm 1  -- Remove the least significant bit
+      let immShifted = shiftR imm 1 -- Remove the least significant bit
       let imm10to1 = slice d9 d0 immShifted
       let imm11 = slice d10 d10 immShifted
       let imm19to12 = slice d18 d11 immShifted
@@ -357,13 +390,12 @@ encode' instruction =
 
       let rd' = pack rd
       pure $ imm20 ++# imm10to1 ++# imm11 ++# imm19to12 ++# rd' ++# opcode
+    Nop _ ->
+      encode' nop
 
 encode :: Instruction -> Word
 encode instr =
   fromMaybe (error $ "Incorrect instruction: " <> show instr) $ encode' instr
-
-nop :: Instruction
-nop = RType ADD 0 0 0
 
 -- | Get the destination register of an instruction, if any.
 getRd :: (Alternative f) => Instruction -> f RegIdx
@@ -373,6 +405,7 @@ getRd = \case
   Instruction.IType _ rd _ _ -> pure rd
   Instruction.UType _ rd _ -> pure rd
   Instruction.JType rd _ -> pure rd
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the first source register of an instruction, if any.
@@ -383,6 +416,7 @@ getRs1 = \case
   Instruction.IType _ _ rs1 _ -> pure rs1
   Instruction.SType _ _ rs1 _ -> pure rs1
   Instruction.BType _ _ rs1 _ -> pure rs1
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the second source register of an instruction, if any.
@@ -391,6 +425,7 @@ getRs2 = \case
   Instruction.RType _ _ _ rs2 -> pure rs2
   Instruction.SType _ _ _ rs2 -> pure rs2
   Instruction.BType _ _ _ rs2 -> pure rs2
+  Instruction.Nop _ -> pure 0
   _ -> empty
 
 isBreak :: Instruction -> Bool
@@ -400,6 +435,22 @@ isBreak _ = False
 isCall :: Instruction -> Bool
 isCall (IType (Env Call) _ _ _) = True
 isCall _ = False
+
+isLoad :: Instruction -> Bool
+isLoad (IType Load {} _ _ _) = True
+isLoad _ = False
+
+isStore :: Instruction -> Bool
+isStore (SType {}) = True
+isStore _ = False
+
+isNopBranchFirstCycle :: Instruction -> Bool
+isNopBranchFirstCycle (Nop BranchFirstCycle) = True
+isNopBranchFirstCycle _ = False
+
+isNopLoadHazardFirstCycle :: Instruction -> Bool
+isNopLoadHazardFirstCycle (Nop LoadHazardFirstCycle) = True
+isNopLoadHazardFirstCycle _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0
@@ -415,10 +466,6 @@ loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do
     noZero (Just 0) = Nothing
     noZero r = r
 loadHazard _ _ = False
-
-isLoad :: Instruction -> Bool
-isLoad (IType Load {} _ _ _) = True
-isLoad _ = False
 
 loadExtend :: Size -> Sign -> Word -> Word
 loadExtend Byte Signed = signExtend . slice d7 d0

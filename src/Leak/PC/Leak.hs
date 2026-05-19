@@ -18,7 +18,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Core (Input)
+import Core (Input, HaltState (..))
 import qualified Core
 import Data.Functor.Identity
 import Data.Maybe (fromMaybe, isJust)
@@ -38,6 +38,7 @@ data BaseInstr
   | Other
   | Call
   | Break
+  | Nop Core.Reason4Stall
   deriving (Show, Eq, Generic)
 
 data Instr = Instr
@@ -48,7 +49,7 @@ data Instr = Instr
 
 isLoad :: Instr -> Bool
 isLoad (Instr (Load {}) _) = True
-isLoad (Instr Call _) = True -- syscalls behaves like load to a0 
+isLoad (Instr Call _) = True -- syscalls behaves like load to a0
 isLoad _ = False
 
 loadHazard :: Instr -> Instr -> Bool
@@ -58,7 +59,7 @@ loadHazard (Instr _ (dep1, dep2)) (Instr (Load rd) _) =
 loadHazard _ _ = False
 
 nop :: Instr
-nop = Instr Other (Nothing, Nothing)
+nop = Instr (Nop Core.FirstCycle) (Nothing, Nothing)
 
 data State = State
   { stateFePc :: Address,
@@ -69,9 +70,11 @@ data State = State
     stateMemRes :: Word,
     stateWbInstr :: Core.Instruction,
     stateWbRes :: Word,
+    stateDecodeLoad :: Bool,
+    stateMemOutputActive :: Bool,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
-    stateHalt :: Bool,
+    stateHalt :: HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
     stateJumpAddr :: Maybe Address,
@@ -85,12 +88,14 @@ init =
     { stateFePc = initPc,
       stateDePc = 0,
       stateExPc = 0,
-      stateExInstr = Core.nop,
-      stateMemInstr = Core.nop,
+      stateExInstr = Core.Nop Core.FirstCycle,
+      stateMemInstr = Core.Nop Core.FirstCycle,
       stateMemRes = 0,
-      stateWbInstr = Core.nop,
+      stateWbInstr = Core.Nop Core.FirstCycle,
       stateWbRes = 0,
-      stateHalt = False,
+      stateDecodeLoad = False,
+      stateMemOutputActive = False,
+      stateHalt = Running,
       stateStallFetch = False,
       stateStallDecode = False,
       stateMeRegFwd = Nothing,
@@ -102,7 +107,8 @@ init =
 data Out = Out
   { outInstr :: First Instr,
     outJumpAddr :: First Address
-  } deriving (Show, Eq, Generic)
+  }
+  deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
   Out i1 a1 <> Out i2 a2 = Out (i1 <> i2) (a1 <> a2)
@@ -110,30 +116,35 @@ instance Semigroup Out where
 instance Monoid Out where
   mempty = Out mempty mempty
 
-stallDecode :: LeakM ()
-stallDecode = modify $ \s -> s {stateStallDecode = True}
+setDecodeLoad :: LeakM ()
+setDecodeLoad = modify $ \s -> s {stateDecodeLoad = True}
 
-stallFetch :: LeakM ()
-stallFetch = modify $ \s -> s {stateStallFetch = True}
+setMemOutputActive :: LeakM ()
+setMemOutputActive = modify $ \s -> s {stateMemOutputActive = True}
 
 outputNothing :: LeakM ()
 outputNothing = tell mempty
 
 fetch :: LeakM ()
 fetch = do
-  ifM
-    (gets stateStallFetch)
-    ( modify $ \s ->
+  pc <- gets stateFePc
+  mJumpAddr <- gets stateJumpAddr
+  decodeLoad <- gets stateDecodeLoad
+  memOutputActive <- gets stateMemOutputActive
+
+  let stall =
+        decodeLoad
+          || memOutputActive
+          || isJust mJumpAddr
+
+  if stall
+    then modify $ \s -> s {stateFePc = fromMaybe pc mJumpAddr}
+    else
+      modify $ \s ->
         s
-          { stateFePc = fromMaybe (stateFePc s) (stateJumpAddr s)
+          { stateFePc = fromMaybe (pc + 4) mJumpAddr,
+            stateDePc = pc
           }
-    )
-    ( modify $ \s ->
-        s
-          { stateFePc = fromMaybe (stateFePc s + 4) (stateJumpAddr s),
-            stateDePc = stateFePc s
-          }
-    )
 
 decode :: LeakM ()
 decode = do
@@ -141,9 +152,9 @@ decode = do
   let instr
         | Core.inputIsInstr input =
             Core.decode' $ runIdentity $ Core.inputMem input
-        | otherwise = Core.nop
+        | otherwise = Core.Nop Core.MemoryBusBusy
   when (Core.isLoad instr || Core.isCall instr) $
-    stallFetch
+    setDecodeLoad
   tell $
     mempty
       { outInstr =
@@ -154,24 +165,38 @@ decode = do
               }
       }
 
-  ifM
-    ( pure (||)
-        <*> gets stateStallDecode
-        <*> gets stateFirstCycle
-    )
-    ( modify $ \s ->
-        s
-          { stateExInstr = Core.nop,
-            stateExPc = stateDePc s
-          }
-    )
-    ( do
-        modify $ \s ->
-          s
-            { stateExInstr = instr,
-              stateExPc = stateDePc s
-            }
-    )
+  exInstr <- gets stateExInstr
+  mJumpAddr <- gets stateJumpAddr
+  firstCycle <- gets stateFirstCycle
+
+  let branch_first_cycle = Core.isNopBranchFirstCycle exInstr
+  let load_hazard_current_cycle = Core.loadHazard instr exInstr
+  let load_hazard_first_cycle = Core.isNopLoadHazardFirstCycle exInstr
+  let call_current_cycle = Core.isCall exInstr
+
+  let ir' =
+        -- If a branch was taken in this cycle, we stall.
+        if isJust mJumpAddr then Core.Nop Core.BranchFirstCycle
+        -- If a branch was taken in the previous cycle, we stall.
+        else if branch_first_cycle then Core.Nop Core.BranchSecondCycle
+        -- If there is a load hazard with the instruction executed in this cycle, we stall.
+        else if load_hazard_current_cycle then Core.Nop Core.LoadHazardFirstCycle
+        -- If there was a load hazard in the previous cycle, we stall.
+        else if load_hazard_first_cycle then Core.Nop Core.LoadHazardSecondCycle
+        -- If a syscall is executed in this cycle, we stall.
+        else if call_current_cycle then Core.Nop Core.SyscallFirstCycle
+        -- If this is the first cycle, the instruction to decode is gibberish from memory.
+        else if firstCycle then Core.Nop Core.FirstCycle
+        -- If memory is busy, we stall.
+        else if not (Core.inputIsInstr input) then Core.Nop Core.MemoryBusBusy
+        -- Otherwise we process the decoded instruction.
+        else instr
+
+  modify $ \s ->
+    s
+      { stateExInstr = ir',
+        stateExPc = stateDePc s
+      }
 
 mkDeps :: Core.Instruction -> (Maybe RegIdx, Maybe RegIdx)
 mkDeps instr = (noZero $ Core.getRs1 instr, noZero $ Core.getRs2 instr)
@@ -180,8 +205,9 @@ mkDeps instr = (noZero $ Core.getRs1 instr, noZero $ Core.getRs2 instr)
     noZero r = r
 
 mkInstr :: Core.Instruction -> BaseInstr
-mkInstr instr =
-  case instr of
+mkInstr instr
+  | instr == Core.nop = Nop Core.FirstCycle
+  | otherwise = case instr of
     Core.RType {} -> Other
     Core.IType iop rd _ _ ->
       case iop of
@@ -205,10 +231,14 @@ mkInstr instr =
       Other
     Core.JType {} ->
       Jump
+    Core.Nop r ->
+      Nop r
 
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
+  when (Core.isLoad instr || Core.isStore instr || Core.isCall instr) $
+    setMemOutputActive
   let r1M :: LeakM Word
       r1M = regWithFwd Core.getRs1 =<< (runIdentity <$> asks Core.inputRs1)
 
@@ -244,9 +274,9 @@ execute = do
               informJumpAddr addr
         Interp _ _ (Just branched)
           | not branched ->
-              modify $ \s -> s {stateMemInstr = Core.nop}
+              pure ()
         _ -> pure ()
-    Core.JType {} ->
+    Core.JType _ _ ->
       case interp_res of
         Interp _ (Just addr) _ ->
           informJumpAddr addr
@@ -257,8 +287,6 @@ execute = do
   where
     informJumpAddr :: Address -> LeakM ()
     informJumpAddr jump_addr = do
-      stallFetch
-      stallDecode
       tell $ mempty {outJumpAddr = pure jump_addr}
       modify $ \s -> s {stateJumpAddr = pure jump_addr}
 
@@ -279,12 +307,12 @@ memory = do
   case instr of
     Core.IType Core.Load {} _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
-      stallFetch
+      setMemOutputActive
     Core.IType (Core.Env Core.Call) _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
-      stallFetch
+      setMemOutputActive
     Core.SType {} ->
-      stallFetch
+      setMemOutputActive
     _ -> pure ()
 
   modify $ \s ->
@@ -301,7 +329,7 @@ writeback = do
   res <- gets stateWbRes
 
   when
-    stateHalted
+    (stateHalted /= Running)
     outputNothing
 
   when (Core.isBreak instr) $ do
@@ -309,7 +337,7 @@ writeback = do
       s
         { stateMemInstr = Core.nop,
           stateExInstr = Core.nop,
-          stateHalt = True
+          stateHalt = EBreak
         }
     outputNothing
 
@@ -337,11 +365,11 @@ pipe = withCtrlReset $ do
       firstCycle <- gets stateFirstCycle
       modify $ \s ->
         s
-          { stateStallFetch = False,
-            stateStallDecode = False,
+          { stateDecodeLoad = False,
+            stateMemOutputActive = False,
+            stateJumpAddr = Nothing,
             stateMeRegFwd = Nothing,
             stateWbRegFwd = Nothing,
-            stateJumpAddr = Nothing,
             stateFirstCycle = firstCycle
           }
       void m
