@@ -1,4 +1,4 @@
-resolver: lts-24.0
+resolver: nightly-2026-05-19
 
 packages:
 - .
@@ -7,12 +7,17 @@ extra-deps:
   - blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
   - sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
   - github: PLSec-VU/pantomime
-    commit: 6eb8382e56f3ae2e28d9fd4c74aa448a4d4eafcc
+    commit: 491638b742ce2d9fc92976ab0e2037ba259e5ae9
+  - github: PLSec-VU/pantomime-base
+    commit: 64dab2d4fd3ef4c27ec9eb698bf61092fb08d8a4
+  - github: PLSec-VU/pantomime-clash
+    commit: 1f42057f228cd5e476af4b35541598843a7b74f9
   - github: RobinWebbers/grisette
     commit: ae4d837886efb2e7838f89271f343d6fa8130388
 
 allow-newer-deps:
 - blake2
+- pantomime
 
 allow-newer: true
 
