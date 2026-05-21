@@ -290,8 +290,13 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <$> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
+      <*> arbitrary
+      <*> arbitrary
       <*> arbitrary
     where
       genAccessWord = do
@@ -322,8 +327,6 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
       <*> genAccessWord
       <*> arbitrary
       <*> genAccessWord
-      <*> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
     where

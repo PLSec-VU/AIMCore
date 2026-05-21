@@ -72,12 +72,15 @@ data State = State
     stateWbRes :: Word,
     stateDecodeLoad :: Bool,
     stateMemOutputActive :: Bool,
+    stateMeMemInstr :: Bool,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
     stateHalt :: HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
     stateJumpAddr :: Maybe Address,
+    stateDeLoadHazard :: Maybe Address,
+    stateDeCall :: Bool,
     stateFirstCycle :: Bool
   }
   deriving (Show, Eq)
@@ -95,12 +98,15 @@ init =
       stateWbRes = 0,
       stateDecodeLoad = False,
       stateMemOutputActive = False,
+      stateMeMemInstr = False,
       stateHalt = Running,
       stateStallFetch = False,
       stateStallDecode = False,
       stateMeRegFwd = Nothing,
       stateWbRegFwd = Nothing,
       stateJumpAddr = Nothing,
+      stateDeLoadHazard = Nothing,
+      stateDeCall = False,
       stateFirstCycle = True
     }
 
@@ -122,6 +128,9 @@ setDecodeLoad = modify $ \s -> s {stateDecodeLoad = True}
 setMemOutputActive :: LeakM ()
 setMemOutputActive = modify $ \s -> s {stateMemOutputActive = True}
 
+setMeMemInstr :: LeakM ()
+setMeMemInstr = modify $ \s -> s {stateMeMemInstr = True}
+
 outputNothing :: LeakM ()
 outputNothing = tell mempty
 
@@ -129,22 +138,24 @@ fetch :: LeakM ()
 fetch = do
   pc <- gets stateFePc
   mJumpAddr <- gets stateJumpAddr
-  decodeLoad <- gets stateDecodeLoad
-  memOutputActive <- gets stateMemOutputActive
+  deLoadHazard <- gets stateDeLoadHazard
+  deCall <- gets stateDeCall
+  meMemInstr <- gets stateMeMemInstr
 
-  let stall =
-        decodeLoad
-          || memOutputActive
-          || isJust mJumpAddr
+  let stall = deCall || meMemInstr
 
-  if stall
-    then modify $ \s -> s {stateFePc = fromMaybe pc mJumpAddr}
-    else
-      modify $ \s ->
-        s
-          { stateFePc = fromMaybe (pc + 4) mJumpAddr,
-            stateDePc = pc
-          }
+  let next_pc =
+        fromMaybe
+          (fromMaybe
+             (if stall then pc else pc + 4)
+             deLoadHazard)
+          mJumpAddr
+
+  modify $ \s ->
+    s
+      { stateFePc = next_pc,
+        stateDePc = pc
+      }
 
 decode :: LeakM ()
 decode = do
@@ -191,6 +202,13 @@ decode = do
         else if not (Core.inputIsInstr input) then Core.Nop Core.MemoryBusBusy
         -- Otherwise we process the decoded instruction.
         else instr
+
+  when load_hazard_current_cycle $ do
+    pc <- gets stateDePc
+    modify $ \s -> s {stateDeLoadHazard = Just pc}
+
+  when (Core.isCall ir') $
+    modify $ \s -> s {stateDeCall = True}
 
   modify $ \s ->
     s
@@ -308,11 +326,14 @@ memory = do
     Core.IType Core.Load {} _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       setMemOutputActive
+      setMeMemInstr
     Core.IType (Core.Env Core.Call) _ _ _ -> do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       setMemOutputActive
-    Core.SType {} ->
+      setMeMemInstr
+    Core.SType {} -> do
       setMemOutputActive
+      setMeMemInstr
     _ -> pure ()
 
   modify $ \s ->
@@ -367,9 +388,12 @@ pipe = withCtrlReset $ do
         s
           { stateDecodeLoad = False,
             stateMemOutputActive = False,
+            stateMeMemInstr = False,
             stateJumpAddr = Nothing,
             stateMeRegFwd = Nothing,
             stateWbRegFwd = Nothing,
+            stateDeLoadHazard = Nothing,
+            stateDeCall = False,
             stateFirstCycle = firstCycle
           }
       void m

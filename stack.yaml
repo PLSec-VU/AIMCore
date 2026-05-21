@@ -17,6 +17,6 @@ allow-newer-deps:
 allow-newer: true
 
 nix:
-  enable: true
+  enable: false
   packages:
   - z3
