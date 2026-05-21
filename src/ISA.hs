@@ -138,15 +138,6 @@ interp' instr
                   Reg rd alu_res
                 Instruction.Load size sign ->
                   Load size sign rd $ bitCoerce <$> alu_res
-                -- Instruction.Load size sign -> do
-                --  let loadExtend =
-                --        case (size, sign) of
-                --          (Byte, Instruction.Signed) -> signExtend . slice d7 d0
-                --          (Byte, Instruction.Unsigned) -> zeroExtend . slice d7 d0
-                --          (Half, Instruction.Signed) -> signExtend . slice d15 d0
-                --          (Half, Instruction.Unsigned) -> signExtend . slice d15 d0
-                --          (Word, _) -> signExtend . slice d31 d0
-                --  Load size rd $ bitCoerce . loadExtend <$> alu_res
                 Instruction.Jump ->
                   Jump rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
                 Instruction.Env Instruction.Break ->

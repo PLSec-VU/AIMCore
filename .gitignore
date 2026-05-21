@@ -3,3 +3,5 @@
 dist-newstyle/
 *.cabal
 /log.txt
+*.log
+/scratch

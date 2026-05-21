@@ -20,6 +20,7 @@ module Leak.PC.PC
   )
 where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
@@ -112,18 +113,15 @@ proj s = (ts, ss)
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
           Leak.stateMemInstr = Core.stateMemInstr s,
-          Leak.stateMemRes = runIdentity $ Core.stateMemRes s,
+          Leak.stateMemRes = unAccess $ Core.stateMemRes s,
+          Leak.stateMemVal = unAccess $ Core.stateMemVal s,
           Leak.stateWbInstr = Core.stateWbInstr s,
-          Leak.stateWbRes = runIdentity $ Core.stateWbRes s,
-          Leak.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
-          Leak.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
+          Leak.stateWbRes = unAccess $ Core.stateWbRes s,
           Leak.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
-          Leak.stateStallFetch = False,
-          Leak.stateStallDecode = False,
           Leak.stateHalt = Core.stateHalt s,
-          Leak.stateMeRegFwd = fmap (second runIdentity) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
-          Leak.stateWbRegFwd = fmap (second runIdentity) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
-          Leak.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
+          Leak.stateMeRegFwd = fmap (second unAccess) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
+          Leak.stateWbRegFwd = fmap (second unAccess) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
+          Leak.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Leak.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,
           Leak.stateDeCall = Core.ctrlDeCall $ Core.stateCtrl s,
           Leak.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
@@ -137,12 +135,8 @@ proj s = (ts, ss)
           Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
           Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
-          Sim.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
-          Sim.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Sim.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
-          Sim.stateStallFetch = False,
-          Sim.stateStallDecode = False,
-          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
+          Sim.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Sim.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,
           Sim.stateDeCall = Core.ctrlDeCall $ Core.stateCtrl s,
           Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s

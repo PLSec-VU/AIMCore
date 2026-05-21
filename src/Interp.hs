@@ -9,17 +9,17 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-data Interp = Interp
-  { interpRes :: Word,
-    interpAddr :: Maybe Address,
-    interpBranched :: Maybe Bool
+data Interp f = Interp
+  { interpRes :: f Word,
+    interpAddr :: f (Maybe Address),
+    interpBranched :: Maybe (f Bool)
   }
 
-interp :: (Access f) => Instruction -> f Word -> f Word -> Address -> Interp
+interp :: (Access f) => Instruction -> f Word -> f Word -> Address -> Interp f
 interp instr r1 r2 pc =
   case instr of
     RType op rd _ _ ->
-      Interp (unAccess $ alu op r1 r2) Nothing Nothing
+      Interp (alu op r1 r2) (pure Nothing) Nothing
     IType iop rd _ imm ->
       let op =
             case iop of
@@ -27,24 +27,31 @@ interp instr r1 r2 pc =
               _ -> ADD
           alu_res = alu op r1 (pure $ signExtend imm)
        in case iop of
-            Arith {} -> Interp (unAccess alu_res) Nothing Nothing
-            Load size sign -> Interp (unpack $ unAccess alu_res) Nothing Nothing
+            Arith {} -> Interp alu_res (pure Nothing) Nothing
+            Load size sign ->
+              let addr = fmap (unpack :: Word -> Address) alu_res
+               in Interp (fmap bitCoerce addr) (fmap Just addr) Nothing
             Jump ->
-              Interp (pack $ pc + 4) (Just $ unpack $ unAccess alu_res) Nothing
+              Interp (pure $ pack $ pc + 4) (fmap (Just . unpack) alu_res) Nothing
             Env _ ->
-              Interp 0 Nothing Nothing
+              Interp (pure 0) (pure Nothing) Nothing
     SType size imm _ _ ->
-      Interp (unpack (unAccess r1 + signExtend imm)) Nothing Nothing
+      let addr = fmap (unpack :: Word -> Address) (alu ADD r1 (pure $ signExtend imm))
+       in Interp (fmap bitCoerce addr) (fmap Just addr) Nothing
     BType cmp imm _ _ ->
-      let branched = unAccess $ branch cmp r1 r2
-       in Interp 0 (if branched then Just $ pc + unpack (signExtend imm) else Nothing) (Just branched)
+      let branched = branch cmp r1 r2
+          jumpAddr = (\b -> if b then Just (pc + unpack (signExtend imm)) else Nothing) <$> branched
+          branched' = case fromPublic branched of
+            Just b -> Just (pure b)
+            Nothing -> Nothing
+       in Interp (pure 0) jumpAddr branched'
     UType Zero rd imm ->
-      Interp (imm ++# (0 :: BitVector 12)) Nothing Nothing
+      Interp (pure $ imm ++# (0 :: BitVector 12)) (pure Nothing) Nothing
     UType PC rd imm ->
       let imm' = imm ++# (0 :: BitVector 12)
-       in Interp (pack pc + imm') Nothing Nothing
+       in Interp (pure $ pack pc + imm') (pure Nothing) Nothing
     JType rd imm ->
-      Interp (pack $ pc + 4) (Just $ pc + unpack (signExtend imm)) Nothing
+      Interp (pure $ pack $ pc + 4) (pure $ Just $ pc + unpack (signExtend imm)) Nothing
     Nop _ ->
-      Interp 0 Nothing Nothing
+      Interp (pure 0) (pure Nothing) Nothing
 
