@@ -19,6 +19,27 @@ packages:
   original:
     hackage: sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
 - completed:
+    hackage: melf-1.3.1@sha256:167dd798237451e8ccca8c7d98ec719ce20ce1752445dda1fee165b389830b4e,4526
+    pantry-tree:
+      sha256: 8a4044457278930b6932c6499949564d17fea8db5163b059778c7ed8a26a68d7
+      size: 3429
+  original:
+    hackage: melf-1.3.1@sha256:167dd798237451e8ccca8c7d98ec719ce20ce1752445dda1fee165b389830b4e,4526
+- completed:
+    hackage: parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
+    pantry-tree:
+      sha256: 53a621c99658b84edf55cdbf8bbd74126d9cec6a2a0e6db3f5bef393cbe653ee
+      size: 392
+  original:
+    hackage: parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
+- completed:
+    hackage: optparse-applicative-0.18.1.0@sha256:f30973861ac7e7ebff05ff8c7c3d1e4d283a1f3850e1cc14106b0693ec1b6d82,5289
+    pantry-tree:
+      sha256: abb295c7aaf194c4cd9ea7201b63e069168ad97cc965e89ec71e09a7c1262de4
+      size: 3124
+  original:
+    hackage: optparse-applicative-0.18.1.0@sha256:f30973861ac7e7ebff05ff8c7c3d1e4d283a1f3850e1cc14106b0693ec1b6d82,5289
+- completed:
     name: pantomime
     pantry-tree:
       sha256: db092592a9914ed1ee72d5916ae4f063667170c0b30a5dc9fd36412582682947
@@ -29,6 +50,28 @@ packages:
     version: 0.1.0.0
   original:
     url: https://github.com/PLSec-VU/pantomime/archive/491638b742ce2d9fc92976ab0e2037ba259e5ae9.tar.gz
+- completed:
+    name: pantomime-base
+    pantry-tree:
+      sha256: 6729f953ad15ea5d00e2c3142142682f064c30c14e84771967407b8b638e89ad
+      size: 530
+    sha256: a81aeb4ae7e5a7a023bc3507022dc8b90323e293abbd0bdc235354e67fb29b61
+    size: 16973
+    url: https://github.com/PLSec-VU/pantomime-base/archive/64dab2d4fd3ef4c27ec9eb698bf61092fb08d8a4.tar.gz
+    version: 0.1.0.0
+  original:
+    url: https://github.com/PLSec-VU/pantomime-base/archive/64dab2d4fd3ef4c27ec9eb698bf61092fb08d8a4.tar.gz
+- completed:
+    name: pantomime-clash
+    pantry-tree:
+      sha256: 978493e7943f08ff0a4b27b0794f0fa392f1dee60c3a746d1970c3b0731121b9
+      size: 611
+    sha256: 73921a56dd8feed1b075b20986ada7ae32041dcabd33418bc63b48f45c6b17bc
+    size: 19409
+    url: https://github.com/PLSec-VU/pantomime-clash/archive/1f42057f228cd5e476af4b35541598843a7b74f9.tar.gz
+    version: 0.1.0.0
+  original:
+    url: https://github.com/PLSec-VU/pantomime-clash/archive/1f42057f228cd5e476af4b35541598843a7b74f9.tar.gz
 - completed:
     name: grisette
     pantry-tree:
