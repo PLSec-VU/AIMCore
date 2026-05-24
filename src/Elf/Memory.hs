@@ -36,7 +36,7 @@ import qualified Data.ByteString.Lazy as BSL
 
 -- | IO-based memory implementation for testing.
 data IOMem = IOMem
-  { ioMemRF :: IORef RegFile,
+  { ioMemInitSP :: Word,
     -- | List of RAM arrays that store writable memory regions.
     ioMemRAM :: IOUArray Int Word8
   }
@@ -57,9 +57,8 @@ newIOMem elf = do
   let memSize = 0xf000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
   let sp = base + memSize - 0x1000000
-  rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF
   ramArray <- liftIO $ newArray (base, base+memSize) 0
-  pure $ IOMem rfRef ramArray
+  pure $ IOMem (fromIntegral sp) ramArray
 
 loadProgram :: (MonadIO m, MonadReader IOMem m) => Elf -> m ()
 loadProgram elf = do
@@ -69,12 +68,6 @@ loadProgram elf = do
       liftIO $ writeArray ramArray (fromIntegral i) byte
 
 instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
-  getRegFile = do
-    asks ioMemRF >>= lift . readIORef
-  putRegFile rf = do
-    rfRef <- asks ioMemRF
-    lift $ writeIORef rfRef rf
-    -- liftIO $ putStrLn $ "putRegFile: " P.++ show rf
   ramRead addr = do
     ramArray <- asks ioMemRAM
     bytes <- forM [0 .. 3] $ \i -> do
@@ -102,7 +95,7 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
 
 -- | Secure memory implementation that tracks security regions
 data SecureIOMem = SecureIOMem
-  { secureIOMemRF :: IORef RegFile,
+  { secureIOMemInitSP :: Word,
     secureIOMemRAM :: IOUArray Int Word8,
     -- | List of memory regions and their security levels
     secureIOMemRegions :: IORef [MemoryRegion]
@@ -132,10 +125,9 @@ newSecureIOMem elf = do
   let memSize = 0x4000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
   let sp = base + memSize - 0x1000000
-  rfRef <- liftIO $ newIORef $ modifyRF 2 (fromIntegral sp) initRF
   ramArray <- liftIO $ newArray (base, base+memSize) 0
   regionsRef <- liftIO $ newIORef []
-  pure $ SecureIOMem rfRef ramArray regionsRef
+  pure $ SecureIOMem (fromIntegral sp) ramArray regionsRef
 
 loadSecureProgram :: (MonadIO m, MonadReader SecureIOMem m) => Elf -> m ()
 loadSecureProgram elf = do
@@ -145,11 +137,6 @@ loadSecureProgram elf = do
       liftIO $ writeArray ramArray (fromIntegral i) byte
 
 instance {-# OVERLAPPING #-} MonadMemory (SecureIOMemT IO) where
-  getRegFile = do
-    asks secureIOMemRF >>= lift . readIORef
-  putRegFile rf = do
-    rfRef <- asks secureIOMemRF
-    lift $ writeIORef rfRef rf
   ramRead addr = do
     ramArray <- asks secureIOMemRAM
     bytes <- forM [0 .. 3] $ \i -> do

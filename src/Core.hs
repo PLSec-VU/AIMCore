@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Core
@@ -33,6 +34,7 @@ import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
+import RegFile
 import Types
 import qualified Types
 import Util
@@ -52,13 +54,7 @@ data Input f = Input
   { -- | Is this an instruction read?
     inputIsInstr :: Bool,
     -- | Reads from memory.
-    inputMem :: f Word,
-    -- | Read from the register file (corresponding to the index requested in
-    -- the `Output`'s `outRs1` field).
-    inputRs1 :: f Word,
-    -- | Read from the register file (corresponding to the index requested in
-    -- the `Output`'s `outRs2` field).
-    inputRs2 :: f Word
+    inputMem :: f Word
   }
 
 deriving instance (Show (f Word)) => Show (Input f)
@@ -88,14 +84,6 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 data Output f = Output
   { -- | A memory access.
     outMem :: First (MemAccess f),
-    -- | A read request from the register file; stores it in the `inputRs1`
-    -- field of `Input` on the next tick.
-    outRs1 :: First RegIdx,
-    -- | A read request from the register file; stores it in the `inputRs2`
-    -- field of `Input` on the next tick.
-    outRs2 :: First RegIdx,
-    -- | A write to the register file.
-    outRd :: First (RegIdx, f Word),
     -- | A syscall request.
     outSyscall :: First Bool,
     -- | Are we done?
@@ -109,11 +97,11 @@ deriving instance (Generic (f Word)) => Generic (Output f)
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
 
 instance Semigroup (Output f) where
-  Output mem rs1 rs2 rd syscall hlt <> Output mem' rs1' rs2' rd' syscall' hlt' =
-    Output (mem <> mem') (rs1 <> rs1') (rs2 <> rs2') (rd <> rd') (syscall <> syscall') (hlt <> hlt')
+  Output mem syscall hlt <> Output mem' syscall' hlt' =
+    Output (mem <> mem') (syscall <> syscall') (hlt <> hlt')
 
 instance Monoid (Output f) where
-  mempty = Output mempty mempty mempty mempty mempty mempty
+  mempty = Output mempty mempty mempty
 
 -- | CPU halt state
 data HaltState = Running | EBreak | SecurityViolation
@@ -141,6 +129,8 @@ data State f = State
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
     stateWbRes :: f Word,
+    -- | Register file
+    stateRegFile :: RegFile f,
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state
@@ -210,9 +200,7 @@ initInput :: (Access f) => Input f
 initInput =
   Input
     { inputIsInstr = False,
-      inputMem = pure 0,
-      inputRs1 = pure 0,
-      inputRs2 = pure 0
+      inputMem = pure 0
     }
 
 init :: (Access f) => State f
@@ -227,6 +215,7 @@ init =
       stateMemVal = pure 0,
       stateWbInstr = Nop FirstCycle,
       stateWbRes = pure 0,
+      stateRegFile = initRF,
       stateCtrl = initCtrl,
       stateHalt = Running
     }
@@ -306,7 +295,7 @@ decode = do
   input <- ask
   ir <-
     if (inputIsInstr input)
-      then noSecrets (inputMem input) (Nop Instruction.SecurityViolation) (pure . decode')
+      then noSecrets' (inputMem input) (Nop Instruction.SecurityViolation) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
   ctrl <- gets stateCtrl
@@ -350,15 +339,6 @@ decode = do
     s { stateExInstr = ir',
         stateExPc = stateDePc s
       }
-
-  readRF ir'
-  where
-    readRF ir =
-      tell $
-        mempty
-          { outRs1 = pure $ fromMaybe 0 $ getRs1 ir,
-            outRs2 = pure $ fromMaybe 0 $ getRs2 ir
-          }
 
 -- | Execute stage.
 execute :: forall f. (Access f) => CPUM f ()
@@ -406,7 +386,7 @@ execute = do
           r2 <- rs2
           pc <- gets $ pack . stateExPc
           let doBranch = branch cmp r1 r2
-          lift $ noSecrets doBranch () $ \doBranch' ->
+          lift $ noSecrets' doBranch () $ \doBranch' ->
             when doBranch' $ do
               let branchAddr :: f Address
                   branchAddr = unpack <$> alu ADD (pure pc) (pure $ signExtend imm)
@@ -423,7 +403,7 @@ execute = do
         Instruction.IType Jump _ _ imm -> do
           r1 <- rs1
           pc <- gets $ pack . stateExPc
-          lift $ noSecrets r1 () $ \r1' -> do
+          lift $ noSecrets' r1 () $ \r1' -> do
             let jumpAddr :: f Address
                 jumpAddr = unpack <$> alu ADD (pure r1') (pure $ signExtend imm)
             setLines $
@@ -440,10 +420,18 @@ execute = do
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
-    rs1 = lift $ regWithFwd getRs1 =<< asks inputRs1
+    rs1 = do
+      ir <- gets stateExInstr
+      let idx = fromMaybe 0 $ getRs1 ir
+      rf <- gets stateRegFile
+      lift $ regWithFwd getRs1 (lookupRF idx rf)
 
     rs2 :: MaybeT (CPUM f) (f Word)
-    rs2 = lift $ regWithFwd getRs2 =<< asks inputRs2
+    rs2 = do
+      ir <- gets stateExInstr
+      let idx = fromMaybe 0 $ getRs2 ir
+      rf <- gets stateRegFile
+      lift $ regWithFwd getRs2 (lookupRF idx rf)
 
     regWithFwd :: (Instruction -> Maybe RegIdx) -> f Word -> CPUM f (f Word)
     regWithFwd getR def = do
@@ -506,12 +494,12 @@ memory = do
     Instruction.IType (Arith _) rd _ _ ->
       setLines $ \c -> c { ctrlMeRegFwd = Just (rd, res) }
     Instruction.IType (Load size _) _ _ _ ->
-      noSecrets res () $ \res' -> do
+      noSecrets' res () $ \res' -> do
         setLines $ \c ->
           c { ctrlMeMemInstr = True }
         readRAM (unpack res') size
     Instruction.SType size _ _ _ ->
-      noSecrets res () $ \res' -> do
+      noSecrets' res () $ \res' -> do
         setLines $ \c ->
           c { ctrlMeMemInstr = True }
         writeRAM (unpack res') size val
@@ -527,7 +515,7 @@ memory = do
     _ -> pure ()
 
 -- | Commit computations to the register file.
-writeback :: (Access f) => CPUM f ()
+writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
   ir <- gets stateWbInstr
   res <- gets stateWbRes
@@ -573,18 +561,20 @@ writeback = do
       let val = input
       let rd = 10 -- a0
       setLines $ \c -> c { ctrlWbRegFwd = Just (rd, val) }
+      writeRF rd val
     _ -> do
       setLines $ \c -> c { ctrlWbRegFwd = Nothing }
-      writeRF 0 (pure 0)
+      writeRF 0 (pure 0 :: f Word)
 
   where
+    writeRF :: RegIdx -> f Word -> CPUM f ()
     writeRF idx val =
-      tell $ mempty { outRd = pure (idx, val) }
+      modify $ \s -> s { stateRegFile = modifyRF idx val (stateRegFile s) }
 
 readPC :: (Access f, MonadWriter (Output f) m) => Address -> m ()
 readPC addr =
   tell $
-    mempty
+    (mempty :: Output f)
       { outMem =
           pure $
             MemAccess
@@ -598,7 +588,7 @@ readPC addr =
 readRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> m ()
 readRAM addr size =
   tell $
-    mempty
+    (mempty :: Output f)
       { outMem =
           pure $
             MemAccess
@@ -612,7 +602,7 @@ readRAM addr size =
 writeRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> f Word -> m ()
 writeRAM addr size val =
   tell $
-    mempty
+    (mempty :: Output f)
       { outMem =
           pure $
             MemAccess
@@ -626,14 +616,12 @@ writeRAM addr size val =
 readSyscall :: (Access f, MonadWriter (Output f) m) => m ()
 readSyscall =
   tell $
-    mempty { outSyscall = pure True }
+    (mempty :: Output f) { outSyscall = pure True }
 
 setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s { stateCtrl = f $ stateCtrl s }
 
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
-noSecrets :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
-noSecrets w a m = case fromPublic w of
-  Just v -> m v
-  Nothing -> setSecurityViolation >> pure a
+noSecrets' :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
+noSecrets' w a m = noSecrets w (setSecurityViolation >> pure a) m

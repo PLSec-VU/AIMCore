@@ -17,9 +17,11 @@ import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Elf.Memory
 import Numeric (showHex)
+import RegFile
 import Simulate
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
+import Types
 import Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Prelude as P
@@ -27,40 +29,41 @@ import qualified Prelude as P
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
   { benchmarkPath :: String,
-    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
+    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m (Bool, Maybe (Identity Types.Word))
   }
 
-cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
+cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m (Bool, Maybe (Identity Types.Word))
 cryptoInstrument shouldLog i s o step = do
   when shouldLog $ do
     let pc = Core.stateExPc s
     -- liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s)
     when (pc == 0x1e05c) $ do
-      s9 <- regRead 25
-      s11 <- regRead 27
-      liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " s9=0x" P.++ showHex s9 "" P.++ " s11=0x" P.++ showHex s11 ""
+      let s9 = lookupRF 25 (Core.stateRegFile s)
+      let s11 = lookupRF 27 (Core.stateRegFile s)
+      liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " s9=" P.++ show s9 P.++ " s11=" P.++ show s11
   case getFirst $ Core.outSyscall o of
-    Just True -> handleSyscall
-    _ -> pure True
+    Just True -> handleSyscall s
+    _ -> pure (True, Nothing)
 
-testSuiteInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m Bool
+testSuiteInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.Input Identity -> Core.State Identity -> Core.Output Identity -> Int -> m (Bool, Maybe (Identity Types.Word))
 testSuiteInstrument shouldLog i s o step = do
   when shouldLog $ do
     let pc = Core.stateExPc s
-    gp <- regRead 3
-    a4 <- regRead 14
-    t2 <- regRead 7
-    liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " a4=0x" P.++ showHex a4 "" P.++ " t2=0x" P.++ showHex t2 "" P.++ " gp=0x" P.++ showHex gp ""
+    let rf = Core.stateRegFile s
+    let gp = lookupRF 3 rf
+    let a4 = lookupRF 14 rf
+    let t2 = lookupRF 7 rf
+    liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " a4=" P.++ show a4 P.++ " t2=" P.++ show t2 P.++ " gp=" P.++ show gp
   case getFirst $ Core.outSyscall o of
     Just True -> do
-      gp <- toInteger <$> regRead 3
-      a0 <- toInteger <$> regRead 10
+      let rf = Core.stateRegFile s
+      let gp = toInteger (lookupRF 3 rf)
+      let a0 = toInteger (lookupRF 10 rf)
       if gp == 1 && a0 == 0
-        then pure False
+        then pure (False, Nothing)
         else do
-          regFile <- getRegFile
-          liftIO $ throwIO (userError $ "Test suite exited with failure: " P.++ show regFile)
-    _ -> pure True
+          liftIO $ throwIO (userError $ "Test suite exited with failure: " P.++ show rf)
+    _ -> pure (True, Nothing)
 
 -- | Create a test case for a benchmark binary
 mkBenchmarkTest :: String -> BenchmarkTest -> TestTree
@@ -80,7 +83,8 @@ mkBenchmarkTest testName _benchmark =
         (sim
           { circuitState =
               (Core.init @Identity)
-                { Core.stateFePc = fromIntegral entryOffset
+                { Core.stateFePc = fromIntegral entryOffset,
+                  Core.stateRegFile = modifyRF 2 (pure $ ioMemInitSP ioMem) initRF
                 }
           })
 

@@ -53,3 +53,9 @@ instance Access Identity where
 
 censor :: (Access f, Default a) => PubSec a -> f a
 censor x = conditionalSecret (not $ isPublic x) (fromPubSec def x)
+
+-- | Run a computation only if the value is public.
+noSecrets :: (Access f, Monad m) => f a -> m b -> (a -> m b) -> m b
+noSecrets w mb m = case fromPublic w of
+  Just v -> m v
+  Nothing -> mb

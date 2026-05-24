@@ -29,9 +29,7 @@ circuit _ input =
     output :: Out
     output =
       input
-        { inputMem = censor $ inputMem input,
-          inputRs1 = censor $ inputRs1 input,
-          inputRs2 = censor $ inputRs2 input
+        { inputMem = censor $ inputMem input
         }
 
 init :: State

@@ -26,6 +26,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import qualified Instruction as Instr
 import Interp
+import RegFile
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -73,6 +74,7 @@ data State = State
     stateMemVal :: Word,
     stateWbInstr :: Instr.Instruction,
     stateWbRes :: Word,
+    stateRegFile :: RegFile Identity,
     stateDecodeLoad :: Bool,
     stateMemOutputActive :: Bool,
     stateMeMemInstr :: Bool,
@@ -98,6 +100,7 @@ init =
       stateMemVal = 0,
       stateWbInstr = Instr.Nop Instr.FirstCycle,
       stateWbRes = 0,
+      stateRegFile = initRF,
       stateDecodeLoad = False,
       stateMemOutputActive = False,
       stateMeMemInstr = False,
@@ -275,10 +278,16 @@ execute = do
     modify $ \s -> s {stateMemOutputActive = True}
 
   let r1M :: LeakM (Identity Word)
-      r1M = Identity <$> (regWithFwd Instr.getRs1 =<< (runIdentity <$> asks Core.inputRs1))
+      r1M = do
+        instr <- gets stateExInstr
+        rf <- gets stateRegFile
+        Identity <$> (regWithFwd Instr.getRs1 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs1 instr) rf))
 
       r2M :: LeakM (Identity Word)
-      r2M = Identity <$> (regWithFwd Instr.getRs2 =<< (runIdentity <$> asks Core.inputRs2))
+      r2M = do
+        instr <- gets stateExInstr
+        rf <- gets stateRegFile
+        Identity <$> (regWithFwd Instr.getRs2 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs2 instr) rf))
 
       regWithFwd :: (Instr.Instruction -> Maybe RegIdx) -> Word -> LeakM Word
       regWithFwd getR def = do
@@ -417,10 +426,22 @@ writeback = do
     lift $ modify $ \s -> s {stateWbRegFwd = pure (rd, res)}
 
   case instr of
+    Instr.RType _ rd _ _ ->
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure res) (stateRegFile s)}
+    Instr.IType (Instr.Arith _) rd _ _ ->
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure res) (stateRegFile s)}
     Instr.IType (Instr.Load size sign) rd _ _ -> do
       let val = Instr.loadExtend size sign (unAccess input)
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure val) (stateRegFile s)}
       modify $ \s -> s {stateWbRegFwd = pure (rd, val)}
+    Instr.JType rd _ ->
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure res) (stateRegFile s)}
+    Instr.IType Instr.Jump rd _ _ ->
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure res) (stateRegFile s)}
+    Instr.UType _ rd _ ->
+      modify $ \s -> s {stateRegFile = modifyRF rd (pure res) (stateRegFile s)}
     Instr.IType (Instr.Env Instr.Call) _ _ _ -> do
+      modify $ \s -> s {stateRegFile = modifyRF 10 input (stateRegFile s)}
       modify $ \s -> s {stateWbRegFwd = pure (10, unAccess input)}
     _ -> pure ()
 

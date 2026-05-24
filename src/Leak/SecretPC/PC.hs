@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Leak.SecretPC.PC
@@ -15,7 +16,7 @@ module Leak.SecretPC.PC
   )
 where
 
-import Access (PubSec, censor)
+import Access (Access(..), PubSec(..), censor)
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad (guard)
 import Control.Monad.State
@@ -97,26 +98,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ts', o_leak) = leak ts input
     (ss', addr) = sim ss o_leak
 
-proj' :: SimState -> SimState
-proj' s = ss
-  where
-    ss =
-      s
-        { Core.stateMemRes = censor (Core.stateMemRes s),
-          Core.stateMemVal = censor (Core.stateMemVal s),
-          Core.stateWbRes = censor (Core.stateWbRes s),
-          Core.stateCtrl =
-            (Core.stateCtrl s)
-              { Core.ctrlMeRegFwd =
-                  fmap
-                    (\(idx, val) -> (idx, censor val))
-                    (Core.ctrlMeRegFwd (Core.stateCtrl s)),
-                Core.ctrlWbRegFwd =
-                  fmap
-                    (\(idx, val) -> (idx, censor val))
-                    (Core.ctrlWbRegFwd (Core.stateCtrl s))
-              }
-        }
+proj' :: Core.State PubSec -> SimState
+proj' s = s
 
 proj :: Core.State PubSec -> ((), SimState)
 proj s = ((), proj' s)
@@ -163,7 +146,7 @@ runSimulator ::
   a
 runSimulator f prog = evalState (f Leak.SecretPC.PC.simulator) s
   where
-    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog))
 
 watchSim ::
   Vec PROG_SIZE Word ->

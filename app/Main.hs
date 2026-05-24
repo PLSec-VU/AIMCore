@@ -11,7 +11,8 @@ import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Data.Elf (Elf)
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
-import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram, IOMem)
+import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram, IOMem, ioMemInitSP, secureIOMemInitSP)
+import RegFile
 import Data.Word (Word32)
 import Numeric (showHex)
 import Simulate
@@ -76,8 +77,6 @@ instance Show LeakageDivergenceException where
           "Input:",
           "  inputIsInstr: " P.++ show (Core.inputIsInstr input),
           "  inputMem: " P.++ show (Core.inputMem input),
-          "  inputRs1: " P.++ show (Core.inputRs1 input),
-          "  inputRs2: " P.++ show (Core.inputRs2 input),
           "",
           "State:",
           "  PC (fetch): 0x" P.++ showHex (Core.stateFePc state) "",
@@ -172,7 +171,7 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --test-suite test/rv32ui/rv32ui-p-add" )
 
 generalizedInstrument ::
-  (Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
+  (Access f, Show (f Word), Show leakOut, MonadIO m, MonadMemory m) =>
   ((Core.State f) -> (leakState, simState)) ->  -- proj function
   (leakState -> Core.Input f -> (leakState, leakOut)) ->  -- leak function
   (leakOut -> BS.ByteString) ->  -- serialization function
@@ -186,25 +185,27 @@ generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput
     liftIO $ putStrLn $ "[" P.++ modeName P.++ " MODE]"
     liftIO $ print i
     liftIO $ print o
-    a0 <- regRead 10
-    a7 <- regRead 17
-    s0 <- regRead 8
-    liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=0x" P.++ showHex a0 "" P.++ " s0=0x" P.++ showHex s0 "" P.++ " syscall=0x" P.++ showHex a7 ""
+    let rf = Core.stateRegFile s
+    let a0 = lookupRF 10 rf
+    let a7 = lookupRF 17 rf
+    let s0 = lookupRF 8 rf
+    liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=" P.++ show a0 P.++ " s0=" P.++ show s0 P.++ " syscall=" P.++ show a7
 
   let (leakState , _) = projFn s
   let (_ , leakOutput) = leakFn leakState i
   case leakageOutput of
     Nothing -> pure ()
-    Just h -> liftIO $ hPutStrLn h $ show leakOutput
+    Just _ -> liftIO $ forM_ leakageOutput $ \h -> hPutStrLn h $ show leakOutput
   liftIO $ modifyIORef' leakDigest (update (serializeFn leakOutput))
 
   -- Store the current state as the final state
   liftIO $ writeIORef finalStateRef (Just s)
 
   case getFirst $ Core.outSyscall o of
-    Just True -> handleSyscall
-    _ -> pure True
+    Just True -> handleSyscall s
+    _ -> pure (True, Nothing)
 
+generalInstrument :: (Leak.Out -> BS.ByteString) -> Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity (IOMemT IO)
 generalInstrument f = generalizedInstrument
   Leak.PC.proj
   Leak.PC.leak
@@ -233,7 +234,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
     runIOMemT mem $ loadProgram elf
   
   let initialSims = P.map (\_ -> simulator @Identity @(IOMemT IO)) [1..optNumInstances]
-  let initialStates = P.map (\sim -> sim { circuitState = (Core.init @Identity) { Core.stateFePc = fromIntegral entryOffset } }) initialSims
+  let initialStates = P.map (\(sim, mem) -> sim { circuitState = (Core.init @Identity) { Core.stateFePc = fromIntegral entryOffset, Core.stateRegFile = modifyRF 2 (pure $ ioMemInitSP mem) initRF } }) (P.zip initialSims memInstances)
   
   go 0 (P.zip memInstances initialStates)
   where
@@ -242,7 +243,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
       
       -- Execute one step for each instance in its own memory context
       results <- forM (P.zip instances [(0::Int)..]) $ \((mem, sim@(CircuitSim i s step next)), idx) -> do
-        (s', _o, mi', cont, leakOutput) <- runIOMemT mem $ do
+        (s', _o, mi', (cont, mRet), leakOutput) <- runIOMemT mem $ do
           let (leakState, _) = Leak.PC.proj s
           let (_, leakOutput) = Leak.PC.leak leakState i
 
@@ -253,19 +254,23 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
               then BS.toStrict . encode
               else const BS.empty
           let instr = generalInstrument serialize optVerbose leakOutputHandle leakDigest finalStateRef
-          cont <- instr i s' o stepCount
+          instrRet <- instr i s' o stepCount
           
-          pure (s', o, mi', cont, leakOutput)
+          pure (s', o, mi', instrRet, leakOutput)
         
         when optVerbose $ do
           putStrLn $ "Instance " P.++ show idx P.++ ":"
           putStrLn $ "  PC: 0x" P.++ showHex (Core.stateExPc s') ""
         
-        let newSim = sim { circuitInput = fromMaybe i mi', circuitState = s' }
+        let mi'' = case mRet of
+              Just ret -> fmap (\inp -> inp { Core.inputMem = ret }) mi'
+              Nothing -> mi'
+
+        let newSim = sim { circuitInput = fromMaybe i mi'', circuitState = s' }
         pure StepResult
           { stepMem = mem
           , stepSim = newSim
-          , stepNextInput = mi'
+          , stepNextInput = mi''
           , stepContinue = cont
           , stepFinalState = s'
           , stepLeakage = leakOutput
@@ -326,7 +331,8 @@ runExecutable opts@Options{..} = do
               (simulator @PubSec @(SecureIOMemT IO))
                 { circuitState =
                     (Core.init @PubSec)
-                      { Core.stateFePc = fromIntegral entryOffset
+                      { Core.stateFePc = fromIntegral entryOffset,
+                        Core.stateRegFile = modifyRF 2 (pure $ secureIOMemInitSP secureIOMem) initRF
                       }
                 }
           finalState <- readIORef finalStateRef

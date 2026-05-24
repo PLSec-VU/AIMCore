@@ -7,10 +7,6 @@ module Util
     cmpIO,
     pageIO,
     MonadMemory (..),
-    ramRead,
-    ramWrite,
-    regRead,
-    regWrite,
     readWord,
     write,
     RAM_SIZE,
@@ -33,7 +29,6 @@ import Control.Monad.Trans.Maybe
 import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
 import Instruction
-import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat, replicate, take, undefined, (!!), (&&), (++), (||))
 
@@ -82,30 +77,12 @@ pageIO = mapM_ $ \a -> do
   void getLine
 
 class Monad m => MonadMemory m where
-  getRegFile :: m RegFile
-  putRegFile :: RegFile -> m ()
   ramRead :: Address -> m Word
   ramWrite :: Address -> Size -> Word -> m ()
   -- | Mark a region of memory as public or secret
   markMemoryRegion :: Address -> Address -> Bool -> m ()
   -- | Check if a memory address is marked as secret
   isMemorySecret :: Address -> m Bool
-
-  -- ramRead :: (MonadMemory n m) => Address -> m Word
-  -- ramRead addr = readWord addr <$> getRAM @n
-
-  -- ramWrite :: (MonadMemory n m) => Address -> Size -> Word -> m ()
-  -- ramWrite addr size w = do
-  --   ram <- getRAM @n
-  --   putRAM $ write size addr w ram
-
-regRead :: forall m. (MonadMemory m) => RegIdx -> m Word
-regRead idx = lookupRF idx <$> getRegFile
-
-regWrite :: forall m. (MonadMemory m) => RegIdx -> Word -> m ()
-regWrite idx val = do
-  regfile <- getRegFile
-  putRegFile $ modifyRF idx val regfile
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =

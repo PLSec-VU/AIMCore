@@ -62,4 +62,4 @@ runSimulator ::
   a
 runSimulator f prog = evalState (f Leak.PC.ISA.simulator) s
   where
-    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog))

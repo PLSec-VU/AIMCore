@@ -34,42 +34,16 @@ system prog = cpuOut
     cpuInput :: Signal dom (Input Identity)
     cpuInput = register initInput input
     cpuOut = cpu @Identity cpuInput
-    regfile = mkRegFile $ mkRegAccess <$> cpuOut
     ram = mkRAM @Identity @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
     input =
-      ( \o mread (rs1, rs2) ->
+      ( \o mread ->
           Input
             ( fromMaybe False $ memIsInstr <$> getFirst (outMem o)
             )
             (Identity mread)
-            (Identity rs1)
-            (Identity rs2)
       )
         <$> cpuOut
         <*> ram
-        <*> regfile
-    mkRegAccess (Output _ mr1 mr2 mrd _ _) =
-      RegAccess
-        { regRs1 = fromMaybe 0 $ getFirst mr1,
-          regRs2 = fromMaybe 0 $ getFirst mr2,
-          regRd = fromMaybe (0, Identity 0) $ getFirst mrd
-        }
-
-data RegAccess f = RegAccess
-  { regRs1 :: RegIdx,
-    regRs2 :: RegIdx,
-    regRd :: (RegIdx, f Word)
-  }
-deriving instance (Show (f Word)) => Show (RegAccess f)
-deriving instance (Generic (f Word)) => Generic (RegAccess f)
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (RegAccess f)
-
-mkRegFile :: (Access f, HiddenClockResetEnable dom) => Signal dom (RegAccess f) -> Signal dom (Word, Word)
-mkRegFile input = mkOutput <$> reg_update <*> input
-  where
-    reg_output = register initRF reg_update
-    reg_update = ((\(idx, val) -> modifyRF idx (unAccess val)) . regRd <$> input) <*> reg_output
-    mkOutput rf (RegAccess rs1 rs2 _) = (lookupRF rs1 rf, lookupRF rs2 rf)
 
 mkRAM :: forall f progSize ramSize dom.
   (Access f, HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>

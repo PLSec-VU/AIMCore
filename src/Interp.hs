@@ -54,4 +54,3 @@ interp instr r1 r2 pc =
       Interp (pure $ pack $ pc + 4) (pure $ Just $ pc + unpack (signExtend imm)) Nothing
     Nop _ ->
       Interp (pure 0) (pure Nothing) Nothing
-

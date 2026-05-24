@@ -119,6 +119,7 @@ proj s = (ts, ss)
           Leak.stateMemVal = unAccess $ Core.stateMemVal s,
           Leak.stateWbInstr = Core.stateWbInstr s,
           Leak.stateWbRes = unAccess $ Core.stateWbRes s,
+          Leak.stateRegFile = Core.stateRegFile s,
           Leak.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
           Leak.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Leak.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
@@ -178,17 +179,13 @@ simulator =
       ((s_core_old, _), mem) <- get
       let (s_core', o_core) = implementation s_core_old i
 
-      -- Update memory and register file manually
+      -- Update memory manually (register file is now in s_core')
       let mem' = case getFirst (outMem o_core) of
             Just (MemAccess _ addr size (Just val)) ->
               mem {Simulate.memRAM = write size addr (runIdentity val) (Simulate.memRAM mem)}
             _ -> mem
-      let mem'' = case getFirst (outRd o_core) of
-            Just (idx, val) ->
-              mem' {Simulate.memRF = modifyRF idx (runIdentity val) (Simulate.memRF mem')}
-            _ -> mem'
 
-      put ((s_core', o_core), mem'')
+      put ((s_core', o_core), mem')
 
       let ((ts', ss'), addr) = circuit (ts, ss) i
       pure ((ts', ss'), (obs' o_core, addr))
@@ -212,8 +209,7 @@ runSimulator ::
   a
 runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
-    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog) initRF)
-    initRF = RegFile.initRF
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog))
     mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
     mkRAM prog = Util.mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
 

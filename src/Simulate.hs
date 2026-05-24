@@ -27,14 +27,11 @@ import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 
 data Mem n = Mem
-  { memRAM :: Vec n Byte,
-    memRF :: RegFile
+  { memRAM :: Vec n Byte
   }
   deriving (Eq, Show, Generic, NFDataX)
 
 instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
-  getRegFile = gets memRF
-  putRegFile rf = modify $ \s -> s {memRF = rf}
   ramRead addr = readWord addr <$> gets memRAM
   ramWrite addr size w = do
     ram <- gets memRAM
@@ -72,27 +69,17 @@ simulator =
               fetch
 
     next :: Output f -> m (Maybe (Input f))
-    next (Output mem rs1 rs2 rd _ hlt)
+    next (Output mem _ hlt)
       | getFirst hlt == Just True = pure Nothing
       | otherwise = do
-          (rs1', rs2') <- doRegFile
           (mem_in, mem_instr) <- doMemory
           pure $
             Just $
               Input
                 { inputIsInstr = mem_instr,
-                  inputMem = mem_in,
-                  inputRs1 = pure rs1',
-                  inputRs2 = pure rs2'
+                  inputMem = mem_in
                 }
       where
-        doRegFile :: m (Word, Word)
-        doRegFile = do
-          maybe (pure ()) (\(idx, val) -> regWrite idx (unAccess val)) $ getFirst rd
-          rs1' <- maybe (pure 0) regRead $ getFirst rs1
-          rs2' <- maybe (pure 0) regRead $ getFirst rs2
-          pure (rs1', rs2')
-
         doMemory :: m (f Word, Bool)
         doMemory
           | Just (MemAccess isInstr addr size mval) <- getFirst mem =
@@ -115,7 +102,7 @@ runSimulator :: forall f ramSize progSize a. (Access f, KnownNat ramSize, KnownN
   ) ->
   Vec progSize Word ->
   a
-runSimulator f = evalState (f simulator) . flip Mem initRF . mkRAM
+runSimulator f = evalState (f simulator) . Mem . mkRAM
 
 watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State Identity, Output Identity, Maybe (Input Identity))]
 watchSim = runSimulator @Identity @ramSize @progSize watch

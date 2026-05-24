@@ -59,6 +59,7 @@ data Instr f
   | Branch (f Bool) (f Address)
   | Nop
   | Break
+  | Syscall
 
 deriving instance
   ( Show (f Word),
@@ -78,6 +79,7 @@ getRd :: Instr a -> Maybe RegIdx
 getRd (Reg rd _) = pure rd
 getRd (Load _ _ rd _) = pure rd
 getRd (Jump rd _ _) = pure rd
+getRd Syscall = pure 10
 getRd _ = empty
 
 getR1 :: Instr Func -> Maybe RegIdx
@@ -109,6 +111,7 @@ instance DepReg (Instr Func) where
   deps (Branch f _) = deps f
   deps Break = (empty, empty)
   deps Nop = (empty, empty)
+  deps Syscall = (pure 17, empty)
 
 depSet :: (DepReg a) => a -> Set RegIdx
 depSet a =
@@ -143,7 +146,7 @@ interp' instr
                 Instruction.Env Instruction.Break ->
                   Break
                 Instruction.Env Instruction.Call ->
-                  Nop
+                  Syscall
         Instruction.SType size imm r1 r2 -> do
           let addr_comp = unpack <$> unaryF r1 (+ signExtend imm)
            in Store size addr_comp r2

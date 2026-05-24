@@ -1,5 +1,6 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
@@ -16,6 +17,7 @@ import Instruction
 import InstructionSpec (instructionTests)
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.SecretPC.PC as Leak.SecretPC
+import RegFile
 import Simulate
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -312,10 +314,18 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
             pure $ Just (regIdx, accessWord)
           else pure Nothing
 
+instance (Arbitrary a) => Arbitrary (PubSec a) where
+  arbitrary = oneof [Public <$> arbitrary, Secret <$> arbitrary]
+
 instance Arbitrary Core.HaltState where
   arbitrary = elements [Core.Running, Core.EBreak, Core.SecurityViolation]
 
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
+instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
+  arbitrary = do
+    vals <- vectorOf 31 arbitrary
+    pure $ RegFile $ unsafeFromList vals
+
+instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.State f) where
   arbitrary =
     Core.State
       <$> arbitrary
@@ -323,17 +333,13 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Core.State f) where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
-      <*> genAccessWord
-      <*> genAccessWord
-      <*> arbitrary
-      <*> genAccessWord
       <*> arbitrary
       <*> arbitrary
-    where
-      genAccessWord = do
-        isSecret <- arbitrary
-        word <- arbitrary
-        pure $ conditionalSecret isSecret word
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
 
 instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
   arbitrary = do
@@ -342,15 +348,9 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
       if isInstr
         then fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust)
         else arbitrary
-    r1 <- arbitrary
-    r2 <- arbitrary
     isSecretMem <- arbitrary
-    isSecretR1 <- arbitrary
-    isSecretR2 <- arbitrary
     pure $
       Input
         isInstr
         (conditionalSecret isSecretMem mem)
-        (conditionalSecret isSecretR1 r1)
-        (conditionalSecret isSecretR2 r2)
 
