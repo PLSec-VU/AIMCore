@@ -13,7 +13,7 @@ module Core
     HaltState (..),
     fetch,
     decode,
-    execute,
+    execute, 
     memory,
     writeback,
     CPUM (..),

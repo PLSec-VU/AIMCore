@@ -73,6 +73,8 @@ data State = State
     stateMemVal :: Word,
     stateWbInstr :: Instr.Instruction,
     stateWbRes :: Word,
+    stateDecodeLoad :: Bool,
+    stateMemOutputActive :: Bool,
     stateMeMemInstr :: Bool,
     stateHalt :: HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
@@ -96,6 +98,8 @@ init =
       stateMemVal = 0,
       stateWbInstr = Instr.Nop Instr.FirstCycle,
       stateWbRes = 0,
+      stateDecodeLoad = False,
+      stateMemOutputActive = False,
       stateMeMemInstr = False,
       stateHalt = Running,
       stateMeRegFwd = Nothing,
@@ -163,6 +167,9 @@ decode = do
         | Core.inputIsInstr input =
             Instr.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Instr.Nop Instr.MemoryBusBusy
+
+  when (Instr.isLoad instr || Instr.isCall instr) $
+    modify $ \s -> s {stateDecodeLoad = True}
 
   exInstr <- gets stateExInstr
   mJumpAddr <- gets stateJumpAddr
@@ -264,6 +271,9 @@ mkInstr instr
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
+  when (Instr.isLoad instr || Instr.isStore instr || Instr.isCall instr) $
+    modify $ \s -> s {stateMemOutputActive = True}
+
   let r1M :: LeakM (Identity Word)
       r1M = Identity <$> (regWithFwd Instr.getRs1 =<< (runIdentity <$> asks Core.inputRs1))
 
@@ -432,7 +442,9 @@ pipe = withCtrlReset $ do
             stateDeCall = False,
             stateMeMemInstr = False,
             stateMeRegFwd = Nothing,
-            stateWbRegFwd = Nothing
+            stateWbRegFwd = Nothing,
+            stateDecodeLoad = False,
+            stateMemOutputActive = False
           }
       void m
       modify $ \s -> s {stateFirstCycle = False}

@@ -60,6 +60,8 @@ dependencies:
 - entropy
 - binary
 - pantomime
+- pantomime-clash
+- pantomime-base
 
 ghc-options:
 - -Wall

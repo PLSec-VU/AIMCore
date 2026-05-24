@@ -46,8 +46,13 @@ data Instr = Instr BaseInstr (Maybe RegIdx) (Maybe RegIdx)
   deriving (Show, Eq)
 
 toLeakInstr :: Instruction -> Instr
-toLeakInstr input = Instr (mkInstr input) (getRs1 input) (getRs2 input)
+toLeakInstr input = Instr (mkInstr input) (getRs1' input) (getRs2' input)
  where
+  getRs1' (Nop _) = Nothing
+  getRs1' i = getRs1 i
+  getRs2' (Nop _) = Nothing
+  getRs2' i = getRs2 i
+
   mkInstr :: Instruction -> BaseInstr
   mkInstr instr = case instr of
     RType{} -> Other'
@@ -78,4 +83,4 @@ monitorJumpAddress :: LeakMonitor (Core.State Identity) (Core.Input Identity) (C
 monitorJumpAddress = LeakMonitor leak id
  where
   leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Maybe Address)
-  leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExBranch $ Core.stateCtrl s')
+  leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExAddress $ Core.stateCtrl s')

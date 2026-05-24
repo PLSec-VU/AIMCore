@@ -26,6 +26,8 @@ data State = State
     stateMemInstr :: Leak.Instr,
     stateWbInstr :: Leak.Instr,
     stateJumpAddr :: Maybe Address,
+    stateDecodeLoad :: Bool,
+    stateMemOutputActive :: Bool,
     stateMeMemInstr :: Bool,
     stateHalt :: AimCore.HaltState,
     stateDeLoadHazard :: Maybe Address,
@@ -45,6 +47,8 @@ init =
       stateWbInstr = Leak.nop,
       stateHalt = AimCore.Running,
       stateMeMemInstr = False,
+      stateDecodeLoad = False,
+      stateMemOutputActive = False,
       stateJumpAddr = Nothing,
       stateDeLoadHazard = Nothing,
       stateDeCall = False,
@@ -52,9 +56,6 @@ init =
     }
 
 type SimM = RWS Leak.Out (First (Maybe Address)) State
-
-setMeMemInstr :: SimM ()
-setMeMemInstr = modify $ \s -> s {stateMeMemInstr = True}
 
 outputPc :: Address -> SimM ()
 outputPc addr =
@@ -175,7 +176,7 @@ memory = do
   
   mMeMemInstr <- getFirst . Leak.outMeMemInstr <$> ask
   case mMeMemInstr of
-    Just True -> setMeMemInstr >> outputNothing
+    Just True -> modify (\s -> s {stateMeMemInstr = True}) >> outputNothing
     Just False -> modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
     Nothing -> pure ()
 
@@ -183,6 +184,10 @@ writeback :: SimM ()
 writeback = do
   instr <- gets stateWbInstr
   halted <- gets stateHalt
+
+  mLeakedHalt <- getFirst . Leak.outHalt <$> ask
+  when (halted /= AimCore.Running || isJust mLeakedHalt) $
+    outputNothing
 
   case Leak.instrBase instr of
     Leak.Break -> do
@@ -211,7 +216,9 @@ pipe = withCtrlReset $ do
             stateJumpAddr = Nothing,
             stateDeLoadHazard = Nothing,
             stateDeCall = False,
-            stateMeMemInstr = False
+            stateMeMemInstr = False,
+            stateDecodeLoad = False,
+            stateMemOutputActive = False
           }
       void m
       modify $ \s -> s {stateFirstCycle = False}

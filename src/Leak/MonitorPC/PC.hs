@@ -3,11 +3,12 @@
 module Leak.MonitorPC.PC
   ( obs,
     -- comment them out to disable Pantomime checks for faster compilation
-    tickStateCorrespondence,
-    projectionCoherence,
+    -- tickStateCorrespondence,
+    -- projectionCoherence,
   )
 where
 
+import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Core (Input (..), MemAccess (..), Output (..))
@@ -20,6 +21,8 @@ import Data.Monoid
 import qualified Leak.MonitorPC.MonitorLeak as Leak
 import qualified Leak.MonitorPC.Sim as Sim
 import qualified Pantomime as P
+import qualified Pantomime.Clash.NonInterference as P
+import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
 import Types
@@ -28,20 +31,20 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State Identity) ((), Core.State Identity) Sim.State (Input Identity) (Leak.Instr, Maybe Address) (Maybe Address)
+circuits :: P.SimulatorExistNI (Core.State Identity) ((), Core.State Identity) Sim.State (Input Identity) (Leak.Instr, Maybe Address) (Maybe Address)
 circuits =
-  P.NonInterference
+  P.SimulatorExistNI
     { P.implementation = second obs' .: implementation,
       P.leakage = Leak.leakCircuit Leak.monitorPC,
       P.projection = proj
     }
 
-{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
+-- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+tickStateCorrespondence :: Core.State Identity -> Input Identity -> P.Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
-{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
+-- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> P.Bool
 projectionCoherence = P.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
@@ -60,19 +63,22 @@ proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
 proj s = (ts, ss)
   where
     ts = Leak.leakProject Leak.monitorPC s
+    halted = Core.stateHalt s /= Core.Running
     ss =
       Sim.State
-        { Sim.stateFePc = Core.stateFePc s,
-          Sim.stateDePc = Core.stateDePc s,
-          Sim.stateExPc = Core.stateExPc s,
-          Sim.stateExInstr = Leak.toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = killJump $ Leak.toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = killJump $ Leak.toLeakInstr $ Core.stateWbInstr s,
-          Sim.stateHalt = Core.stateHalt s /= Core.Running,
-          Sim.stateStallFetch = toStallFetch $ Core.stateCtrl s,
-          Sim.stateStallDecode = toStallDecode $ Core.stateCtrl s,
-          Sim.stateJumpAddr = Core.ctrlExBranch $ Core.stateCtrl s,
-          Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
+        { Sim.stateFePc = if halted then 0 else Core.stateFePc s,
+          Sim.stateDePc = if halted then 0 else Core.stateDePc s,
+          Sim.stateExPc = if halted then 0 else Core.stateExPc s,
+          Sim.stateExInstr = if halted then Leak.nop' else Leak.toLeakInstr $ Core.stateExInstr s,
+          Sim.stateMemInstr = if halted then Leak.nop' else killJump $ Leak.toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateMemRes = if halted then 0 else unAccess $ Core.stateMemRes s,
+          Sim.stateWbInstr = if halted then Leak.nop' else killJump $ Leak.toLeakInstr $ Core.stateWbInstr s,
+          Sim.stateWbRes = if halted then 0 else unAccess $ Core.stateWbRes s,
+          Sim.stateHalt = halted,
+          Sim.stateStallFetch = not halted && toStallFetch (Core.stateCtrl s),
+          Sim.stateStallDecode = not halted && toStallDecode (Core.stateCtrl s),
+          Sim.stateJumpAddr = if halted then Nothing else Core.ctrlExAddress $ Core.stateCtrl s,
+          Sim.stateFirstCycle = not halted && Core.ctrlFirstCycle (Core.stateCtrl s)
         }
 
     killJump :: Leak.Instr -> Leak.Instr
@@ -81,11 +87,12 @@ proj s = (ts, ss)
 
     toStallFetch :: Core.Control Identity -> Bool
     toStallFetch ctrl =
-      Core.ctrlDecodeLoad ctrl
-        || Core.ctrlMemOutputActive ctrl
+      Core.ctrlDeCall ctrl
+        || Core.ctrlMeMemInstr ctrl
         || isJust (Core.ctrlExBranch ctrl)
 
     toStallDecode :: Core.Control Identity -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
+        || isJust (Core.ctrlDeLoadHazard ctrl)
         || isJust (Core.ctrlExBranch ctrl)

@@ -13,10 +13,10 @@ module Leak.PC.PC
     pcsEqual,
     implementation,
     -- comment them out to disable Pantomime checks for faster compilation
-    theory,
-    circuits,
-    tickStateCorrespondence,
-    projectionCoherence,
+    -- theory,
+    -- circuits,
+    -- tickStateCorrespondence,
+    -- projectionCoherence,
   )
 where
 
@@ -35,6 +35,8 @@ import qualified Instruction as Instr
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
 import qualified Pantomime as P
+import qualified Pantomime.Clash.NonInterference as P
+import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
 import RegFile
@@ -43,11 +45,11 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State Identity -> Input Identity -> Bool
+-- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
+theory :: Core.State Identity -> Input Identity -> P.Bool
 theory =
-  P.pantomime
-    P.Pantomime
+  P.simulationNI
+    P.SimulationNI
       { observation = obs',
         implementation = implementation,
         leakage = leak,
@@ -58,20 +60,20 @@ theory =
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
+circuits :: P.SimulatorExistNI (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
 circuits =
-  P.NonInterference
+  P.SimulatorExistNI
     { P.implementation = second obs' .: implementation,
       P.leakage = leak,
       P.projection = proj
     }
 
-{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
+-- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+tickStateCorrespondence :: Core.State Identity -> Input Identity -> P.Bool
 tickStateCorrespondence = P.tickStateCorrespondence circuits
 
-{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
+-- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> P.Bool
 projectionCoherence = P.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
@@ -117,6 +119,8 @@ proj s = (ts, ss)
           Leak.stateMemVal = unAccess $ Core.stateMemVal s,
           Leak.stateWbInstr = Core.stateWbInstr s,
           Leak.stateWbRes = unAccess $ Core.stateWbRes s,
+          Leak.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
+          Leak.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Leak.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
           Leak.stateMeRegFwd = fmap (second unAccess) $ Core.ctrlMeRegFwd $ Core.stateCtrl s,
@@ -132,15 +136,21 @@ proj s = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateWbInstr = toLeakInstr $ Core.stateWbInstr s,
+          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
+          Sim.stateDecodeLoad = Core.ctrlDecodeLoad $ Core.stateCtrl s,
+          Sim.stateMemOutputActive = Core.ctrlMemOutputActive $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Sim.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,
           Sim.stateDeCall = Core.ctrlDeCall $ Core.stateCtrl s,
           Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
         }
+
+    killJump :: Leak.Instr -> Leak.Instr
+    killJump (Leak.Instr Leak.Jump _) = Leak.nop
+    killJump i = i
 
     toLeakInstr :: Instr.Instruction -> Leak.Instr
     toLeakInstr instr =

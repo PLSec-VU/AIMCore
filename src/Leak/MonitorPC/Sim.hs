@@ -1,7 +1,7 @@
 module Leak.MonitorPC.Sim where
 
-import Types
 import Leak.MonitorPC.MonitorLeak as Leak
+import Types
 
 data State = State
   { stateFePc :: Address,
@@ -9,7 +9,9 @@ data State = State
     stateExPc :: Address,
     stateExInstr :: Leak.Instr,
     stateMemInstr :: Leak.Instr,
+    stateMemRes :: Types.Word,
     stateWbInstr :: Leak.Instr,
+    stateWbRes :: Types.Word,
     stateJumpAddr :: Maybe Address,
     stateStallFetch :: Bool,
     stateStallDecode :: Bool,
