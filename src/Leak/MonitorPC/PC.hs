@@ -2,6 +2,9 @@
 
 module Leak.MonitorPC.PC
   ( obs,
+    proj,
+    leak,
+    Sim.State,
     -- comment them out to disable Pantomime checks for faster compilation
     -- tickStateCorrespondence,
     -- projectionCoherence,
@@ -13,39 +16,13 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Core (Input (..), MemAccess (..), Output (..))
 import qualified Core
-import Data.Bifunctor (second)
-import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
 import qualified Leak.MonitorPC.MonitorLeak as Leak
 import qualified Leak.MonitorPC.Sim as Sim
-import qualified Pantomime as P
-import qualified Pantomime.Clash.NonInterference as P
-import qualified Pantomime.BuiltIn as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
-
-implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
-implementation = Core.circuit
-
-circuits :: P.SimulatorExistNI (Core.State Identity) ((), Core.State Identity) Sim.State (Input Identity) (Leak.Instr, Maybe Address) (Maybe Address)
-circuits =
-  P.SimulatorExistNI
-    { P.implementation = second obs' .: implementation,
-      P.leakage = Leak.leakCircuit Leak.monitorPC,
-      P.projection = proj
-    }
-
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State Identity -> Input Identity -> P.Bool
-tickStateCorrespondence = P.tickStateCorrespondence circuits
-
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> P.Bool
-projectionCoherence = P.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
@@ -58,6 +35,9 @@ obs' o_sim = do
   mem <- getFirst $ outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
+
+leak :: ((), Core.State Identity) -> Input Identity -> (((), Core.State Identity), (Leak.Instr, Maybe Address))
+leak = Leak.leakCircuit Leak.monitorPC
 
 proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
 proj s = (ts, ss)

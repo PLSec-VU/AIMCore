@@ -126,6 +126,10 @@ decode = do
   when (instrBase ir' == Leak.Nop Instr.SecurityViolation) $
     modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
 
+  mOutDecodeLoad <- getFirst . Leak.outDecodeLoad <$> ask
+  when (isJust mOutDecodeLoad) $
+    modify $ \s -> s { stateDecodeLoad = True }
+
   when load_hazard_current_cycle $ do
     pc <- gets stateDePc
     modify $ \s -> s {stateDeLoadHazard = Just pc}
@@ -157,8 +161,12 @@ execute = do
   modify $ \s ->
     s
       { stateJumpAddr = mjmpAddr,
-        stateMemInstr = instr
+        stateMemInstr = killJump instr
       }
+
+  mOutMemOutputActive <- getFirst . Leak.outMemOutputActive <$> ask
+  when (isJust mOutMemOutputActive) $
+    modify $ \s -> s { stateMemOutputActive = True }
 
   case Leak.instrBase instr of
     Leak.Jump ->
@@ -168,17 +176,23 @@ execute = do
       when (isNothing mBranchTaken) $
         modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
     _ -> pure ()
+  where
+    dummy = ()
 
 memory :: SimM ()
 memory = do
   instr <- gets stateMemInstr
-  modify $ \s -> s {stateWbInstr = instr}
+  modify $ \s -> s {stateWbInstr = killJump instr}
   
   mMeMemInstr <- getFirst . Leak.outMeMemInstr <$> ask
   case mMeMemInstr of
     Just True -> modify (\s -> s {stateMeMemInstr = True}) >> outputNothing
     Just False -> modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
     Nothing -> pure ()
+
+killJump :: Leak.Instr -> Leak.Instr
+killJump (Leak.Instr Leak.Jump _) = Leak.nop
+killJump i = i
 
 writeback :: SimM ()
 writeback = do

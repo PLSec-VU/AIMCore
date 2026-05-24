@@ -28,56 +28,21 @@ import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
 import Data.Bifunctor (second)
-import Data.Composition
 import Data.Functor.Identity
 import Data.Monoid
 import qualified Instruction as Instr
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
-import qualified Pantomime as P
-import qualified Pantomime.Clash.NonInterference as P
-import qualified Pantomime.BuiltIn as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
-import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State Identity -> Input Identity -> P.Bool
-theory =
-  P.simulationNI
-    P.SimulationNI
-      { observation = obs',
-        implementation = implementation,
-        leakage = leak,
-        simulator = sim,
-        projection = proj
-      }
+stateless :: (a -> b) -> () -> a -> ((), b)
+stateless f _ x = ((), f x)
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
-
-circuits :: P.SimulatorExistNI (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
-circuits =
-  P.SimulatorExistNI
-    { P.implementation = second obs' .: implementation,
-      P.leakage = leak,
-      P.projection = proj
-    }
-
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State Identity -> Input Identity -> P.Bool
-tickStateCorrespondence = P.tickStateCorrespondence circuits
-
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> P.Bool
-projectionCoherence = P.projectionCoherence circuits
-
-stateless :: (a -> b) -> () -> a -> ((), b)
-stateless f _ x = ((), f x)
 
 obs :: () -> Output Identity -> ((), Maybe Address)
 obs = stateless obs'
@@ -209,9 +174,8 @@ runSimulator ::
   a
 runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
-    s = ((Core.init, mempty), Simulate.Mem (mkRAM prog))
-    mkRAM :: Vec PROG_SIZE Word -> Vec MEM_SIZE_BYTES Byte
-    mkRAM prog = Util.mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
+    s = ((Core.init, mempty), Simulate.Mem (mkRAM' prog))
+    mkRAM' p = Util.mkRAM @PROG_SIZE @RAM_SIZE_BYTES p
 
 watchSim ::
   Vec PROG_SIZE Word ->

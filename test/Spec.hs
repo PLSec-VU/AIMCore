@@ -15,6 +15,7 @@ import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import InstructionSpec (instructionTests)
+import qualified Leak.MonitorPC.PC as Leak.MonitorPC
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.SecretPC.PC as Leak.SecretPC
 import RegFile
@@ -100,22 +101,18 @@ tests =
             "PC leak"
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1
-              -- compilation errors im too lazy to fix
-              -- mkPCLeakTest "sumTo 10"
-              --   $ mkProg
-              --   $ sumTo
-              --     10
-              --     testProperty
-              --     "LeakPC Simulator"
-              --   $ withMaxSuccess 500000
-              --   $ simulatorTheorem Leak.PC.proj Leak.PC.leak Leak.PC.sim Core.circuit Leak.PC.obs,
-              -- testProperty "Non-interference" $
-              --   withMaxSuccess 500000 $
-              --     nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs,
-              -- testProperty "SecretPC Non-interference" $
-              --   withMaxSuccess 5000000 $
-              --     nonInterferenceTheorem SecretPC.proj SecretPC.leak SecretPC.implementation SecretPC.obs
+              mkPCLeakTest "test 3" $ mkProg prog1,
+              testProperty "PC Simulator" $
+                withMaxSuccess 500000 $
+                  simulatorTheorem
+                    Leak.PC.proj
+                    Leak.PC.leak
+                    Leak.PC.sim
+                    Core.circuit
+                    Leak.PC.obs,
+              testProperty "Non-interference" $
+                withMaxSuccess 500000 $
+                  nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
             ],
           testGroup
             "SecretPC leak"
@@ -131,7 +128,14 @@ tests =
                     Leak.SecretPC.leak
                     Leak.SecretPC.sim
                     Core.circuit
-                    Leak.SecretPC.obs
+                    Leak.SecretPC.obs,
+              testProperty "MonitorPC Non-interference" $
+                withMaxSuccess 500000 $
+                  nonInterferenceTheorem
+                    Leak.MonitorPC.proj
+                    Leak.MonitorPC.leak
+                    Core.circuit
+                    Leak.MonitorPC.obs
             ]
             -- testGroup
             --  "Pure and clash simulations should agree."

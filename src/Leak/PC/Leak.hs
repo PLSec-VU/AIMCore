@@ -121,16 +121,18 @@ data Out = Out
     outMeMemInstr :: First Bool,
     outHalt :: First Bool,
     outBranchTaken :: First Bool,
-    outJumpAddrValid :: First Bool
+    outJumpAddrValid :: First Bool,
+    outDecodeLoad :: First Bool,
+    outMemOutputActive :: First Bool
   }
   deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
-  Out i1 a1 r1 r2 m1 h1 b1 v1 <> Out i2 a2 r1' r2' m2 h2 b2 v2 =
-    Out (i1 <> i2) (a1 <> a2) (r1 <> r1') (r2 <> r2') (m1 <> m2) (h1 <> h2) (b1 <> b2) (v1 <> v2)
+  Out i1 a1 rs11 rs21 m1 h1 b1 v1 dl1 mo1 <> Out i2 a2 rs12 rs22 m2 h2 b2 v2 dl2 mo2 =
+    Out (i1 <> i2) (a1 <> a2) (rs11 <> rs12) (rs21 <> rs22) (m1 <> m2) (h1 <> h2) (b1 <> b2) (v1 <> v2) (dl1 <> dl2) (mo1 <> mo2)
 
 instance Monoid Out where
-  mempty = Out mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty = Out mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
 setMeMemInstr :: LeakM ()
 setMeMemInstr = do
@@ -171,8 +173,9 @@ decode = do
             Instr.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Instr.Nop Instr.MemoryBusBusy
 
-  when (Instr.isLoad instr || Instr.isCall instr) $
+  when (Instr.isLoad instr || Instr.isCall instr) $ do
     modify $ \s -> s {stateDecodeLoad = True}
+    tell $ mempty { outDecodeLoad = pure True }
 
   exInstr <- gets stateExInstr
   mJumpAddr <- gets stateJumpAddr
@@ -274,20 +277,21 @@ mkInstr instr
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
-  when (Instr.isLoad instr || Instr.isStore instr || Instr.isCall instr) $
+  when (Instr.isLoad instr || Instr.isStore instr || Instr.isCall instr) $ do
     modify $ \s -> s {stateMemOutputActive = True}
+    tell $ mempty { outMemOutputActive = pure True }
 
   let r1M :: LeakM (Identity Word)
       r1M = do
-        instr <- gets stateExInstr
+        ir <- gets stateExInstr
         rf <- gets stateRegFile
-        Identity <$> (regWithFwd Instr.getRs1 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs1 instr) rf))
+        Identity <$> (regWithFwd Instr.getRs1 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs1 ir) rf))
 
       r2M :: LeakM (Identity Word)
       r2M = do
-        instr <- gets stateExInstr
+        ir <- gets stateExInstr
         rf <- gets stateRegFile
-        Identity <$> (regWithFwd Instr.getRs2 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs2 instr) rf))
+        Identity <$> (regWithFwd Instr.getRs2 (unAccess $ lookupRF (fromMaybe 0 $ Instr.getRs2 ir) rf))
 
       regWithFwd :: (Instr.Instruction -> Maybe RegIdx) -> Word -> LeakM Word
       regWithFwd getR def = do
@@ -315,10 +319,12 @@ execute = do
                modify $ \s -> s {stateHalt = SecurityViolation}
     Instr.BType {} ->
       case (fromPublic (interpAddr interp_res), interpBranched interp_res) of
-        (Just (Just addr), Just branched) ->
+        (Just mAddr, Just branched) ->
           case fromPublic branched of
             Just True -> do
-              informJumpAddr addr
+              case mAddr of
+                Just addr -> informJumpAddr addr
+                Nothing -> modify $ \s -> s {stateHalt = SecurityViolation}
               tell $ mempty { outBranchTaken = pure True }
             Just False -> tell $ mempty { outBranchTaken = pure False }
             Nothing -> modify $ \s -> s {stateHalt = SecurityViolation}

@@ -16,7 +16,7 @@ module Leak.SecretPC.PC
   )
 where
 
-import Access (Access(..), PubSec(..), censor)
+import Access (PubSec(..), censor)
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad (guard)
 import Control.Monad.State
@@ -27,10 +27,6 @@ import Data.Composition
 import Data.Monoid (First (..), getFirst)
 import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
-import qualified Pantomime as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.BuiltIn as P
-import qualified Pantomime.Clash as Clash
 import qualified Pantomime.Clash.NonInterference as P
 import RegFile
 import qualified Simulate
@@ -38,19 +34,8 @@ import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
-type SimState = Core.State PubSec
 
--- {-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State PubSec -> Input PubSec -> P.Bool
-theory =
-  P.simulationNI
-    P.SimulationNI
-      { observation = obs',
-        implementation = implementation,
-        leakage = leak,
-        simulator = sim,
-        projection = proj
-      }
+type SimState = Core.State PubSec
 
 implementation :: Core.State PubSec -> Input PubSec -> (Core.State PubSec, Output PubSec)
 implementation = Core.circuit
@@ -62,14 +47,6 @@ circuits =
       P.leakage = leak,
       P.projection = proj
     }
-
--- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State PubSec -> Input PubSec -> P.Bool
-tickStateCorrespondence = P.tickStateCorrespondence circuits
-
--- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> P.Bool
-projectionCoherence = P.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)
@@ -99,7 +76,19 @@ circuit (ts, ss) input = ((ts', ss'), addr)
     (ss', addr) = sim ss o_leak
 
 proj' :: Core.State PubSec -> SimState
-proj' s = s
+proj' s =
+  s
+    { Core.stateMemRes = censor (Core.stateMemRes s),
+      Core.stateMemVal = censor (Core.stateMemVal s),
+      Core.stateWbRes = censor (Core.stateWbRes s),
+      Core.stateRegFile = let RegFile rf = Core.stateRegFile s in RegFile (Clash.Prelude.map censor rf),
+      Core.stateCtrl =
+        let c = Core.stateCtrl s
+         in c
+              { Core.ctrlMeRegFwd = second censor <$> Core.ctrlMeRegFwd c,
+                Core.ctrlWbRegFwd = second censor <$> Core.ctrlWbRegFwd c
+              }
+    }
 
 proj :: Core.State PubSec -> ((), SimState)
 proj s = ((), proj' s)
