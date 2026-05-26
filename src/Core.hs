@@ -255,9 +255,10 @@ fetch :: CPUM f ()
 fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
+  status <- gets stateHalt
 
-  -- Always try to read unless the instruction in the `memory` stage is a load, a store, or a syscall.
-  unless (ctrlMeMemInstr ctrl) $
+  -- Always read unless the instruction in the `memory` stage is a load, a store, or a syscall.
+  when (status == Running && ctrlMeMemInstr ctrl == False) $
     readPC pc
 
   let stall =
@@ -286,31 +287,42 @@ fetch = do
 decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
+  ctrl <- gets stateCtrl
+  status <- gets stateHalt
+
   ir <-
     if (inputIsInstr input)
-      then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
-      else pure $ Nop MemoryBusBusy
-
-  ctrl <- gets stateCtrl
+      then noSecrets' (inputMem input) (Instruction.Nop Instruction.Halted) (pure . decode')
+      else pure $ Instruction.Nop Instruction.MemoryBusBusy
 
   let branch_first_cycle = maybe False isNopBranchFirstCycle (ctrlExInstr ctrl)
   let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
   let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
+  let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
 
-  let ir'
+  let ir' =
         -- If a branch was taken in this cycle, we stall.
-        | isJust (ctrlExAddress ctrl) = Nop BranchFirstCycle
+        if isJust (ctrlExAddress ctrl) then Nop BranchFirstCycle
         -- If a branch was taken in the previous cycle, we stall.
-        | branch_first_cycle = Nop BranchSecondCycle
+        else if branch_first_cycle then Nop BranchSecondCycle
         -- If there is a load hazard with the instruction executed in this cycle, we stall.
-        | load_hazard_current_cycle = Nop LoadHazardFirstCycle
+        else if load_hazard_current_cycle then Nop LoadHazardFirstCycle
         -- If there was a load hazard in the previous cycle, we stall.
-        | load_hazard_first_cycle = Nop LoadHazardSecondCycle
+        else if load_hazard_first_cycle then Nop LoadHazardSecondCycle
         -- If a syscall is executed in this cycle, we stall.
-        | call_current_cycle = Nop SyscallFirstCycle
+        else if call_current_cycle then Nop SyscallFirstCycle
+        -- If we are halting in the current cycle, we stall.
+        else if break_current_cycle then Nop Halted
+        -- If the core is not running anymore, we stall.
+        else if status /= Running then Nop Halted
         -- Otherwise we process the decoded instruction.
-        | otherwise = ir
+        else ir
+
+  modify $ \s ->
+    s { stateExInstr = ir',
+        stateExPc = stateDePc s
+      }
 
   when load_hazard_current_cycle $ do
     pc <- gets stateDePc
@@ -321,12 +333,6 @@ decode = do
   when (isCall ir') $
     setLines $
       \c -> c {ctrlDeCall = True}
-
-  modify $ \s ->
-    s
-      { stateExInstr = ir',
-        stateExPc = stateDePc s
-      }
 
 -- | Execute stage.
 execute :: forall f. (Access f) => CPUM f ()
@@ -399,7 +405,9 @@ in s { stateMeAluRes = res }  where
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
         Instruction.IType (Env Call) _ _ _ -> empty
-        Instruction.IType (Env Break) _ _ _ -> empty
+        Instruction.IType (Env Break) _ _ _ -> do
+          halt
+          empty
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
@@ -496,21 +504,24 @@ memory = do
     Instruction.IType (Env Call) _ _ _ -> do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readSyscall
+    Instruction.IType (Env Break) _ _ _ -> do
+      halted
+    Instruction.Nop Instruction.Halted -> do
+      halted
     _ -> pure ()
 
 -- | Commit computations to the register file.
 writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
+  input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbAluRes
-  input <- asks inputMem
 
   haltState <- gets stateHalt
 
   when (haltState /= Running) $ do
-    tell $
-      mempty {outHalt = pure True}
-    readRAM 0 Types.Word
+    halted
+    readRAM 0 Word
 
   when (isBreak ir) $ do
     -- Flush the pipeline
@@ -518,7 +529,7 @@ writeback = do
       s { stateMeInstr = nop,
           stateExInstr = nop
         }
-    readRAM 0 Types.Word
+    readRAM 0 Word
     halt
 
   case ir of
@@ -544,7 +555,7 @@ writeback = do
     Instruction.IType (Env Call) _ _ _ -> do
       let val = input
       let rd = 10 -- a0
-      setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
+      setLines $ \c -> c { ctrlWbRegFwd = Just (rd, val) }
       writeRF rd val
     _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Nothing}
@@ -599,4 +610,18 @@ writeRAM addr size val =
 readSyscall :: (MonadWriter (Output f) m) => m ()
 readSyscall =
   tell $
-    (mempty :: Output f) {outSyscall = pure True}
+    (mempty :: Output f) { outSyscall = pure True }
+
+halted :: (MonadWriter (Output f) m) => m ()
+halted =
+  tell $
+    (mempty :: Output f) { outHalt = pure True }
+
+setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
+setLines f = modify $ \s -> s { stateCtrl = f $ stateCtrl s }
+
+-- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
+-- private, die.
+noSecrets' :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
+noSecrets' w a m = noSecrets w (setSecurityViolation >> pure a) m
+>>>>>>> 56d6bd8 (Update Core.hs)
