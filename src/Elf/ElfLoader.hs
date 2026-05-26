@@ -6,6 +6,7 @@ module Elf.ElfLoader
   , Instrument
   , runElf
   , readStringFromMemory
+  , getElfSegments
   ) where
 
 import Access
@@ -17,19 +18,43 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import qualified Core
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString as BS
 import Data.Char (chr)
 import Data.Elf
 import Data.Elf.Constants
 import Data.Elf.Headers
 import Data.Functor.Identity
 import Data.Int
-import Data.Monoid (First (getFirst))
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Monoid (First (getFirst), Last (Last, getLast))
 import Data.Word
 import Numeric (showHex)
 import Types
 import Util
+import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (&&), (++), (||))
+import qualified Prelude as P
 
 type LoadFunc m = Address -> BSL.ByteString -> m ()
+
+-- | Extract all loadable sections from an ELF into a list of (Address, ByteString)
+getElfSegments :: Elf -> [(Address, BS.ByteString)]
+getElfSegments (Elf classS elfs) = withSingElfClassI classS $
+  let loadable = loadableSegments elfs
+  in P.concatMap extractSegmentSections loadable
+  where
+    extractSegmentSections :: (SingElfClassI a) => ElfXX 'Segment a -> [(Address, BS.ByteString)]
+    extractSegmentSections ElfSegment {..} = 
+      let sections = gatherSections epData
+          -- We ignore epAddMemSize here to avoid massive allocations; 
+          -- BSS should be handled by the memory model (zero-initialized).
+      in sections
+
+    gatherSections :: (SingElfClassI a) => ElfListXX a -> [(Address, BS.ByteString)]
+    gatherSections ElfListNull = []
+    gatherSections (ElfListCons (ElfSection {esData = ElfSectionData d, ..}) xs) =
+      (fromIntegral esAddr, BSL.toStrict d) : gatherSections xs
+    gatherSections (ElfListCons _ xs) = gatherSections xs
 
 loadableSegments :: ElfListXX a -> [ElfXX 'Segment a]
 loadableSegments (ElfListCons v@(ElfSegment {..}) l) =
@@ -84,7 +109,7 @@ readStringFromMemory addr count = do
           pure $ fromIntegral (byte .&. 0xFF)
       )
       [0 .. count - 1]
-  pure $ map chr $ takeWhile (/= 0) bytes
+  pure $ P.map chr $ takeWhile (/= 0) bytes
 
 -- | Called on each step of the ELF execution, returning whether to continue execution and optional syscall return.
 type Instrument f m = Core.Input f -> Core.State f -> Core.Output f -> Int -> m (Bool, Maybe (f Types.Word))

@@ -104,6 +104,7 @@ library:
     - Pretty
     - RegFile
     - Simulate
+    - STSimulate
     - Types
     - Util
 

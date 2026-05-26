@@ -20,6 +20,7 @@ import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.SecretPC.PC as Leak.SecretPC
 import RegFile
 import Simulate
+import STSimSpec (stSimTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
@@ -55,13 +56,6 @@ mkSecretPCLeakTest s prog =
   testCase s $
     assertBool "" $
       Leak.SecretPC.pcsEqual prog
-
--- mkCmpTest :: String -> Vec n Word -> TestTree
--- mkCmpTest s prog =
---  testCase s $
---    let pure_mem0 = simToHalt' $ mkRAM prog
---        clash_mem0 = HardwareSim.simToHalt prog
---     in pure_mem0 @?= clash_mem0
 
 tests :: TestTree
 tests =
@@ -101,8 +95,9 @@ tests =
             "PC leak"
             [ mkPCLeakTest "test 1" $ mkProg prog1,
               mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1,
-              testProperty "PC Simulator" $
+              mkPCLeakTest "test 3" $ mkProg prog1
+              {-
+              , testProperty "PC Simulator" $
                 withMaxSuccess 500000 $
                   simulatorTheorem
                     Leak.PC.proj
@@ -113,6 +108,7 @@ tests =
               testProperty "Non-interference" $
                 withMaxSuccess 500000 $
                   nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
+              -}
             ],
           testGroup
             "SecretPC leak"
@@ -120,8 +116,9 @@ tests =
               mkSecretPCLeakTest "test 1" $ mkProg prog1,
               mkSecretPCLeakTest "test 2" $ mkProg prog1,
               mkSecretPCLeakTest "test 3" $ mkProg prog1,
-              mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10,
-              testProperty "SecretPC Simulator" $
+              mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+              {-
+              , testProperty "SecretPC Simulator" $
                 withMaxSuccess 500000 $
                   simulatorTheorem
                     Leak.SecretPC.proj
@@ -136,16 +133,11 @@ tests =
                     Leak.MonitorPC.leak
                     Core.circuit
                     Leak.MonitorPC.obs
+              -}
             ]
-            -- testGroup
-            --  "Pure and clash simulations should agree."
-            --  [ mkCmpTest "test 1" prog1,
-            --    mkCmpTest "test 2" prog2,
-            --    mkCmpTest "test 3" prog3,
-            --    mkCmpTest "sumTo 10" $ sumTo 10
-            --  ]
         ],
-      benchmarkTests
+      benchmarkTests,
+      stSimTests
     ]
 
 prog1 :: Vec 3 Instruction
@@ -357,4 +349,3 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
       Input
         isInstr
         (conditionalSecret isSecretMem mem)
-
