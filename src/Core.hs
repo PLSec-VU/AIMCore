@@ -294,7 +294,7 @@ decode = do
   input <- ask
   ir <-
     if (inputIsInstr input)
-      then noSecrets' (inputMem input) (Nop Instruction.SecurityViolation) (pure . decode')
+      then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
   ctrl <- gets stateCtrl
