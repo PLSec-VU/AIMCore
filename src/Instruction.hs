@@ -121,8 +121,8 @@ data Reason4Stall
     FirstCycle
   | -- | Failed to decode an instruction.
     DecodeFail
-  | -- | Security violation.
-    SecurityViolation
+  | -- | PC has halted.
+    Halted
   deriving (Eq, Show, Generic, NFDataX, Binary)
 
 -- | Decoded instructions
