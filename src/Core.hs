@@ -127,7 +127,7 @@ data State f = State
     -- | Instruction register writeback stage
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
-    stateWbStoreRes :: f Word,
+    stateWbAluRes :: f Word,
     -- | Register file
     stateRegFile :: RegFile f,
     -- | Control/forwarding lines.
@@ -214,7 +214,7 @@ init =
       stateMeAluRes = pure 0,
       stateMeStoreRes = pure 0,
       stateWbInstr = Nop FirstCycle,
-      stateWbStoreRes = pure 0,
+      stateWbAluRes = pure 0,
       stateRegFile = initRF,
       stateCtrl = initCtrl,
       stateHalt = Running
@@ -467,7 +467,7 @@ memory = do
   val <- gets stateMeStoreRes
 
   modify $ \s ->
-    s { stateWbInstr = ir, stateWbStoreRes = res }
+    s { stateWbInstr = ir, stateWbAluRes = res }
 
   -- Default register forwarding.
   setLines $ \c -> c {ctrlMeRegFwd = Nothing}
@@ -502,7 +502,7 @@ memory = do
 writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
   ir <- gets stateWbInstr
-  res <- gets stateWbStoreRes
+  res <- gets stateWbAluRes
   input <- asks inputMem
 
   haltState <- gets stateHalt
