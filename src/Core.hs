@@ -588,7 +588,7 @@ readRAM addr size =
             MemAccess
               { memIsInstr = False,
                 memAddress = addr,
-                memSize = size,
+                memSize = Types.Word,
                 memVal = Nothing
               }
       }
