@@ -255,10 +255,9 @@ fetch :: CPUM f ()
 fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
-  status <- gets stateHalt
 
   -- Always read unless the instruction in the `memory` stage is a load, a store, or a syscall.
-  when (status == Running && ctrlMeMemInstr ctrl == False) $
+  unless (ctrlMeMemInstr ctrl) $
     readPC pc
 
   let stall =
