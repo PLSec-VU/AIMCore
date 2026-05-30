@@ -26,8 +26,6 @@ data State = State
     stateMemInstr :: Leak.Instr,
     stateWbInstr :: Leak.Instr,
     stateJumpAddr :: Maybe Address,
-    stateDecodeLoad :: Bool,
-    stateMemOutputActive :: Bool,
     stateMeMemInstr :: Bool,
     stateHalt :: AimCore.HaltState,
     stateDeLoadHazard :: Maybe Address,
@@ -47,8 +45,6 @@ init =
       stateWbInstr = Leak.nop,
       stateHalt = AimCore.Running,
       stateMeMemInstr = False,
-      stateDecodeLoad = False,
-      stateMemOutputActive = False,
       stateJumpAddr = Nothing,
       stateDeLoadHazard = Nothing,
       stateDeCall = False,
@@ -126,10 +122,6 @@ decode = do
   when (instrBase ir' == Leak.Nop Instr.SecurityViolation) $
     modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
 
-  mOutDecodeLoad <- getFirst . Leak.outDecodeLoad <$> ask
-  when (isJust mOutDecodeLoad) $
-    modify $ \s -> s { stateDecodeLoad = True }
-
   when load_hazard_current_cycle $ do
     pc <- gets stateDePc
     modify $ \s -> s {stateDeLoadHazard = Just pc}
@@ -163,10 +155,6 @@ execute = do
       { stateJumpAddr = mjmpAddr,
         stateMemInstr = killJump instr
       }
-
-  mOutMemOutputActive <- getFirst . Leak.outMemOutputActive <$> ask
-  when (isJust mOutMemOutputActive) $
-    modify $ \s -> s { stateMemOutputActive = True }
 
   case Leak.instrBase instr of
     Leak.Jump ->
@@ -230,9 +218,7 @@ pipe = withCtrlReset $ do
             stateJumpAddr = Nothing,
             stateDeLoadHazard = Nothing,
             stateDeCall = False,
-            stateMeMemInstr = False,
-            stateDecodeLoad = False,
-            stateMemOutputActive = False
+            stateMeMemInstr = False
           }
       void m
       modify $ \s -> s {stateFirstCycle = False}

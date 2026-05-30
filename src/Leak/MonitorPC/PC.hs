@@ -69,10 +69,10 @@ proj s = (ts, ss)
     toStallFetch ctrl =
       Core.ctrlDeCall ctrl
         || Core.ctrlMeMemInstr ctrl
-        || isJust (Core.ctrlExBranch ctrl)
+        || isJust (Core.ctrlExAddress ctrl)
 
     toStallDecode :: Core.Control Identity -> Bool
     toStallDecode ctrl =
       Core.ctrlFirstCycle ctrl
         || isJust (Core.ctrlDeLoadHazard ctrl)
-        || isJust (Core.ctrlExBranch ctrl)
+        || isJust (Core.ctrlExAddress ctrl)

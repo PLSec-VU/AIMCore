@@ -76,8 +76,6 @@ data State = State
     stateWbInstr :: Instr.Instruction,
     stateWbRes :: Word,
     stateRegFile :: RegFile Identity,
-    stateDecodeLoad :: Bool,
-    stateMemOutputActive :: Bool,
     stateMeMemInstr :: Bool,
     stateHalt :: HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
@@ -102,8 +100,6 @@ init =
       stateWbInstr = Instr.Nop Instr.FirstCycle,
       stateWbRes = 0,
       stateRegFile = initRF,
-      stateDecodeLoad = False,
-      stateMemOutputActive = False,
       stateMeMemInstr = False,
       stateHalt = Running,
       stateMeRegFwd = Nothing,
@@ -122,18 +118,16 @@ data Out = Out
     outMeMemInstr :: First Bool,
     outHalt :: First Bool,
     outBranchTaken :: First Bool,
-    outJumpAddrValid :: First Bool,
-    outDecodeLoad :: First Bool,
-    outMemOutputActive :: First Bool
+    outJumpAddrValid :: First Bool
   }
   deriving (Show, Eq, Generic)
 
 instance Semigroup Out where
-  Out i1 a1 rs11 rs21 m1 h1 b1 v1 dl1 mo1 <> Out i2 a2 rs12 rs22 m2 h2 b2 v2 dl2 mo2 =
-    Out (i1 <> i2) (a1 <> a2) (rs11 <> rs12) (rs21 <> rs22) (m1 <> m2) (h1 <> h2) (b1 <> b2) (v1 <> v2) (dl1 <> dl2) (mo1 <> mo2)
+  Out i1 a1 rs11 rs21 m1 h1 b1 v1 <> Out i2 a2 rs12 rs22 m2 h2 b2 v2 =
+    Out (i1 <> i2) (a1 <> a2) (rs11 <> rs12) (rs21 <> rs22) (m1 <> m2) (h1 <> h2) (b1 <> b2) (v1 <> v2)
 
 instance Monoid Out where
-  mempty = Out mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+  mempty = Out mempty mempty mempty mempty mempty mempty mempty mempty
 
 setMeMemInstr :: LeakM ()
 setMeMemInstr = do
@@ -174,9 +168,8 @@ decode = do
             Instr.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Instr.Nop Instr.MemoryBusBusy
 
-  when (Instr.isLoad instr || Instr.isCall instr) $ do
-    modify $ \s -> s {stateDecodeLoad = True}
-    tell $ mempty { outDecodeLoad = pure True }
+  when (Instr.isCall instr) $ do
+    modify $ \s -> s {stateDeCall = True}
 
   exInstr <- gets stateExInstr
   mJumpAddr <- gets stateJumpAddr
@@ -278,9 +271,6 @@ mkInstr instr
 execute :: LeakM ()
 execute = do
   instr <- gets stateExInstr
-  when (Instr.isLoad instr || Instr.isStore instr || Instr.isCall instr) $ do
-    modify $ \s -> s {stateMemOutputActive = True}
-    tell $ mempty { outMemOutputActive = pure True }
 
   let r1M :: LeakM (Identity Word)
       r1M = do
@@ -470,9 +460,7 @@ pipe = withCtrlReset $ do
             stateDeCall = False,
             stateMeMemInstr = False,
             stateMeRegFwd = Nothing,
-            stateWbRegFwd = Nothing,
-            stateDecodeLoad = False,
-            stateMemOutputActive = False
+            stateWbRegFwd = Nothing
           }
       void m
       modify $ \s -> s {stateFirstCycle = False}
