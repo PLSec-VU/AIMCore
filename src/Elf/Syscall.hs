@@ -4,6 +4,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (||))
 import Access
 import Util
+import Memory.Types
 import Elf.ElfLoader
 import Data.Functor.Identity
 import Data.Int (Int32)

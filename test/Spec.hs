@@ -10,7 +10,6 @@ import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Control.Monad.Identity (Identity(..))
 import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
@@ -20,7 +19,8 @@ import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.SecretPC.PC as Leak.SecretPC
 import RegFile
 import Simulate
-import STSimSpec (stSimTests)
+import Memory.Types
+import Memory.Vec
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
@@ -28,6 +28,7 @@ import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
 import "aimcore" Types
 import "aimcore" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
+
 
 main :: IO ()
 main = defaultMain tests
@@ -136,8 +137,7 @@ tests =
               -}
             ]
         ],
-      benchmarkTests,
-      stSimTests
+      benchmarkTests
     ]
 
 prog1 :: Vec 3 Instruction

@@ -34,6 +34,8 @@ import qualified Instruction as Instr
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
 import qualified Simulate
+import Memory.Types
+import Memory.Vec ()
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
@@ -175,7 +177,7 @@ runSimulator ::
 runSimulator f prog = evalState (f Leak.PC.PC.simulator) s
   where
     s = ((Core.init, mempty), Simulate.Mem (mkRAM' prog))
-    mkRAM' p = Util.mkRAM @PROG_SIZE @RAM_SIZE_BYTES p
+    mkRAM' p = Memory.Types.mkRAM @PROG_SIZE @RAM_SIZE_BYTES p
 
 watchSim ::
   Vec PROG_SIZE Word ->

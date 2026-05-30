@@ -17,7 +17,7 @@ module Core
     execute, 
     memory,
     writeback,
-    CPUM (..),
+    CPUM,
     MemAccess (..),
     Control (..),
     alu,
@@ -37,7 +37,7 @@ import Instruction hiding (decode)
 import RegFile
 import Types
 import qualified Types
-import Util
+import Memory.Types
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 topEntity ::

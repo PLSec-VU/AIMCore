@@ -30,6 +30,8 @@ import qualified Leak.SecretPC.Leak as Leak
 import qualified Pantomime.Clash.NonInterference as P
 import RegFile
 import qualified Simulate
+import Memory.Types
+import Memory.Vec ()
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))

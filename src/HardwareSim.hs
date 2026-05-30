@@ -14,8 +14,7 @@ import qualified GHC.TypeNats
 import Instruction hiding (decode)
 import RegFile
 import Types
-import Util (PROG_SIZE, MemSizeFrom, RAM_SIZE)
-import qualified Util
+import Memory.Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
 
 topEntity ::
@@ -34,7 +33,7 @@ system prog = cpuOut
     cpuInput :: Signal dom (Input Identity)
     cpuInput = register initInput input
     cpuOut = cpu @Identity cpuInput
-    ram = mkRAM @Identity @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
+    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
     input =
       ( \o mread ->
           Input
@@ -67,7 +66,7 @@ mkRAM prog memAccessM =
     extractByte _ _ = error "Invalid byte index"
 
     vecRam :: Vec (((GHC.TypeNats.*) (progSize + ramSize) 4)) Byte
-    vecRam = Util.mkRAM @progSize @((GHC.TypeNats.*) ramSize 4) prog
+    vecRam = Memory.Types.mkRAM @progSize @((GHC.TypeNats.*) ramSize 4) prog
 
     every4th ::
       forall n offset a.
@@ -95,7 +94,7 @@ mkRAM prog memAccessM =
 
 prog3 :: Vec PROG_SIZE Word
 prog3 =
-  Util.mkProg $
+  Memory.Types.mkProg $
     ( -- r2 := r0 + 3
       IType (Arith ADD) 2 0 3
         :>

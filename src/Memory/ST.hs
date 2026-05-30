@@ -1,33 +1,36 @@
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE UndecidableInstances #-}
 
-module STSimulate
+module Memory.ST
   ( STMemory (..),
+    STMemoryT (..),
+    runSTMemoryT,
     runSTSim,
-    stSimulator,
     newSTMemory,
-    loadSTMemory,
+    loadSTProgram,
     readProgramWord,
     runUntilHalt,
   )
 where
 
-import Access (unAccess, Access)
+import Access (Access)
 import Clash.Prelude hiding (Ordering (..), Word, init, lift)
-import Control.Monad (forM_, when)
-import Control.Monad.ST (ST)
+import Control.Monad (when)
+import Control.Monad.Reader
+import Control.Monad.ST (RealWorld, ST, stToIO)
+import Core
 import Data.Array.ST (STUArray, newArray, readArray, writeArray)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Core
+import Data.Word (Word8)
+import Memory.Types
 import Types
-import Util
-import Data.Monoid (First (getFirst))
+import Util (CircuitSim (..), run1)
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 import qualified Prelude as P
-import Data.Word (Word8)
 
 -- | Separated memory state in ST.
 data STMemory s = STMemory
@@ -41,27 +44,32 @@ data STMemory s = STMemory
     stEntry :: Address
   }
 
--- | Implementation of tagged memory read/write logic for the simulator's 'next' function.
-nextST :: forall f s. (Access f) => STMemory s -> Output f -> ST s (Maybe (Input f))
-nextST st (Output mem syscall hlt)
-  | getFirst hlt == Just True = pure Nothing
-  | getFirst syscall == Just True = pure Nothing -- Halt on syscall for simplicity in this model
-  | otherwise = case getFirst mem of
-      Nothing -> pure $ Just $ initInput
-      -- W^X: Instruction reads directly from the program's static data.
-      Just (MemAccess True addr size mval) -> do
-        let word = readProgramWord addr (stProgram st)
-        pure $ Just $ Input True (pure word)
-      -- Data accesses (reads and writes) go to the data array.
-      Just (MemAccess False addr size mval) -> do
+-- | STMemory monad transformer.
+newtype STMemoryT s m a = STMemoryT {unSTMemoryT :: ReaderT (STMemory s) m a}
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader (STMemory s), MonadTrans)
+
+runSTMemoryT :: STMemory s -> STMemoryT s m a -> m a
+runSTMemoryT mem (STMemoryT m) = runReaderT m mem
+
+instance {-# OVERLAPPING #-} (MonadIO m) => MonadMemory (STMemoryT RealWorld m) where
+  ramRead isInstr addr size = do
+    st <- ask
+    if isInstr
+      then pure $ readProgramWord addr (stProgram st)
+      else do
         let offset = addr - stDataBase st
-        case mval of
-          Nothing -> do
-            val <- readDataArray offset size (stData st)
-            pure $ Just $ Input False (pure val)
-          Just val -> do
-            writeDataArray offset size (unAccess val) (stData st)
-            pure $ Just $ Input False (pure 0)
+        if offset < 0x1000000 && offset >= 0
+          then liftIO $ stToIO $ readDataArray offset size (stData st)
+          else pure 0
+  ramWrite addr size w = do
+    st <- ask
+    let offset = addr - stDataBase st
+    when (offset < 0x1000000 && offset >= 0) $
+      liftIO $
+        stToIO $
+          writeDataArray offset size w (stData st)
+  markMemoryRegion _ _ _ = pure ()
+  isMemorySecret _ = pure False
 
 -- | Read a 32-bit word from the program segments.
 readProgramWord :: Address -> Map Address ByteString -> Word
@@ -110,38 +118,17 @@ writeDataArray addr size w arr = case size of
     writeArray arr (addr + 2) (bitCoerce $ slice d23 d16 w)
     writeArray arr (addr + 3) (bitCoerce $ slice d31 d24 w)
 
--- | Initialize the simulator with ST memory.
-stSimulator :: forall f s. (Access f) => STMemory s -> CircuitSim (ST s) (Input f) (Core.State f) (Output f)
-stSimulator st =
-  CircuitSim
-    { circuitInput = initInput,
-      circuitState = init { stateFePc = stEntry st },
-      circuitStep = \i s -> pure $ circuit s i,
-      circuitNext = nextST st
-    }
+-- | Load segments into the STMemory program map (for W^X).
+loadSTProgram :: forall s. STMemory s -> [(Address, ByteString)] -> ST s (STMemory s)
+loadSTProgram st segments = pure $ st { stProgram = Map.fromList segments }
 
 -- | Create a new STMemory.
-newSTMemory :: forall s. Address -> Address -> [(Address, ByteString)] -> ST s (STMemory s)
-newSTMemory entry base segments = do
+newSTMemory :: forall s. Address -> Address -> ST s (STMemory s)
+newSTMemory entry base = do
   -- Use a smaller 16MB array to start with, as RISC-V tests are small.
   let dataSize = 0x1000000
   arr <- newArray (0, dataSize) 0
-  let progMap = Map.fromList segments
-  let stMem = STMemory progMap arr base entry
-  loadSTMemory stMem segments
-  pure stMem
-
--- | Load segments into the STMemory.
-loadSTMemory :: forall s. STMemory s -> [(Address, ByteString)] -> ST s ()
-loadSTMemory st segments = do
-  forM_ segments $ \(addr, bs) -> do
-    let offset = addr - stDataBase st
-    -- Check if within bounds before loading
-    when (offset < 0x1000000) $ do
-      let len = fromIntegral (BS.length bs)
-      let count = min len (0x1000000 - offset)
-      forM_ (P.zip [0..count-1] (BS.unpack (BS.take (fromIntegral count) bs))) $ \(i, byte) ->
-        writeArray (stData st) (offset + i) (fromIntegral byte)
+  pure $ STMemory Map.empty arr base entry
 
 -- | Run a simulation in the ST monad.
 runSTSim :: forall i s o a. (forall st. CircuitSim (ST st) i s o -> ST st a) -> CircuitSim (ST s) i s o -> ST s a
@@ -149,12 +136,12 @@ runSTSim f sim = f sim
 
 -- | Utility to run a full simulation until halt.
 --   Uses deepseqX to ensure the state is fully evaluated and prevent thunk leaks.
-runUntilHalt :: forall f s. (Access f, NFDataX (f Word), Generic (f Word)) => STMemory s -> ST s (Core.State f)
-runUntilHalt st = go (stSimulator st)
+runUntilHalt :: (NFDataX (f Word), Generic (f Word), MonadMemory m) => CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m (Core.State f)
+runUntilHalt sim = go sim
   where
-    go sim = do
-      (s', _, mi') <- run1 sim
+    go sim' = do
+      (s', _, mi') <- run1 sim'
       -- Use deepseqX to fully evaluate the state and avoid memory leaks
       deepseqX s' $ case mi' of
         Nothing -> pure s'
-        Just i' -> i' `seq` go (sim { circuitInput = i', circuitState = s' })
+        Just i' -> i' `seq` go (sim' {circuitInput = i', circuitState = s'})

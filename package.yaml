@@ -83,12 +83,15 @@ library:
     - Access
     - Core
     - Elf.ElfLoader
-    - Elf.Memory
     - Elf.Syscall
     - HardwareSim
     - Instruction
     - Interp
     - ISA
+    - Memory.Types
+    - Memory.Vec
+    - Memory.ST
+    - Memory.IO
     - Leak.Arch.Arch
     - Leak.PC.ISA
     - Leak.PC.Leak
@@ -104,7 +107,6 @@ library:
     - Pretty
     - RegFile
     - Simulate
-    - STSimulate
     - Types
     - Util
 

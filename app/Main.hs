@@ -11,7 +11,8 @@ import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Data.Elf (Elf)
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
-import Elf.Memory (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram, IOMem, ioMemInitSP, secureIOMemInitSP)
+import Memory.IO (SecureIOMemT, newSecureIOMem, loadSecureProgram, runSecureIOMemT, IOMemT, runIOMemT, newIOMem, loadProgram, IOMem, ioMemInitSP, secureIOMemInitSP)
+import Memory.Types
 import RegFile
 import Data.Word (Word32)
 import Numeric (showHex)
@@ -20,11 +21,11 @@ import Options.Applicative
 import System.Exit (exitWith, ExitCode(..))
 import Types (Word)
 import Util
-import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||), replicate, zip, take)
-import qualified Prelude as P
-import Data.Traversable
 import System.IO
 import Data.Maybe (fromMaybe, isJust)
+import qualified Prelude as P
+import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||), replicate, zip, take)
+import Data.Traversable
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.SecretPC.PC as SecretLeak.PC

@@ -14,8 +14,8 @@ import qualified Instruction as Instr
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Monoid
 import qualified Leak.PC.Leak as Leak
+import Memory.Types
 import Types
-import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
 data State = State

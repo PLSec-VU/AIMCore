@@ -27,6 +27,7 @@ import Data.Monoid
 import qualified Instruction as Instr
 import Interp
 import RegFile
+import Memory.Types
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))

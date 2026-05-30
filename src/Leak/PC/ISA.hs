@@ -13,8 +13,9 @@ import Data.Monoid
 import qualified Instruction as Core
 import Interp
 import qualified Leak.PC.Leak as Leak
-import RegFile
 import qualified Simulate
+import Memory.Types
+import Memory.Vec ()
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))

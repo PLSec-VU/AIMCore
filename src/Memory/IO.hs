@@ -1,38 +1,33 @@
-
-module Elf.Memory
-  ( IOMem(..)
-  , IOMemT(..)
-  , runIOMemT
-  , newIOMem
-  , loadProgram
-  , SecureIOMem(..)
-  , SecureIOMemT(..)
-  , runSecureIOMemT
-  , newSecureIOMem
-  , loadSecureProgram
-  , MemoryRegion(..)
-  ) where
+module Memory.IO
+  ( IOMem (..),
+    IOMemT (..),
+    runIOMemT,
+    newIOMem,
+    loadProgram,
+    SecureIOMem (..),
+    SecureIOMemT (..),
+    runSecureIOMemT,
+    newSecureIOMem,
+    loadSecureProgram,
+    MemoryRegion (..),
+  )
+where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
+import Clash.Sized.Vector (unsafeFromList)
+import Control.Monad (forM_)
+import Control.Monad.Reader
+import Data.Array.IO
+import Data.Elf (Elf)
+import Data.IORef (modifyIORef)
+import Data.Traversable (forM)
+import Data.Word (Word8)
+import Elf.ElfLoader (baseAddr, loadElf)
+import GHC.IORef
+import Memory.Types
 import Types
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||))
 import qualified Prelude as P
-import Data.Word (Word8)
-import Clash.Sized.Vector (unsafeFromList)
-import Control.Monad (forM_, filterM)
-import Numeric (showHex)
-import RegFile (initRF, RegFile, modifyRF)
-import Util
-import Control.Monad.Reader
-import GHC.IORef
-import Data.IORef (modifyIORef)
-import Data.Traversable (forM)
-import Data.Array.IO
-import Control.Exception.Base (throwIO)
-import Data.Maybe (listToMaybe)
-import Data.Elf (Elf)
-import Elf.ElfLoader (baseAddr, loadElf)
-import qualified Data.ByteString.Lazy as BSL
 
 -- | IO-based memory implementation for testing.
 data IOMem = IOMem
@@ -40,7 +35,7 @@ data IOMem = IOMem
     -- | List of RAM arrays that store writable memory regions.
     ioMemRAM :: IOUArray Int Word8
   }
-  deriving Eq
+  deriving (Eq)
 
 -- Newtype wrapper to avoid overlapping instances
 newtype IOMemT m a = IOMemT (ReaderT IOMem m a)
@@ -52,23 +47,19 @@ instance MonadTrans IOMemT where
 runIOMemT :: IOMem -> IOMemT m a -> m a
 runIOMemT iomem (IOMemT m) = runReaderT m iomem
 
-newIOMem :: MonadIO m => Elf -> m IOMem
+newIOMem :: (MonadIO m) => Elf -> m IOMem
 newIOMem elf = do
   let memSize = 0xf000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
   let sp = base + memSize - 0x1000000
-  ramArray <- liftIO $ newArray (base, base+memSize) 0
+  ramArray <- liftIO $ newArray (base, base + memSize) 0
   pure $ IOMem (fromIntegral sp) ramArray
 
-loadProgram :: (MonadIO m, MonadReader IOMem m) => Elf -> m ()
-loadProgram elf = do
-  ramArray <- asks ioMemRAM
-  loadElf elf $ \addr body ->
-    forM_ (P.zip [addr..] (BSL.unpack body)) $ \(i, byte) ->
-      liftIO $ writeArray ramArray (fromIntegral i) byte
+loadProgram :: (MonadMemory m) => Elf -> m ()
+loadProgram elf = loadElf elf
 
 instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
-  ramRead addr = do
+  ramRead _isInstr addr _size = do
     ramArray <- asks ioMemRAM
     bytes <- forM [0 .. 3] $ \i -> do
       w8 <- lift $ readArray ramArray (fromIntegral addr + i)
@@ -78,17 +69,17 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
     pure word
   ramWrite addr size w = do
     ramArray <- asks ioMemRAM
-    let b0 = slice d7 d0 w      -- Extract bits 7-0 (least significant byte)
-        b1 = slice d15 d8 w     -- Extract bits 15-8
-        b2 = slice d23 d16 w    -- Extract bits 23-16
-        b3 = slice d31 d24 w    -- Extract bits 31-24 (most significant byte)
+    let b0 = slice d7 d0 w -- Extract bits 7-0 (least significant byte)
+        b1 = slice d15 d8 w -- Extract bits 15-8
+        b2 = slice d23 d16 w -- Extract bits 23-16
+        b3 = slice d31 d24 w -- Extract bits 31-24 (most significant byte)
         writeBytes bytes = do
-          forM_ (P.zip [0..] bytes) $ \(i, byte) ->
+          forM_ (P.zip [0 ..] bytes) $ \(i, byte) ->
             lift $ writeArray ramArray (fromIntegral addr + i) byte
     case size of
-      Byte -> writeBytes $ bitCoerce <$> [b0]           -- Write 1 byte
-      Half -> writeBytes $ bitCoerce <$> [b0, b1]       -- Write 2 bytes (halfword)
-      Word -> writeBytes $ bitCoerce <$> [b0, b1, b2, b3] -- Write 4 bytes (word)
+      Byte -> writeBytes [bitCoerce b0] -- Write 1 byte
+      Half -> writeBytes [bitCoerce b0, bitCoerce b1] -- Write 2 bytes (halfword)
+      Word -> writeBytes [bitCoerce b0, bitCoerce b1, bitCoerce b2, bitCoerce b3] -- Write 4 bytes (word)
   -- IOMemT implementation: no-op security functions (like Identity)
   markMemoryRegion _ _ _ = pure ()
   isMemorySecret _ = pure False
@@ -100,7 +91,7 @@ data SecureIOMem = SecureIOMem
     -- | List of memory regions and their security levels
     secureIOMemRegions :: IORef [MemoryRegion]
   }
-  deriving Eq
+  deriving (Eq)
 
 -- | A memory region with security classification
 data MemoryRegion = MemoryRegion
@@ -120,24 +111,20 @@ instance MonadTrans SecureIOMemT where
 runSecureIOMemT :: SecureIOMem -> SecureIOMemT m a -> m a
 runSecureIOMemT secmem (SecureIOMemT m) = runReaderT m secmem
 
-newSecureIOMem :: MonadIO m => Elf -> m SecureIOMem
+newSecureIOMem :: (MonadIO m) => Elf -> m SecureIOMem
 newSecureIOMem elf = do
   let memSize = 0x4000000
   base <- liftIO $ fromIntegral <$> baseAddr elf
   let sp = base + memSize - 0x1000000
-  ramArray <- liftIO $ newArray (base, base+memSize) 0
+  ramArray <- liftIO $ newArray (base, base + memSize) 0
   regionsRef <- liftIO $ newIORef []
   pure $ SecureIOMem (fromIntegral sp) ramArray regionsRef
 
-loadSecureProgram :: (MonadIO m, MonadReader SecureIOMem m) => Elf -> m ()
-loadSecureProgram elf = do
-  ramArray <- asks secureIOMemRAM
-  loadElf elf $ \addr body ->
-    forM_ (P.zip [addr..] (BSL.unpack body)) $ \(i, byte) ->
-      liftIO $ writeArray ramArray (fromIntegral i) byte
+loadSecureProgram :: (MonadMemory m) => Elf -> m ()
+loadSecureProgram elf = loadElf elf
 
 instance {-# OVERLAPPING #-} MonadMemory (SecureIOMemT IO) where
-  ramRead addr = do
+  ramRead _isInstr addr _size = do
     ramArray <- asks secureIOMemRAM
     bytes <- forM [0 .. 3] $ \i -> do
       w8 <- lift $ readArray ramArray (fromIntegral addr + i)
@@ -146,24 +133,24 @@ instance {-# OVERLAPPING #-} MonadMemory (SecureIOMemT IO) where
     pure word
   ramWrite addr size w = do
     ramArray <- asks secureIOMemRAM
-    let b0 = slice d7 d0 w      -- Extract bits 7-0 (least significant byte)
-        b1 = slice d15 d8 w     -- Extract bits 15-8
-        b2 = slice d23 d16 w    -- Extract bits 23-16
-        b3 = slice d31 d24 w    -- Extract bits 31-24 (most significant byte)
+    let b0 = slice d7 d0 w -- Extract bits 7-0 (least significant byte)
+        b1 = slice d15 d8 w -- Extract bits 15-8
+        b2 = slice d23 d16 w -- Extract bits 23-16
+        b3 = slice d31 d24 w -- Extract bits 31-24 (most significant byte)
         writeBytes bytes = do
-          forM_ (P.zip [0..] bytes) $ \(i, byte) ->
+          forM_ (P.zip [0 ..] bytes) $ \(i, byte) ->
             lift $ writeArray ramArray (fromIntegral addr + i) byte
     case size of
-      Byte -> writeBytes $ bitCoerce <$> [b0]           -- Write 1 byte
-      Half -> writeBytes $ bitCoerce <$> [b0, b1]       -- Write 2 bytes (halfword)
-      Word -> writeBytes $ bitCoerce <$> [b0, b1, b2, b3] -- Write 4 bytes (word)
-  
+      Byte -> writeBytes [bitCoerce b0] -- Write 1 byte
+      Half -> writeBytes [bitCoerce b0, bitCoerce b1] -- Write 2 bytes (halfword)
+      Word -> writeBytes [bitCoerce b0, bitCoerce b1, bitCoerce b2, bitCoerce b3] -- Write 4 bytes (word)
+
   -- Secure memory implementation: actually track security regions
   markMemoryRegion startAddr endAddr isSecret = do
     regionsRef <- asks secureIOMemRegions
     let region = MemoryRegion startAddr endAddr isSecret
     liftIO $ modifyIORef regionsRef (region :)
-  
+
   isMemorySecret addr = do
     regionsRef <- asks secureIOMemRegions
     regions <- liftIO $ readIORef regionsRef

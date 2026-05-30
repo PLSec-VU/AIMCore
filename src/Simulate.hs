@@ -21,24 +21,11 @@ import Core hiding (State)
 import qualified Core
 import Data.Functor.Identity
 import Data.Monoid
-import RegFile
+import Memory.Types
+import Memory.Vec
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
-
-data Mem n = Mem
-  { memRAM :: Vec n Byte
-  }
-  deriving (Eq, Show, Generic, NFDataX)
-
-instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
-  ramRead addr = readWord addr <$> gets memRAM
-  ramWrite addr size w = do
-    ram <- gets memRAM
-    modify $ \s -> s {memRAM = write size addr w ram}
-  -- Identity implementation: no-op security functions
-  markMemoryRegion _ _ _ = pure ()
-  isMemorySecret _ = pure False
 
 result :: (MonadState (Mem n) m) => CircuitSim m i s o -> m (Vec n Byte)
 result c = watch c *> gets memRAM
@@ -86,7 +73,7 @@ simulator =
               case mval of
                 Nothing -> do
                   -- This is a memory read - check if the address is secret
-                  word <- ramRead addr
+                  word <- ramRead isInstr addr size
                   isSecret <- isMemorySecret addr
                   -- Use conditionalSecret to create the appropriate value based on security
                   let secureWord = conditionalSecret isSecret word
