@@ -19,7 +19,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Control.Monad.Trans.Maybe
-import Core (Input, HaltState (..))
+import Core (Input (..), MemAccess (..), Output (..), HaltState (..))
 import qualified Core
 import Data.Functor.Identity
 import Data.Maybe (fromMaybe, isJust)
@@ -174,11 +174,13 @@ decode = do
   exInstr <- gets stateExInstr
   mJumpAddr <- gets stateJumpAddr
   firstCycle <- gets stateFirstCycle
+  status <- gets stateHalt
 
   let branch_first_cycle = Instr.isNopBranchFirstCycle exInstr
   let load_hazard_current_cycle = Instr.loadHazard instr exInstr
   let load_hazard_first_cycle = Instr.isNopLoadHazardFirstCycle exInstr
   let call_current_cycle = Instr.isCall exInstr
+  let break_current_cycle = Instr.isBreak exInstr
 
   let isSecretInstr = case fromPublic (Core.inputMem input) of Nothing -> True; _ -> False
 
@@ -193,6 +195,10 @@ decode = do
         else if load_hazard_first_cycle then Instr.Nop Instr.LoadHazardSecondCycle
         -- If a syscall is executed in this cycle, we stall.
         else if call_current_cycle then Instr.Nop Instr.SyscallFirstCycle
+        -- If we are halting in the current cycle, we stall.
+        else if break_current_cycle then Instr.Nop Instr.Halted
+        -- If the core is not running anymore, we stall.
+        else if status /= Running then Instr.Nop Instr.Halted
         -- If this is the first cycle, the instruction to decode is gibberish from memory.
         else if firstCycle then Instr.Nop Instr.FirstCycle
         -- If memory is busy, we stall.
@@ -397,8 +403,8 @@ writeback = do
   res <- gets stateWbRes
 
   when (stateHalted /= Running) $ do
-    outputNothing
-    tell $ mempty { outHalt = pure True }
+    tell $ (mempty :: Out) { outHalt = pure True }
+    tell $ (mempty :: Out) { outMeMemInstr = pure True }
 
   when (Instr.isBreak instr) $ do
     modify $ \s ->
@@ -407,7 +413,9 @@ writeback = do
           stateExInstr = Instr.nop,
           stateHalt = EBreak
         }
-    outputNothing
+    tell $ (mempty :: Out) { outMeMemInstr = pure True }
+
+
 
   let shouldForward = case instr of
         Instr.RType {} -> True

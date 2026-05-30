@@ -123,6 +123,8 @@ data Reason4Stall
     DecodeFail
   | -- | PC has halted.
     Halted
+  | -- | Security violation.
+    SecurityViolation
   deriving (Eq, Show, Generic, NFDataX, Binary)
 
 -- | Decoded instructions

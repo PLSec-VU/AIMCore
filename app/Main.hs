@@ -84,7 +84,7 @@ instance Show LeakageDivergenceException where
           "  PC (decode): 0x" P.++ showHex (Core.stateDePc state) "",
           "  PC (execute): 0x" P.++ showHex (Core.stateExPc state) "",
           "  Instruction (execute): " P.++ show (Core.stateExInstr state),
-          "  Instruction (memory): " P.++ show (Core.stateMemInstr state),
+          "  Instruction (memory): " P.++ show (Core.stateMeInstr state),
           "  Instruction (writeback): " P.++ show (Core.stateWbInstr state),
           "  Halt state: " P.++ show (Core.stateHalt state),
           "",

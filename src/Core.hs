@@ -146,7 +146,9 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
 data Control f = Control
-  { -- | Stores `stateDePc` when the instruction in the `decode` stage has
+  { -- | `True` during the first cycle.
+    ctrlFirstCycle :: Bool,
+    -- | Stores `stateDePc` when the instruction in the `decode` stage has
     --   a load hazard with the instruction in the `execute` stage.
     ctrlDeLoadHazard :: Maybe Address,
     -- | `True` when the instruction in the `decode` stage is a syscall.
@@ -224,7 +226,8 @@ init =
 initCtrl :: Control f
 initCtrl =
   Control
-    { ctrlDeLoadHazard = Nothing,
+    { ctrlFirstCycle = True,
+      ctrlDeLoadHazard = Nothing,
       ctrlDeCall = False,
       ctrlExInstr = Nothing,
       ctrlExAddress = Nothing,
@@ -236,9 +239,11 @@ initCtrl =
 -- | The control lines need to be reset every tick.
 withCtrlReset :: CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
+  firstCycle <- gets $ ctrlFirstCycle . stateCtrl
+  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = firstCycle}}
   m
   ctrl <- gets stateCtrl
-  modify $ \s -> s { stateCtrl = initCtrl }
+  modify $ \s -> s {stateCtrl = (stateCtrl s) {ctrlFirstCycle = False}}
   pure ctrl
 -- | Stop the CPU.
 halt :: CPUM f ()
@@ -291,7 +296,7 @@ decode = do
 
   ir <-
     if (inputIsInstr input)
-      then noSecrets' (inputMem input) (Instruction.Nop Instruction.Halted) (pure . decode')
+      then noSecrets' (inputMem input) (Instruction.Nop Instruction.SecurityViolation) (pure . decode')
       else pure $ Instruction.Nop Instruction.MemoryBusBusy
 
   let branch_first_cycle = maybe False isNopBranchFirstCycle (ctrlExInstr ctrl)
@@ -315,6 +320,8 @@ decode = do
         else if break_current_cycle then Nop Halted
         -- If the core is not running anymore, we stall.
         else if status /= Running then Nop Halted
+        -- If this is the first cycle, the instruction to decode is gibberish from memory.
+        else if ctrlFirstCycle ctrl then Nop FirstCycle
         -- Otherwise we process the decoded instruction.
         else ir
 
@@ -347,7 +354,8 @@ execute = do
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
-in s { stateMeAluRes = res }  where
+     in s { stateMeAluRes = res }
+  where
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
       case ir of
@@ -405,7 +413,7 @@ in s { stateMeAluRes = res }  where
           pure (ADD, pure base', pure imm')
         Instruction.IType (Env Call) _ _ _ -> empty
         Instruction.IType (Env Break) _ _ _ -> do
-          halt
+          lift halt
           empty
         Instruction.Nop _ -> empty
 
@@ -615,12 +623,3 @@ halted :: (MonadWriter (Output f) m) => m ()
 halted =
   tell $
     (mempty :: Output f) { outHalt = pure True }
-
-setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
-setLines f = modify $ \s -> s { stateCtrl = f $ stateCtrl s }
-
--- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
--- private, die.
-noSecrets' :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
-noSecrets' w a m = noSecrets w (setSecurityViolation >> pure a) m
->>>>>>> 56d6bd8 (Update Core.hs)
