@@ -113,13 +113,13 @@ decode = do
         -- If there was a load hazard in the previous cycle, we stall.
         else if load_hazard_first_cycle then Leak.Instr (Leak.Nop Instr.LoadHazardSecondCycle) (Nothing, Nothing)
         -- If a syscall is executed in this cycle, we stall.
-        else if call_current_cycle then Leak.Instr (Leak.Nop Instr.SyscallFirstCycle) (Nothing, Nothing)
+        else if call_current_cycle then Leak.Instr (Leak.Nop Instr.Halted) (Nothing, Nothing)
         -- If this is the first cycle, the instruction to decode is gibberish from memory.
         else if firstCycle then Leak.Instr (Leak.Nop Instr.FirstCycle) (Nothing, Nothing)
         -- Otherwise we process the instruction from leakage.
         else instr
 
-  when (instrBase ir' == Leak.Nop Instr.SecurityViolation) $
+  when (instrBase ir' == Leak.Nop Instr.Halted) $
     modify $ \s -> s {stateHalt = AimCore.SecurityViolation}
 
   when load_hazard_current_cycle $ do

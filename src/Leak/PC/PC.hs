@@ -81,11 +81,11 @@ proj s = (ts, ss)
           Leak.stateDePc = Core.stateDePc s,
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
-          Leak.stateMemInstr = Core.stateMemInstr s,
-          Leak.stateMemRes = unAccess $ Core.stateMemRes s,
-          Leak.stateMemVal = unAccess $ Core.stateMemVal s,
+          Leak.stateMemInstr = Core.stateMeInstr s,
+          Leak.stateMemRes = unAccess $ Core.stateMeAluRes s,
+          Leak.stateMemVal = unAccess $ Core.stateMeStoreRes s,
           Leak.stateWbInstr = Core.stateWbInstr s,
-          Leak.stateWbRes = unAccess $ Core.stateWbRes s,
+          Leak.stateWbRes = unAccess $ Core.stateWbAluRes s,
           Leak.stateRegFile = Core.stateRegFile s,
           Leak.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
           Leak.stateHalt = Core.stateHalt s,
@@ -93,8 +93,8 @@ proj s = (ts, ss)
           Leak.stateWbRegFwd = fmap (second unAccess) $ Core.ctrlWbRegFwd $ Core.stateCtrl s,
           Leak.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Leak.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,
-          Leak.stateDeCall = Core.ctrlDeCall $ Core.stateCtrl s,
-          Leak.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
+          Leak.stateDeCall = False,
+          Leak.stateFirstCycle = False
         }
     ss =
       Sim.State
@@ -102,14 +102,14 @@ proj s = (ts, ss)
           Sim.stateDePc = Core.stateDePc s,
           Sim.stateExPc = Core.stateExPc s,
           Sim.stateExInstr = toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMemInstr s,
+          Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMeInstr s,
           Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
           Sim.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Sim.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,
-          Sim.stateDeCall = Core.ctrlDeCall $ Core.stateCtrl s,
-          Sim.stateFirstCycle = Core.ctrlFirstCycle $ Core.stateCtrl s
+          Sim.stateDeCall = False,
+          Sim.stateFirstCycle = False
         }
 
     killJump :: Leak.Instr -> Leak.Instr

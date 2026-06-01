@@ -120,6 +120,7 @@ data Reason4Stall
   | -- | Failed to decode an instruction.
     DecodeFail
   | -- | PC has halted.
+    Halted
   deriving (Eq, Show, Generic, NFDataX, Binary)
 
 -- | Decoded instructions

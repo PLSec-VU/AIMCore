@@ -192,13 +192,13 @@ decode = do
         -- If there was a load hazard in the previous cycle, we stall.
         else if load_hazard_first_cycle then Instr.Nop Instr.LoadHazardSecondCycle
         -- If a syscall is executed in this cycle, we stall.
-        else if call_current_cycle then Instr.Nop Instr.SyscallFirstCycle
+        else if call_current_cycle then Instr.Nop Instr.Halted
         -- If this is the first cycle, the instruction to decode is gibberish from memory.
         else if firstCycle then Instr.Nop Instr.FirstCycle
         -- If memory is busy, we stall.
         else if not (Core.inputIsInstr input) then Instr.Nop Instr.MemoryBusBusy
         -- If we are in SecurityViolation state, we stall.
-        else if isSecretInstr then Instr.Nop Instr.SecurityViolation
+        else if isSecretInstr then Instr.Nop Instr.Halted
         -- Otherwise we process the decoded instruction.
         else instr
 

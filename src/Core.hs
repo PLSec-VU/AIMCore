@@ -395,11 +395,9 @@ execute = do
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
         Instruction.IType (Env Call) _ _ _ ->
-          lift halt
-          empty
+          lift halt >> empty
         Instruction.IType (Env Break) _ _ _ ->
-          lift halt
-          empty
+          lift halt >> empty
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
@@ -494,11 +492,11 @@ memory = do
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.IType (Env Call) _ _ _ -> do
-      halted
+      halt
     Instruction.IType (Env Break) _ _ _ -> do
-      halted
+      halt
     Instruction.Nop Halted -> do
-      halted    
+      halt    
     _ -> pure ()
 
 -- | Commit computations to the register file.
