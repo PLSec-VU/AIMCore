@@ -146,9 +146,7 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
 data Control f = Control
-  { -- | `True` during the first cycle.
-    ctrlFirstCycle :: Bool,
-    -- | Stores `stateDePc` when the instruction in the `decode` stage has
+  { -- | Stores `stateDePc` when the instruction in the `decode` stage has
     --   a load hazard with the instruction in the `execute` stage.
     ctrlDeLoadHazard :: Maybe Address,
     -- | `True` when the instruction in the `decode` stage is a syscall.
@@ -226,8 +224,7 @@ init =
 initCtrl :: Control f
 initCtrl =
   Control
-    { ctrlFirstCycle = True,
-      ctrlDeLoadHazard = Nothing,
+    { ctrlDeLoadHazard = Nothing,
       ctrlDeCall = False,
       ctrlExInstr = Nothing,
       ctrlExAddress = Nothing,
@@ -239,11 +236,9 @@ initCtrl =
 -- | The control lines need to be reset every tick.
 withCtrlReset :: CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
-  firstCycle <- gets $ ctrlFirstCycle . stateCtrl
-  modify $ \s -> s {stateCtrl = initCtrl {ctrlFirstCycle = firstCycle}}
+  modify $ \s -> s {stateCtrl = initCtrl}
   m
   ctrl <- gets stateCtrl
-  modify $ \s -> s {stateCtrl = (stateCtrl s) {ctrlFirstCycle = False}}
   pure ctrl
 
 -- | Stop the CPU.
@@ -315,8 +310,6 @@ decode = do
         | load_hazard_first_cycle = Nop LoadHazardSecondCycle
         -- If a syscall is executed in this cycle, we stall.
         | call_current_cycle = Nop SyscallFirstCycle
-        -- If this is the first cycle, the instruction to decode is gibberish from memory.
-        | ctrlFirstCycle ctrl = Nop FirstCycle
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
 
