@@ -254,16 +254,12 @@ fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
 
-  -- Always try to read unless the instruction in the `memory` stage is a load, a store, or a syscall.
+  -- Always try to read unless the instruction in the `memory` stage is a load or a store.
   unless (ctrlMeMemInstr ctrl) $
     readPC pc
-
-  let stall =
-        -- We stall if the instruction in the `decode` stage is a syscall.
-        ctrlDeCall ctrl
-          ||
-          -- We stall if the instruction in the `memory` stage is a load, a store, or a syscall.
-          ctrlMeMemInstr ctrl
+  
+  -- We stall if the instruction in the `memory` stage is a load or a store.
+  let stall = ctrlMeMemInstr ctrl
 
   let next_pc =
         fromMaybe
@@ -284,17 +280,19 @@ fetch = do
 decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
+  ctrl <- gets stateCtrl
+  status <- gets stateHalt
+
   ir <-
     if (inputIsInstr input)
-      then noSecrets' (inputMem input) (Nop Instruction.SecurityViolation) (pure . decode')
+      then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
-
-  ctrl <- gets stateCtrl
 
   let branch_first_cycle = maybe False isNopBranchFirstCycle (ctrlExInstr ctrl)
   let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
   let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
+  let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
 
   let ir'
         -- If a branch was taken in this cycle, we stall.
@@ -305,26 +303,25 @@ decode = do
         | load_hazard_current_cycle = Nop LoadHazardFirstCycle
         -- If there was a load hazard in the previous cycle, we stall.
         | load_hazard_first_cycle = Nop LoadHazardSecondCycle
-        -- If a syscall is executed in this cycle, we stall.
-        | call_current_cycle = Nop SyscallFirstCycle
+        -- If a syscall is executed in this cycle, we halt.
+        | call_current_cycle = Nop Halted
+        -- If a break is executed in this cycle, we halt.
+        | break_current_cycle = Nop Halted
+        -- If the core is not running anymore, we halt.
+        | status /= Running = Nop Halted
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
-
-  when load_hazard_current_cycle $ do
-    pc <- gets stateDePc
-    setLines $
-      \c -> c {ctrlDeLoadHazard = Just pc}
-
-  -- Detect syscalls
-  when (isCall ir') $
-    setLines $
-      \c -> c {ctrlDeCall = True}
 
   modify $ \s ->
     s
       { stateExInstr = ir',
         stateExPc = stateDePc s
       }
+
+  when load_hazard_current_cycle $ do
+    pc <- gets stateDePc
+    setLines $
+      \c -> c {ctrlDeLoadHazard = Just pc}
 
 -- | Execute stage.
 execute :: forall f. (Access f) => CPUM f ()
