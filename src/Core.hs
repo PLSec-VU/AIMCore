@@ -394,8 +394,12 @@ execute = do
             PC -> gets $ pack . stateExPc
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
-        Instruction.IType (Env Call) _ _ _ -> empty
-        Instruction.IType (Env Break) _ _ _ -> empty
+        Instruction.IType (Env Call) _ _ _ ->
+          lift halt
+          empty
+        Instruction.IType (Env Break) _ _ _ ->
+          lift halt
+          empty
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
