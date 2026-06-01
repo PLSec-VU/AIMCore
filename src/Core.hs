@@ -494,8 +494,11 @@ memory = do
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.IType (Env Call) _ _ _ -> do
-      setLines $ \c -> c {ctrlMeMemInstr = True}
-      readSyscall
+      halted
+    Instruction.IType (Env Break) _ _ _ -> do
+      halted
+    Instruction.Nop Halted -> do
+      halted    
     _ -> pure ()
 
 -- | Commit computations to the register file.
