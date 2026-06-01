@@ -504,26 +504,10 @@ memory = do
 -- | Commit computations to the register file.
 writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
+  input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbAluRes
-  input <- asks inputMem
-
-  haltState <- gets stateHalt
-
-  when (haltState /= Running) $ do
-    tell $
-      mempty {outHalt = pure True}
-    readRAM 0 Types.Word
-
-  when (isBreak ir) $ do
-    -- Flush the pipeline
-    modify $ \s ->
-      s
-        { stateMeInstr = nop,
-          stateExInstr = nop
-        }
-    readRAM 0 Types.Word
-    halt
+  status <- gets stateHalt
 
   case ir of
     Instruction.RType _ rd _ _ -> do
@@ -545,11 +529,6 @@ writeback = do
     Instruction.UType _ rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.IType (Env Call) _ _ _ -> do
-      let val = input
-      let rd = 10 -- a0
-      setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
-      writeRF rd val
     _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Nothing}
       writeRF 0 (pure 0 :: f Word)
