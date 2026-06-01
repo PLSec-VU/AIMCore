@@ -84,7 +84,7 @@ instance Show LeakageDivergenceException where
           "  PC (decode): 0x" P.++ showHex (Core.stateDePc state) "",
           "  PC (execute): 0x" P.++ showHex (Core.stateExPc state) "",
           "  Instruction (execute): " P.++ show (Core.stateExInstr state),
-          "  Instruction (memory): " P.++ show (Core.stateMemInstr state),
+          "  Instruction (memory): " P.++ show (Core.stateMeInstr state),
           "  Instruction (writeback): " P.++ show (Core.stateWbInstr state),
           "  Halt state: " P.++ show (Core.stateHalt state),
           "",
@@ -178,33 +178,23 @@ generalizedInstrument ::
   (leakOut -> BS.ByteString) ->  -- serialization function
   String ->  -- mode name for logging
   Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State f)) -> Instrument f m
-generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput leakDigest finalStateRef i s o _step = do
+generalizedInstrument projFn leakFn serializeFn modeName shouldLog leakageOutput leakDigest finalStateRef s = do
   let pc = Core.stateExPc s
-        
+
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
     liftIO $ putStrLn $ "[" P.++ modeName P.++ " MODE]"
-    liftIO $ print i
-    liftIO $ print o
+    liftIO $ print pc
     let rf = Core.stateRegFile s
     let a0 = lookupRF 10 rf
     let a7 = lookupRF 17 rf
     let s0 = lookupRF 8 rf
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=" P.++ show a0 P.++ " s0=" P.++ show s0 P.++ " syscall=" P.++ show a7
 
-  let (leakState , _) = projFn s
-  let (_ , leakOutput) = leakFn leakState i
-  case leakageOutput of
-    Nothing -> pure ()
-    Just _ -> liftIO $ forM_ leakageOutput $ \h -> hPutStrLn h $ show leakOutput
-  liftIO $ modifyIORef' leakDigest (update (serializeFn leakOutput))
-
   -- Store the current state as the final state
   liftIO $ writeIORef finalStateRef (Just s)
 
-  case getFirst $ Core.outSyscall o of
-    Just True -> handleSyscall s
-    _ -> pure (True, Nothing)
+  handleSyscall s
 
 generalInstrument :: (Leak.Out -> BS.ByteString) -> Bool -> Maybe Handle -> IORef BLAKE2bState -> IORef (Maybe (Core.State Identity)) -> Instrument Identity (IOMemT IO)
 generalInstrument f = generalizedInstrument
@@ -241,38 +231,46 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
   where
     go stepCount instances = do
       when optVerbose $ putStrLn $ "=== Step " P.++ show stepCount P.++ " ==="
-      
+
       -- Execute one step for each instance in its own memory context
       results <- forM (P.zip instances [(0::Int)..]) $ \((mem, sim@(CircuitSim i s step next)), idx) -> do
-        (s', _o, mi', (cont, mRet), leakOutput) <- runIOMemT mem $ do
+        (halted, s', mi', leakOutput, sysExit) <- runIOMemT mem $ do
           let (leakState, _) = Leak.PC.proj s
           let (_, leakOutput) = Leak.PC.leak leakState i
 
           (s', o) <- step i s
-          mi' <- next o
-          
-          let serialize = if idx == 0
-              then BS.toStrict . encode
-              else const BS.empty
-          let instr = generalInstrument serialize optVerbose leakOutputHandle leakDigest finalStateRef
-          instrRet <- instr i s' o stepCount
-          
-          pure (s', o, mi', instrRet, leakOutput)
-        
+          let halted = Core.stateHalt s'
+          (mi', sysExit) <- case halted of
+            Core.Running -> do
+              mi'' <- next s' o
+              pure (mi'', False)
+            Core.Syscall -> do
+              -- Handle syscall, write return value to a0, resume
+              let serialize = if idx == 0
+                    then BS.toStrict . encode
+                    else const BS.empty
+              let instr = generalInstrument serialize optVerbose leakOutputHandle leakDigest finalStateRef
+              mRet <- instr s'
+              case mRet of
+                Nothing -> pure (Nothing, True)  -- exit
+                Just ret -> do
+                  let s'' = s' {Core.stateHalt = Core.Running,
+                                Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+                  mi'' <- next s'' o
+                  pure (mi'', False)
+            _ -> pure (Nothing, False)  -- EBreak, SecurityViolation: stop
+          pure (halted, s', mi', leakOutput, sysExit)
+
         when optVerbose $ do
           putStrLn $ "Instance " P.++ show idx P.++ ":"
           putStrLn $ "  PC: 0x" P.++ showHex (Core.stateExPc s') ""
-        
-        let mi'' = case mRet of
-              Just ret -> fmap (\inp -> inp { Core.inputMem = ret }) mi'
-              Nothing -> mi'
 
-        let newSim = sim { circuitInput = fromMaybe i mi'', circuitState = s' }
+        let newSim = sim { circuitInput = fromMaybe i mi', circuitState = s' }
         pure StepResult
           { stepMem = mem
           , stepSim = newSim
-          , stepNextInput = mi''
-          , stepContinue = cont
+          , stepNextInput = mi'
+          , stepContinue = not sysExit && (halted == Core.Running || halted == Core.Syscall)
           , stepFinalState = s'
           , stepLeakage = leakOutput
           }

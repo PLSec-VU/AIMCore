@@ -80,9 +80,9 @@ circuit (ts, ss) input = ((ts', ss'), addr)
 proj' :: Core.State PubSec -> SimState
 proj' s =
   s
-    { Core.stateMemRes = censor (Core.stateMemRes s),
-      Core.stateMemVal = censor (Core.stateMemVal s),
-      Core.stateWbRes = censor (Core.stateWbRes s),
+    { Core.stateMeAluRes = censor (Core.stateMeAluRes s),
+      Core.stateMeStoreRes = censor (Core.stateMeStoreRes s),
+      Core.stateWbAluRes = censor (Core.stateWbAluRes s),
       Core.stateRegFile = let RegFile rf = Core.stateRegFile s in RegFile (Clash.Prelude.map censor rf),
       Core.stateCtrl =
         let c = Core.stateCtrl s
@@ -118,10 +118,10 @@ simulator =
       let (s', o) = circuit s i
       pure (s', (o, obs' o_sim))
 
-    next :: (Maybe Address, Maybe Address) -> m (Maybe (Input PubSec))
-    next (_o, _addr_sim) = do
-      ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+    next :: (Leak.State, SimState) -> (Maybe Address, Maybe Address) -> m (Maybe (Input PubSec))
+    next _ (_o, _addr_sim) = do
+      ((s_sim, o_sim), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator s_sim o_sim) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 

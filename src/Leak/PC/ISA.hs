@@ -44,10 +44,10 @@ simulator =
       let (s', leakInstr) = Leak.circuit s i
       pure (s', leakInstr)
 
-    next :: Leak.Out -> m (Maybe (Input Identity))
-    next _out = do
-      ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+    next :: Leak.State -> Leak.Out -> m (Maybe (Input Identity))
+    next _ _out = do
+      ((s_sim, o_sim), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator s_sim o_sim) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 

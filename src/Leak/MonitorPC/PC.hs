@@ -50,15 +50,15 @@ proj s = (ts, ss)
           Sim.stateDePc = if halted then 0 else Core.stateDePc s,
           Sim.stateExPc = if halted then 0 else Core.stateExPc s,
           Sim.stateExInstr = if halted then Leak.nop' else Leak.toLeakInstr $ Core.stateExInstr s,
-          Sim.stateMemInstr = if halted then Leak.nop' else killJump $ Leak.toLeakInstr $ Core.stateMemInstr s,
-          Sim.stateMemRes = if halted then 0 else unAccess $ Core.stateMemRes s,
+          Sim.stateMemInstr = if halted then Leak.nop' else killJump $ Leak.toLeakInstr $ Core.stateMeInstr s,
+          Sim.stateMemRes = if halted then 0 else unAccess $ Core.stateMeAluRes s,
           Sim.stateWbInstr = if halted then Leak.nop' else killJump $ Leak.toLeakInstr $ Core.stateWbInstr s,
-          Sim.stateWbRes = if halted then 0 else unAccess $ Core.stateWbRes s,
+          Sim.stateWbRes = if halted then 0 else unAccess $ Core.stateWbAluRes s,
           Sim.stateHalt = halted,
           Sim.stateStallFetch = not halted && toStallFetch (Core.stateCtrl s),
           Sim.stateStallDecode = not halted && toStallDecode (Core.stateCtrl s),
           Sim.stateJumpAddr = if halted then Nothing else Core.ctrlExAddress $ Core.stateCtrl s,
-          Sim.stateFirstCycle = not halted && Core.ctrlFirstCycle (Core.stateCtrl s)
+          Sim.stateFirstCycle = not halted && Core.stateHalt s == Core.Running
         }
 
     killJump :: Leak.Instr -> Leak.Instr
@@ -67,12 +67,10 @@ proj s = (ts, ss)
 
     toStallFetch :: Core.Control Identity -> Bool
     toStallFetch ctrl =
-      Core.ctrlDeCall ctrl
-        || Core.ctrlMeMemInstr ctrl
+      Core.ctrlMeMemInstr ctrl
         || isJust (Core.ctrlExAddress ctrl)
 
     toStallDecode :: Core.Control Identity -> Bool
     toStallDecode ctrl =
-      Core.ctrlFirstCycle ctrl
-        || isJust (Core.ctrlDeLoadHazard ctrl)
+      isJust (Core.ctrlDeLoadHazard ctrl)
         || isJust (Core.ctrlExAddress ctrl)

@@ -20,13 +20,13 @@ data CircuitSim m i s o = CircuitSim
   { circuitInput :: i,
     circuitState :: s,
     circuitStep :: i -> s -> m (s, o),
-    circuitNext :: o -> m (Maybe i)
+    circuitNext :: s -> o -> m (Maybe i)
   }
 
 run1 :: (Monad m) => CircuitSim m i s o -> m (s, o, Maybe i)
 run1 (CircuitSim i s step next) = do
   (s', o) <- step i s
-  mi' <- next o
+  mi' <- next s' o
   pure (s', o, mi')
 
 watch :: (Monad m) => CircuitSim m i s o -> m [(s, o, Maybe i)]

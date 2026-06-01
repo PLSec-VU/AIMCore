@@ -39,17 +39,17 @@ simulator =
       circuitNext = next
     }
   where
-    next :: Output f -> m (Maybe (Input f))
-    next (Output mem _ hlt)
-      | getFirst hlt == Just True = pure Nothing
-      | otherwise = do
-          (mem_in, mem_instr) <- doMemory
-          pure $
-            Just $
-              Input
-                { inputIsInstr = mem_instr,
-                  inputMem = mem_in
-                }
+    next :: Core.State f -> Output f -> m (Maybe (Input f))
+    next s (Output mem) = do
+      (mem_in, mem_instr) <- doMemory
+      if Core.stateHalt s /= Core.Running
+        then pure Nothing
+        else pure $
+          Just $
+            Input
+              { inputIsInstr = mem_instr,
+                inputMem = mem_in
+              }
       where
         doMemory :: m (f Word, Bool)
         doMemory
