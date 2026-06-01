@@ -113,16 +113,13 @@ data Reason4Stall
     LoadHazardFirstCycle
   | -- | A load hazard occurred 2 cycles ago.
     LoadHazardSecondCycle
-  | -- | A syscall occurred 1 cycle ago.
-    SyscallFirstCycle
   | -- | No instruction read because of memory bus overload.
     MemoryBusBusy
   | -- | First cycle.
     FirstCycle
   | -- | Failed to decode an instruction.
     DecodeFail
-  | -- | Security violation.
-    SecurityViolation
+  | -- | PC has halted.
   deriving (Eq, Show, Generic, NFDataX, Binary)
 
 -- | Decoded instructions
