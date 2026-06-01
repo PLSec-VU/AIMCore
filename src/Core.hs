@@ -149,13 +149,11 @@ data Control f = Control
   { -- | Stores `stateDePc` when the instruction in the `decode` stage has
     --   a load hazard with the instruction in the `execute` stage.
     ctrlDeLoadHazard :: Maybe Address,
-    -- | `True` when the instruction in the `decode` stage is a syscall.
-    ctrlDeCall :: Bool,
     -- | Stores the instruction in the `execute` stage.
     ctrlExInstr :: Maybe Instruction,
     -- | Stores the new PC if the instruction in the `execute` stage results in a jump.
     ctrlExAddress :: Maybe Address,
-    -- | `True` when the instruction in the `memory` stage is a store, a load, or a syscall.
+    -- | `True` when the instruction in the `memory` stage is a store or a load.
     ctrlMeMemInstr :: Bool,
     -- | Forwards the `rd` register from the `memory` stage to the `execute`
     -- stage.
@@ -225,7 +223,6 @@ initCtrl :: Control f
 initCtrl =
   Control
     { ctrlDeLoadHazard = Nothing,
-      ctrlDeCall = False,
       ctrlExInstr = Nothing,
       ctrlExAddress = Nothing,
       ctrlMeMemInstr = False,
@@ -249,7 +246,7 @@ halt =
 -- | Set security violation flag.
 setSecurityViolation :: CPUM f ()
 setSecurityViolation =
-  modify $ \s -> s {stateHalt = Core.SecurityViolation}
+  modify $ \s -> s {stateHalt = SecurityViolation}
 
 -- | The fetch stage.
 fetch :: CPUM f ()
