@@ -118,10 +118,10 @@ simulator =
       let (s', o) = circuit s i
       pure (s', (o, obs' o_sim))
 
-    next :: (Maybe Address, Maybe Address) -> m (Maybe (Input PubSec))
-    next (_o, _addr_sim) = do
-      ((_, o_sim), mem) <- get
-      let (mi, mem') = runState (circuitNext Simulate.simulator o_sim) mem
+    next :: (Leak.State, SimState) -> (Maybe Address, Maybe Address) -> m (Maybe (Input PubSec))
+    next _ (_o, _addr_sim) = do
+      ((s_sim, o_sim), mem) <- get
+      let (mi, mem') = runState (circuitNext Simulate.simulator s_sim o_sim) mem
       modify $ \(s, _mem) -> (s, mem')
       pure mi
 

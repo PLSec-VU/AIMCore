@@ -24,6 +24,7 @@ import Data.Elf.Headers
 import Data.Int
 import Data.Word
 import Types
+import RegFile (modifyRF)
 import Memory.Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (&&), (++), (||))
@@ -92,20 +93,30 @@ readStringFromMemory addr count = do
       pure $ fromIntegral (byte .&. 0xFF)
   pure $ P.map chr $ takeWhile (/= 0) bytes
 
--- | Called on each step of the ELF execution, returning whether to continue execution and optional syscall return.
-type Instrument f m = Core.Input f -> Core.State f -> Core.Output f -> Int -> m (Bool, Maybe (f Types.Word))
+-- | Called when the core halts with a syscall. Return the value to write to a0, or Nothing to truly exit.
+type Instrument f m = Core.State f -> m (Maybe (f Types.Word))
 
-runElf :: forall f m. (MonadMemory m) => Instrument f m -> CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m ()
-runElf instr c = watchWithStep (0 :: Int) c
+runElf :: forall f m. (Access f, MonadMemory m) => Instrument f m -> CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m ()
+runElf instr c = go c
   where
-    watchWithStep stepCount sim@(CircuitSim i s step next) = do
+    go sim@(CircuitSim i s step next) = do
       (s', o) <- step i s
-      mi' <- next o
-      (cont, mRet) <- instr i s' o stepCount
-      case mi' of
-        Just i' | cont -> do
-          let i'' = case mRet of
-                      Just ret -> i' { Core.inputMem = ret }
-                      Nothing -> i'
-          watchWithStep (stepCount + 1) $ sim {circuitInput = i'', circuitState = s'}
-        _ -> pure ()
+      case Core.stateHalt s' of
+        Core.Running -> do
+          mi' <- next s' o
+          case mi' of
+            Just i' -> go $ sim {circuitInput = i', circuitState = s'}
+            Nothing -> pure ()
+        Core.Syscall -> do
+          mRet <- instr s'
+          case mRet of
+            Nothing -> pure ()
+            Just ret -> do
+              let s'' = s' {Core.stateHalt = Core.Running,
+                            Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+              mi' <- next s'' o
+              case mi' of
+                Just i' -> go $ sim {circuitInput = i', circuitState = s''}
+                Nothing -> pure ()
+        Core.EBreak -> pure ()
+        Core.SecurityViolation -> pure ()

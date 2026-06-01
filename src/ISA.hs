@@ -22,7 +22,7 @@ where
 
 import Access
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
-import Core
+import Core hiding (Syscall)
 import Data.Functor.Identity
 import Data.Maybe (catMaybes)
 import Data.Set (Set)

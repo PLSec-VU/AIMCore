@@ -82,11 +82,7 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 -- | The output of the CPU.
 data Output f = Output
   { -- | A memory access.
-    outMem :: First (MemAccess f),
-    -- | A syscall request.
-    outSyscall :: First Bool,
-    -- | Are we done?
-    outHalt :: First Bool
+    outMem :: First (MemAccess f)
   }
 
 deriving instance (Show (f Word)) => Show (Output f)
@@ -96,14 +92,14 @@ deriving instance Generic (Output f)
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
 
 instance Semigroup (Output f) where
-  Output mem syscall hlt <> Output mem' syscall' hlt' =
-    Output (mem <> mem') (syscall <> syscall') (hlt <> hlt')
+  Output mem <> Output mem' =
+    Output (mem <> mem')
 
 instance Monoid (Output f) where
-  mempty = Output mempty mempty mempty
+  mempty = Output mempty
 
 -- | CPU halt state
-data HaltState = Running | EBreak | SecurityViolation
+data HaltState = Running | EBreak | Syscall | SecurityViolation
   deriving (Show, Eq, Generic)
 
 instance NFDataX HaltState
@@ -238,10 +234,15 @@ withCtrlReset m = do
   ctrl <- gets stateCtrl
   pure ctrl
 
--- | Stop the CPU.
+-- | Stop the CPU due to ebreak.
 halt :: CPUM f ()
 halt =
   modify $ \s -> s {stateHalt = EBreak}
+
+-- | Stop the CPU due to syscall.
+setSyscall :: CPUM f ()
+setSyscall =
+  modify $ \s -> s {stateHalt = Syscall}
 
 -- | Set security violation flag.
 setSecurityViolation :: CPUM f ()
@@ -492,7 +493,7 @@ memory = do
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.IType (Env Call) _ _ _ -> do
-      halt
+      setSyscall
     Instruction.IType (Env Break) _ _ _ -> do
       halt
     Instruction.Nop Halted -> do
@@ -576,8 +577,3 @@ writeRAM addr size val =
                 memVal = Just val
               }
       }
-
-readSyscall :: (MonadWriter (Output f) m) => m ()
-readSyscall =
-  tell $
-    (mempty :: Output f) {outSyscall = pure True}
