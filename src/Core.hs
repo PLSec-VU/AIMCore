@@ -121,13 +121,13 @@ data State f = State
     -- | Instruction register memory stage
     stateMeInstr :: Instruction,
     -- | ALU result register memory stage
-    stateMeRes :: f Word,
-    -- | Memory value to write for stores (`stateMeRes` only contains the address).
-    stateMeVal :: f Word,
+    stateMeAluRes :: f Word,
+    -- | Memory value to write for stores (`stateMeAluRes` only contains the address).
+    stateMeStoreRes :: f Word,
     -- | Instruction register writeback stage
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
-    stateWbRes :: f Word,
+    stateWbAluRes :: f Word,
     -- | Register file
     stateRegFile :: RegFile f,
     -- | Control/forwarding lines.
@@ -213,10 +213,10 @@ init =
       stateExPc = 0,
       stateExInstr = Nop FirstCycle,
       stateMeInstr = Nop FirstCycle,
-      stateMeRes = pure 0,
-      stateMeVal = pure 0,
+      stateMeAluRes = pure 0,
+      stateMeStoreRes = pure 0,
       stateWbInstr = Nop FirstCycle,
-      stateWbRes = pure 0,
+      stateWbAluRes = pure 0,
       stateRegFile = initRF,
       stateCtrl = initCtrl,
       stateHalt = Running
@@ -340,7 +340,7 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s {stateMeInstr = ir, stateMeVal = pure 0}
+  modify $ \s -> s {stateMeInstr = ir, stateMeStoreRes = pure 0}
   setLines $ \c -> c {ctrlExInstr = Just ir}
 
   -- Fetch alu operands
@@ -350,7 +350,7 @@ execute = do
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
-     in s {stateMeRes = res}
+     in s {stateMeAluRes = res}
   where
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
@@ -371,7 +371,7 @@ execute = do
           r1 <- rs1
           r2 <- rs2
           let imm' = signExtend imm
-          modify $ \s -> s {stateMeVal = r2}
+          modify $ \s -> s {stateMeStoreRes = r2}
           pure (ADD, r1, pure imm')
         Instruction.BType cmp imm _ _ -> do
           r1 <- rs1
@@ -472,11 +472,11 @@ branch op lhs rhs = case op of
 memory :: (Access f) => CPUM f ()
 memory = do
   ir <- gets stateMeInstr
-  res <- gets stateMeRes
-  val <- gets stateMeVal
+  res <- gets stateMeAluRes
+  val <- gets stateMeStoreRes
 
   modify $ \s ->
-    s {stateWbInstr = ir, stateWbRes = res}
+    s {stateWbInstr = ir, stateWbAluRes = res}
 
   -- Default register forwarding.
   setLines $ \c -> c {ctrlMeRegFwd = Nothing}
@@ -511,7 +511,7 @@ memory = do
 writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
   ir <- gets stateWbInstr
-  res <- gets stateWbRes
+  res <- gets stateWbAluRes
   input <- asks inputMem
 
   haltState <- gets stateHalt
