@@ -119,11 +119,11 @@ data State f = State
     -- | Instruction register execute stage
     stateExInstr :: Instruction,
     -- | Instruction register memory stage
-    stateMemInstr :: Instruction,
+    stateMeInstr :: Instruction,
     -- | ALU result register memory stage
-    stateMemRes :: f Word,
-    -- | Memory value to write for stores (`stateMemRes` only contains the address).
-    stateMemVal :: f Word,
+    stateMeRes :: f Word,
+    -- | Memory value to write for stores (`stateMeRes` only contains the address).
+    stateMeVal :: f Word,
     -- | Instruction register writeback stage
     stateWbInstr :: Instruction,
     -- | ALU result register writeback stage
@@ -212,9 +212,9 @@ init =
       stateDePc = 0,
       stateExPc = 0,
       stateExInstr = Nop FirstCycle,
-      stateMemInstr = Nop FirstCycle,
-      stateMemRes = pure 0,
-      stateMemVal = pure 0,
+      stateMeInstr = Nop FirstCycle,
+      stateMeRes = pure 0,
+      stateMeVal = pure 0,
       stateWbInstr = Nop FirstCycle,
       stateWbRes = pure 0,
       stateRegFile = initRF,
@@ -340,7 +340,7 @@ decode = do
 execute :: forall f. (Access f) => CPUM f ()
 execute = do
   ir <- gets stateExInstr
-  modify $ \s -> s {stateMemInstr = ir, stateMemVal = pure 0}
+  modify $ \s -> s {stateMeInstr = ir, stateMeVal = pure 0}
   setLines $ \c -> c {ctrlExInstr = Just ir}
 
   -- Fetch alu operands
@@ -350,7 +350,7 @@ execute = do
     let aluNOP = (ADD, pure 0, pure 0)
         (op, lhs, rhs) = fromMaybe aluNOP aluInputs
         res = alu op lhs rhs
-     in s {stateMemRes = res}
+     in s {stateMeRes = res}
   where
     fetchALUOperands :: Instruction -> MaybeT (CPUM f) (Arith, f Word, f Word)
     fetchALUOperands ir =
@@ -371,7 +371,7 @@ execute = do
           r1 <- rs1
           r2 <- rs2
           let imm' = signExtend imm
-          modify $ \s -> s {stateMemVal = r2}
+          modify $ \s -> s {stateMeVal = r2}
           pure (ADD, r1, pure imm')
         Instruction.BType cmp imm _ _ -> do
           r1 <- rs1
@@ -471,9 +471,9 @@ branch op lhs rhs = case op of
 
 memory :: (Access f) => CPUM f ()
 memory = do
-  ir <- gets stateMemInstr
-  res <- gets stateMemRes
-  val <- gets stateMemVal
+  ir <- gets stateMeInstr
+  res <- gets stateMeRes
+  val <- gets stateMeVal
 
   modify $ \s ->
     s {stateWbInstr = ir, stateWbRes = res}
@@ -525,7 +525,7 @@ writeback = do
     -- Flush the pipeline
     modify $ \s ->
       s
-        { stateMemInstr = nop,
+        { stateMeInstr = nop,
           stateExInstr = nop
         }
     readRAM 0 Types.Word
