@@ -281,8 +281,7 @@ fetch = do
 decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
-  ctrl <- gets stateCtrl
-  status <- gets stateHalt
+  ctrl <- gets stateCtrl  
 
   ir <-
     if (inputIsInstr input)
@@ -294,6 +293,7 @@ decode = do
   let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
+  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
 
   let ir'
         -- If a branch was taken in this cycle, we stall.
@@ -309,7 +309,7 @@ decode = do
         -- If a break is executed in this cycle, we halt.
         | break_current_cycle = Nop Halted
         -- If the core is not running anymore, we halt.
-        | status /= Running = Nop Halted
+        | halted = Nop Halted
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
 
@@ -395,10 +395,8 @@ execute = do
             PC -> gets $ pack . stateExPc
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
-        Instruction.IType (Env Call) _ _ _ ->
-          lift setSyscall >> empty
-        Instruction.IType (Env Break) _ _ _ ->
-          lift halt >> empty
+        Instruction.IType (Env Call) _ _ _ -> empty
+        Instruction.IType (Env Break) _ _ _ -> empty
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
@@ -492,6 +490,10 @@ memory = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
+    Instruction.IType (Env Call) _ _ _ ->
+      setSyscall
+    Instruction.IType (Env Break) _ _ _ ->
+      halt
     _ -> pure ()
 
 -- | Commit computations to the register file.
