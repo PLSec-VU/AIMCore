@@ -231,12 +231,11 @@ withCtrlReset :: CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
   modify $ \s -> s {stateCtrl = initCtrl}
   m
-  ctrl <- gets stateCtrl
-  pure ctrl
+  gets stateCtrl
 
 -- | Stop the CPU due to ebreak.
-halt :: CPUM f ()
-halt =
+setEBreak :: CPUM f ()
+setEBreak =
   modify $ \s -> s {stateHalt = EBreak}
 
 -- | Stop the CPU due to syscall.
@@ -258,7 +257,7 @@ fetch = do
   -- Always try to read unless the instruction in the `memory` stage is a load or a store.
   unless (ctrlMeMemInstr ctrl) $
     readPC pc
-  
+
   -- We stall if the instruction in the `memory` stage is a load or a store.
   let stall = ctrlMeMemInstr ctrl
 
@@ -285,7 +284,7 @@ decode = do
   status <- gets stateHalt
 
   ir <-
-    if (inputIsInstr input)
+    if inputIsInstr input
       then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
@@ -396,9 +395,9 @@ execute = do
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
         Instruction.IType (Env Call) _ _ _ ->
-          lift halt >> empty
+          lift setEBreak >> empty
         Instruction.IType (Env Break) _ _ _ ->
-          lift halt >> empty
+          lift setEBreak >> empty
         Instruction.Nop _ -> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
@@ -494,10 +493,6 @@ memory = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.IType (Env Call) _ _ _ -> do
       setSyscall
-    Instruction.IType (Env Break) _ _ _ -> do
-      halt
-    Instruction.Nop Halted -> do
-      halt    
     _ -> pure ()
 
 -- | Commit computations to the register file.
@@ -506,7 +501,6 @@ writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbAluRes
-  status <- gets stateHalt
 
   case ir of
     Instruction.RType _ rd _ _ -> do
