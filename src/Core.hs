@@ -396,7 +396,7 @@ execute = do
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
         Instruction.IType (Env Call) _ _ _ ->
-          lift setSyscall >> empty
+          lift halt >> empty
         Instruction.IType (Env Break) _ _ _ ->
           lift halt >> empty
         Instruction.Nop _ -> empty
@@ -492,6 +492,12 @@ memory = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
+    Instruction.IType (Env Call) _ _ _ -> do
+      setSyscall
+    Instruction.IType (Env Break) _ _ _ -> do
+      halt
+    Instruction.Nop Halted -> do
+      halt    
     _ -> pure ()
 
 -- | Commit computations to the register file.
