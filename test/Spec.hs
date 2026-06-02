@@ -309,7 +309,11 @@ instance (Arbitrary a) => Arbitrary (PubSec a) where
   arbitrary = oneof [Public <$> arbitrary, Secret <$> arbitrary]
 
 instance Arbitrary Core.HaltState where
-  arbitrary = elements [Core.Running, Core.EBreak, Core.SecurityViolation]
+  arbitrary = oneof
+    [ Core.EBreak <$> arbitrary
+    , Core.Syscall <$> arbitrary
+    , pure Core.SecurityViolation
+    ]
 
 instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
   arbitrary = do
@@ -320,6 +324,7 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
   arbitrary =
     Core.State
       <$> arbitrary
+      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary

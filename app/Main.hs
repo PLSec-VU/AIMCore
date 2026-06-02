@@ -22,7 +22,7 @@ import System.Exit (exitWith, ExitCode(..))
 import Types (Word)
 import Util
 import System.IO
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Prelude as P
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (++), (||), replicate, zip, take)
 import Data.Traversable
@@ -241,10 +241,10 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
           (s', o) <- step i s
           let halted = Core.stateHalt s'
           (mi', sysExit) <- case halted of
-            Core.Running -> do
+            Nothing -> do
               mi'' <- next s' o
               pure (mi'', False)
-            Core.Syscall -> do
+            Just (Core.Syscall resumePc) -> do
               -- Handle syscall, write return value to a0, resume
               let serialize = if idx == 0
                     then BS.toStrict . encode
@@ -254,7 +254,9 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
               case mRet of
                 Nothing -> pure (Nothing, True)  -- exit
                 Just ret -> do
-                  let s'' = s' {Core.stateHalt = Core.Running,
+                  let s'' = s' {Core.stateHalt = Nothing,
+                                Core.stateFePc = resumePc,
+                                Core.stateDePc = resumePc,
                                 Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
                   mi'' <- next s'' o
                   pure (mi'', False)
@@ -270,7 +272,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
           { stepMem = mem
           , stepSim = newSim
           , stepNextInput = mi'
-          , stepContinue = not sysExit && (halted == Core.Running || halted == Core.Syscall)
+          , stepContinue = not sysExit && (isNothing halted || (\case { Just (Core.Syscall _) -> True; _ -> False }) halted)
           , stepFinalState = s'
           , stepLeakage = leakOutput
           }
@@ -336,7 +338,7 @@ runExecutable opts@Options{..} = do
                 }
           finalState <- readIORef finalStateRef
           case finalState of
-            Just state | Core.stateHalt state == Core.SecurityViolation -> do
+            Just state | Core.stateHalt state == Just Core.SecurityViolation -> do
               putStrLn "Program aborted due to security violation"
             _ -> pure ()
         else do
