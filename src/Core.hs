@@ -502,7 +502,6 @@ writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbAluRes
-  status <- gets stateHalt
 
   case ir of
     Instruction.RType _ rd _ _ -> do
