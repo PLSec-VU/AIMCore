@@ -22,6 +22,7 @@ module Instruction
     isCall,
     isNopBranchFirstCycle,
     isNopLoadHazardFirstCycle,
+    isNopHalted,
     break,
     loadHazard,
     isLoad,
