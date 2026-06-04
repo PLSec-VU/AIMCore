@@ -6,6 +6,7 @@ import Control.Exception (catch, throwIO, Exception)
 import Control.Monad (when, forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
+import Instruction (Instruction(Nop), Reason4Stall(FirstCycle))
 import Data.Functor.Identity
 import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
@@ -257,7 +258,10 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
                   let s'' = s' {Core.stateHalt = Nothing,
                                 Core.stateFePc = resumePc,
                                 Core.stateDePc = resumePc,
-                                Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+                                Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s'),
+                                Core.stateExInstr = Nop FirstCycle,
+                                Core.stateMeInstr = Nop FirstCycle,
+                                Core.stateWbInstr = Nop FirstCycle}
                   mi'' <- next s'' o
                   pure (mi'', False)
             _ -> pure (Nothing, False)  -- EBreak, SecurityViolation: stop

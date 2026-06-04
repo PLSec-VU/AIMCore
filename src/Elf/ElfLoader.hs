@@ -15,6 +15,7 @@ import Clash.Explicit.Prelude.Safe ((.&.))
 import Control.Monad (forM_, forM)
 import Control.Monad.Catch
 import qualified Core
+import Instruction (Instruction(Nop), Reason4Stall(FirstCycle))
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BS
 import Data.Char (chr)
@@ -115,7 +116,10 @@ runElf instr c = go c
               let s'' = s' {Core.stateHalt = Nothing,
                             Core.stateFePc = resumePc,
                             Core.stateDePc = resumePc,
-                            Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+                            Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s'),
+                            Core.stateExInstr = Nop FirstCycle,
+                            Core.stateMeInstr = Nop FirstCycle,
+                            Core.stateWbInstr = Nop FirstCycle}
               mi' <- next s'' o
               case mi' of
                 Just i' -> go $ sim {circuitInput = i', circuitState = s''}
