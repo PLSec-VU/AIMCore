@@ -250,7 +250,7 @@ fetch = do
   status <- gets stateHalt
   pending <- gets stateHaltPending
 
-  et isHalted = isJust status || isJust pending
+  let isHalted = isJust status || isJust pending
 
   -- Always try to read unless the instruction in the `memory` stage is a load or a store.
   unless (ctrlMeMemInstr ctrl || isHalted) $
