@@ -279,8 +279,6 @@ decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
   ctrl <- gets stateCtrl
-  status <- gets stateHalt
-  pending <- gets stateHaltPending
 
   ir <-
     if inputIsInstr input
