@@ -292,6 +292,7 @@ decode = do
   let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
+  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
 
   let ir'
         -- If a branch was taken in this cycle, we stall.
@@ -307,7 +308,7 @@ decode = do
         -- If a break is executed in this cycle, we halt.
         | break_current_cycle = Nop Halted
         -- If the core is not running anymore, we halt.
-        | isJust status || isJust pending = Nop Halted
+        | halted = Nop Halted
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
 
