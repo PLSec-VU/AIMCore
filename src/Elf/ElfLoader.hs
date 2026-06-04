@@ -113,7 +113,6 @@ runElf instr c = go c
             Nothing -> pure ()
             Just ret -> do
               let s'' = Core.init {Core.stateFePc = resumePc,
-                                   Core.stateDePc = resumePc,
                                    Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
               mi' <- next s'' o
               case mi' of
