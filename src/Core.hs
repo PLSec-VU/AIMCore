@@ -247,17 +247,13 @@ fetch :: CPUM f ()
 fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
-  status <- gets stateHalt
-  pending <- gets stateHaltPending
 
-  let isHalted = isJust status || isJust pending
-
-  -- Always try to read unless the instruction in the `memory` stage is a load or a store, or the core is halting/halted.
-  unless (ctrlMeMemInstr ctrl || isHalted) $
+  -- Always try to read unless the instruction in the `memory` stage is a load or a store.
+  unless (ctrlMeMemInstr ctrl) $
     readPC pc
-
-  -- We stall if the instruction in the `memory` stage is a load or a store, or the core is halting/halted.
-  let stall = ctrlMeMemInstr ctrl || isHalted
+  
+  -- We stall if the instruction in the `memory` stage is a load or a store.
+  let stall = ctrlMeMemInstr ctrl
 
   let next_pc =
         fromMaybe
