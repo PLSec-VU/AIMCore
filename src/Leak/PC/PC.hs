@@ -105,6 +105,7 @@ proj s = (ts, ss)
           Sim.stateMemInstr = killJump $ toLeakInstr $ Core.stateMeInstr s,
           Sim.stateWbInstr = killJump $ toLeakInstr $ Core.stateWbInstr s,
           Sim.stateHalt = Core.stateHalt s,
+          Sim.stateHaltPending = Core.stateHaltPending s,
           Sim.stateMeMemInstr = Core.ctrlMeMemInstr $ Core.stateCtrl s,
           Sim.stateJumpAddr = Core.ctrlExAddress $ Core.stateCtrl s,
           Sim.stateDeLoadHazard = Core.ctrlDeLoadHazard $ Core.stateCtrl s,

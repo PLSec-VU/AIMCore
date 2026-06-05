@@ -20,6 +20,7 @@ import Control.Monad.State
 import Core hiding (State)
 import qualified Core
 import Data.Functor.Identity
+import Data.Maybe (isJust)
 import Data.Monoid
 import Memory.Types
 import Memory.Vec
@@ -42,7 +43,7 @@ simulator =
     next :: Core.State f -> Output f -> m (Maybe (Input f))
     next s (Output mem) = do
       (mem_in, mem_instr) <- doMemory
-      if Core.stateHalt s /= Core.Running
+      if isJust (Core.stateHalt s)
         then pure Nothing
         else pure $
           Just $

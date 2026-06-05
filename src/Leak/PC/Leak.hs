@@ -77,7 +77,7 @@ data State = State
     stateWbRes :: Word,
     stateRegFile :: RegFile Identity,
     stateMeMemInstr :: Bool,
-    stateHalt :: HaltState,
+    stateHalt :: Maybe HaltState,
     stateMeRegFwd :: Maybe (RegIdx, Word),
     stateWbRegFwd :: Maybe (RegIdx, Word),
     stateJumpAddr :: Maybe Address,
@@ -101,7 +101,7 @@ init =
       stateWbRes = 0,
       stateRegFile = initRF,
       stateMeMemInstr = False,
-      stateHalt = Running,
+      stateHalt = Nothing,
       stateMeRegFwd = Nothing,
       stateWbRegFwd = Nothing,
       stateJumpAddr = Nothing,
@@ -202,7 +202,7 @@ decode = do
         -- Otherwise we process the decoded instruction.
         else instr
 
-  when isSecretInstr $ modify $ \s -> s {stateHalt = SecurityViolation}
+  when isSecretInstr $ modify $ \s -> s {stateHalt = Just SecurityViolation}
 
   let rs1Idx = fromMaybe 0 $ Instr.getRs1 ir'
   let rs2Idx = fromMaybe 0 $ Instr.getRs2 ir'
@@ -307,7 +307,7 @@ execute = do
           informJumpAddr addr
           tell $ mempty { outJumpAddrValid = pure True }
         _ -> unless (isPublic (interpAddr interp_res)) $
-               modify $ \s -> s {stateHalt = SecurityViolation}
+               modify $ \s -> s {stateHalt = Just SecurityViolation}
     Instr.BType {} ->
       case (fromPublic (interpAddr interp_res), interpBranched interp_res) of
         (Just mAddr, Just branched) ->
@@ -315,19 +315,19 @@ execute = do
             Just True -> do
               case mAddr of
                 Just addr -> informJumpAddr addr
-                Nothing -> modify $ \s -> s {stateHalt = SecurityViolation}
+                Nothing -> modify $ \s -> s {stateHalt = Just SecurityViolation}
               tell $ mempty { outBranchTaken = pure True }
             Just False -> tell $ mempty { outBranchTaken = pure False }
-            Nothing -> modify $ \s -> s {stateHalt = SecurityViolation}
+            Nothing -> modify $ \s -> s {stateHalt = Just SecurityViolation}
         _ -> unless (isPublic (interpAddr interp_res)) $
-               modify $ \s -> s {stateHalt = SecurityViolation}
+               modify $ \s -> s {stateHalt = Just SecurityViolation}
     Instr.JType _ _ ->
       case fromPublic (interpAddr interp_res) of
         Just (Just addr) -> do
           informJumpAddr addr
           tell $ mempty { outJumpAddrValid = pure True }
         _ -> unless (isPublic (interpAddr interp_res)) $
-               modify $ \s -> s {stateHalt = SecurityViolation}
+               modify $ \s -> s {stateHalt = Just SecurityViolation}
     Instr.SType {} -> do
       r2Val <- unAccess <$> r2M
       modify $ \s -> s { stateMemVal = r2Val }
@@ -369,7 +369,7 @@ memory = do
       modify $ \s -> s {stateMeRegFwd = Nothing}
       if isSecretAddr
         then do
-          modify $ \s -> s {stateHalt = SecurityViolation}
+          modify $ \s -> s {stateHalt = Just SecurityViolation}
           tell $ mempty {outMeMemInstr = pure False}
         else setMeMemInstr
     Instr.IType (Instr.Env Instr.Call) _ _ _ -> do
@@ -378,7 +378,7 @@ memory = do
     Instr.SType {} -> do
       if isSecretAddr
         then do
-          modify $ \s -> s {stateHalt = SecurityViolation}
+          modify $ \s -> s {stateHalt = Just SecurityViolation}
           tell $ mempty {outMeMemInstr = pure False}
         else setMeMemInstr
     _ -> pure ()
@@ -396,7 +396,7 @@ writeback = do
   stateHalted <- gets stateHalt
   res <- gets stateWbRes
 
-  when (stateHalted /= Running) $ do
+  when (isJust stateHalted) $ do
     outputNothing
     tell $ mempty { outHalt = pure True }
 
@@ -405,7 +405,7 @@ writeback = do
       s
         { stateMemInstr = Instr.nop,
           stateExInstr = Instr.nop,
-          stateHalt = EBreak
+          stateHalt = Just (EBreak 0)
         }
     outputNothing
 

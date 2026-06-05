@@ -22,6 +22,7 @@ module Instruction
     isCall,
     isNopBranchFirstCycle,
     isNopLoadHazardFirstCycle,
+    isNopHalted,
     break,
     loadHazard,
     isLoad,
@@ -449,6 +450,10 @@ isNopBranchFirstCycle _ = False
 isNopLoadHazardFirstCycle :: Instruction -> Bool
 isNopLoadHazardFirstCycle (Nop LoadHazardFirstCycle) = True
 isNopLoadHazardFirstCycle _ = False
+
+isNopHalted :: Instruction -> Bool
+isNopHalted (Nop Halted) = True
+isNopHalted _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0

@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 module Core
   ( initInput,
@@ -80,7 +81,7 @@ deriving instance Generic (MemAccess f)
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 
 -- | The output of the CPU.
-data Output f = Output
+newtype Output f = Output
   { -- | A memory access.
     outMem :: First (MemAccess f)
   }
@@ -99,7 +100,7 @@ instance Monoid (Output f) where
   mempty = Output mempty
 
 -- | CPU halt state
-data HaltState = Running | EBreak | Syscall | SecurityViolation
+data HaltState = EBreak Address | Syscall Address | SecurityViolation
   deriving (Show, Eq, Generic)
 
 instance NFDataX HaltState
@@ -129,7 +130,9 @@ data State f = State
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state
-    stateHalt :: HaltState
+    stateHalt :: Maybe HaltState,
+    -- | Pending halt state (propagating through pipeline to ensure flush)
+    stateHaltPending :: Maybe HaltState
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -175,7 +178,7 @@ setLines f = modify $ \s -> s {stateCtrl = f (stateCtrl s)}
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
 noSecrets' :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
-noSecrets' w a m = noSecrets w (setSecurityViolation >> pure a) m
+noSecrets' w a = noSecrets w (setSecurityViolation >> pure a)
 
 -- | Run the CPU for one step.
 circuit :: (Access f) => State f -> Input f -> (State f, Output f)
@@ -211,7 +214,8 @@ init =
       stateWbAluRes = pure 0,
       stateRegFile = initRF,
       stateCtrl = initCtrl,
-      stateHalt = Running
+      stateHalt = Nothing,
+      stateHaltPending = Nothing
     }
 
 -- | Initial control lines.
@@ -231,23 +235,12 @@ withCtrlReset :: CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
   modify $ \s -> s {stateCtrl = initCtrl}
   m
-  ctrl <- gets stateCtrl
-  pure ctrl
-
--- | Stop the CPU due to ebreak.
-halt :: CPUM f ()
-halt =
-  modify $ \s -> s {stateHalt = EBreak}
-
--- | Stop the CPU due to syscall.
-setSyscall :: CPUM f ()
-setSyscall =
-  modify $ \s -> s {stateHalt = Syscall}
+  gets stateCtrl
 
 -- | Set security violation flag.
 setSecurityViolation :: CPUM f ()
 setSecurityViolation =
-  modify $ \s -> s {stateHalt = SecurityViolation}
+  modify $ \s -> s {stateHalt = Just SecurityViolation}
 
 -- | The fetch stage.
 fetch :: CPUM f ()
@@ -274,7 +267,7 @@ fetch = do
     s -- Increment program counter for next fetch.
       { stateFePc = next_pc,
         -- Propagate program counter to next stage.
-        stateDePc = pc
+        stateDePc = if stall then stateDePc s else pc
       }
 
 -- | Decode stage.
@@ -282,10 +275,9 @@ decode :: (Access f) => CPUM f ()
 decode = do
   input <- ask
   ctrl <- gets stateCtrl
-  status <- gets stateHalt
 
   ir <-
-    if (inputIsInstr input)
+    if inputIsInstr input
       then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
@@ -294,6 +286,7 @@ decode = do
   let load_hazard_first_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
+  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
 
   let ir'
         -- If a branch was taken in this cycle, we stall.
@@ -309,7 +302,7 @@ decode = do
         -- If a break is executed in this cycle, we halt.
         | break_current_cycle = Nop Halted
         -- If the core is not running anymore, we halt.
-        | status /= Running = Nop Halted
+        | halted = Nop Halted
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
 
@@ -395,11 +388,17 @@ execute = do
             PC -> gets $ pack . stateExPc
           let imm' = imm ++# (0 :: BitVector 12)
           pure (ADD, pure base', pure imm')
-        Instruction.IType (Env Call) _ _ _ ->
-          lift halt >> empty
-        Instruction.IType (Env Break) _ _ _ ->
-          lift halt >> empty
+        Instruction.IType (Env Call) _ _ _ -> do
+          pc <- gets stateExPc
+          pendingHalt (Syscall (pc + 4))
+        Instruction.IType (Env Break) _ _ _ -> do
+          pc <- gets stateExPc
+          pendingHalt (EBreak (pc + 4))
         Instruction.Nop _ -> empty
+
+    pendingHalt :: HaltState -> MaybeT (CPUM f) a
+    pendingHalt hState = do
+      lift (modify $ \s -> s {stateHaltPending = Just hState}) >> empty
 
     rs1 :: MaybeT (CPUM f) (f Word)
     rs1 = do
@@ -464,6 +463,11 @@ memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeAluRes
   val <- gets stateMeStoreRes
+  pending <- gets stateHaltPending
+
+  case pending of
+    Just hlt -> modify $ \s -> s {stateHalt = Just hlt, stateHaltPending = Nothing}
+    Nothing -> pure ()
 
   modify $ \s ->
     s {stateWbInstr = ir, stateWbAluRes = res}
@@ -492,12 +496,6 @@ memory = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
-    Instruction.IType (Env Call) _ _ _ -> do
-      setSyscall
-    Instruction.IType (Env Break) _ _ _ -> do
-      halt
-    Instruction.Nop Halted -> do
-      halt    
     _ -> pure ()
 
 -- | Commit computations to the register file.
@@ -506,7 +504,6 @@ writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbAluRes
-  status <- gets stateHalt
 
   case ir of
     Instruction.RType _ rd _ _ -> do

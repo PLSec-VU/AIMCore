@@ -17,7 +17,7 @@ import Control.Monad
 import Core (Input (..), MemAccess (..), Output (..))
 import qualified Core
 import Data.Functor.Identity
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Monoid
 import qualified Leak.MonitorPC.MonitorLeak as Leak
 import qualified Leak.MonitorPC.Sim as Sim
@@ -43,7 +43,7 @@ proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
 proj s = (ts, ss)
   where
     ts = Leak.leakProject Leak.monitorPC s
-    halted = Core.stateHalt s /= Core.Running
+    halted = isJust (Core.stateHalt s)
     ss =
       Sim.State
         { Sim.stateFePc = if halted then 0 else Core.stateFePc s,
@@ -58,7 +58,7 @@ proj s = (ts, ss)
           Sim.stateStallFetch = not halted && toStallFetch (Core.stateCtrl s),
           Sim.stateStallDecode = not halted && toStallDecode (Core.stateCtrl s),
           Sim.stateJumpAddr = if halted then Nothing else Core.ctrlExAddress $ Core.stateCtrl s,
-          Sim.stateFirstCycle = not halted && Core.stateHalt s == Core.Running
+          Sim.stateFirstCycle = not halted && isNothing (Core.stateHalt s)
         }
 
     killJump :: Leak.Instr -> Leak.Instr
