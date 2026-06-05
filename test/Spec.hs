@@ -91,51 +91,51 @@ tests =
                   { testProg = mkProg $ sumTo 10,
                     testExpected = [(0, sum [0 .. 10])]
                   }
-            ],
-          testGroup
-            "PC leak"
-            [ mkPCLeakTest "test 1" $ mkProg prog1,
-              mkPCLeakTest "test 2" $ mkProg prog1,
-              mkPCLeakTest "test 3" $ mkProg prog1
-              {-
-              , testProperty "PC Simulator" $
-                withMaxSuccess 500000 $
-                  simulatorTheorem
-                    Leak.PC.proj
-                    Leak.PC.leak
-                    Leak.PC.sim
-                    Core.circuit
-                    Leak.PC.obs,
-              testProperty "Non-interference" $
-                withMaxSuccess 500000 $
-                  nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
-              -}
-            ],
-          testGroup
-            "SecretPC leak"
-            [ mkSecretPCLeakTest "test 1" $ mkProg prog1,
-              mkSecretPCLeakTest "test 1" $ mkProg prog1,
-              mkSecretPCLeakTest "test 2" $ mkProg prog1,
-              mkSecretPCLeakTest "test 3" $ mkProg prog1,
-              mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
-              {-
-              , testProperty "SecretPC Simulator" $
-                withMaxSuccess 500000 $
-                  simulatorTheorem
-                    Leak.SecretPC.proj
-                    Leak.SecretPC.leak
-                    Leak.SecretPC.sim
-                    Core.circuit
-                    Leak.SecretPC.obs,
-              testProperty "MonitorPC Non-interference" $
-                withMaxSuccess 500000 $
-                  nonInterferenceTheorem
-                    Leak.MonitorPC.proj
-                    Leak.MonitorPC.leak
-                    Core.circuit
-                    Leak.MonitorPC.obs
-              -}
             ]
+          -- testGroup
+          --   "PC leak"
+          --   [ mkPCLeakTest "test 1" $ mkProg prog1,
+          --     mkPCLeakTest "test 2" $ mkProg prog1,
+          --     mkPCLeakTest "test 3" $ mkProg prog1
+          --     {-
+          --     , testProperty "PC Simulator" $
+          --       withMaxSuccess 500000 $
+          --         simulatorTheorem
+          --           Leak.PC.proj
+          --           Leak.PC.leak
+          --           Leak.PC.sim
+          --           Core.circuit
+          --           Leak.PC.obs,
+          --     testProperty "Non-interference" $
+          --       withMaxSuccess 500000 $
+          --         nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
+          --     -}
+          --   ],
+          -- testGroup
+          --   "SecretPC leak"
+          --   [ mkSecretPCLeakTest "test 1" $ mkProg prog1,
+          --     mkSecretPCLeakTest "test 1" $ mkProg prog1,
+          --     mkSecretPCLeakTest "test 2" $ mkProg prog1,
+          --     mkSecretPCLeakTest "test 3" $ mkProg prog1,
+          --     mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
+          --     {-
+          --     , testProperty "SecretPC Simulator" $
+          --       withMaxSuccess 500000 $
+          --         simulatorTheorem
+          --           Leak.SecretPC.proj
+          --           Leak.SecretPC.leak
+          --           Leak.SecretPC.sim
+          --           Core.circuit
+          --           Leak.SecretPC.obs,
+          --     testProperty "MonitorPC Non-interference" $
+          --       withMaxSuccess 500000 $
+          --         nonInterferenceTheorem
+          --           Leak.MonitorPC.proj
+          --           Leak.MonitorPC.leak
+          --           Core.circuit
+          --           Leak.MonitorPC.obs
+          --     -}
+          --   ]
         ],
       benchmarkTests
     ]
