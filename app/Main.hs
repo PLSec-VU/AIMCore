@@ -255,10 +255,9 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
                 Nothing -> pure (Nothing, True)  -- exit
                 Just ret -> do
                   let s'' = Core.init {Core.stateFePc = resumePc,
-                                       Core.stateDePc = resumePc,
                                        Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
-                  mi'' <- next s'' o
-                  pure (mi'', False)
+                  _ <- next s'' o
+                  pure (Just Core.initInput, False)
             _ -> pure (Nothing, False)  -- EBreak, SecurityViolation: stop
           pure (halted, s', mi', leakOutput, sysExit)
 
