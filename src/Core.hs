@@ -253,7 +253,7 @@ fetch = do
   let isHalted = isJust status || isJust pending
 
   -- Always try to read unless the instruction in the `memory` stage is a load or a store.
-  unless (ctrlMeMemInstr ctrl || isHalted) $
+  unless ctrlMeMemInstr ctrl $
     readPC pc
   
   -- We stall if the instruction in the `memory` stage is a load or a store.
