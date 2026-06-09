@@ -80,9 +80,8 @@ circuit (ts, ss) input = ((ts', ss'), addr)
 proj' :: Core.State PubSec -> SimState
 proj' s =
   s
-    { Core.stateMeAluRes = censor (Core.stateMeAluRes s),
-      Core.stateMeStoreRes = censor (Core.stateMeStoreRes s),
-      Core.stateWbAluRes = censor (Core.stateWbAluRes s),
+    { Core.stateMeRes = censor (Core.stateMeRes s),
+      Core.stateWbRes = censor (Core.stateWbRes s),
       Core.stateRegFile = let RegFile rf = Core.stateRegFile s in RegFile (Clash.Prelude.map censor rf),
       Core.stateCtrl =
         let c = Core.stateCtrl s
