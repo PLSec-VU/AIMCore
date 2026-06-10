@@ -481,7 +481,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
-memory :: CPUM f ()
+memory :: (Access f) => CPUM f ()
 memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
