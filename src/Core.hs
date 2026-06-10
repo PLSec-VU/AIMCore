@@ -2,6 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# OPTIONS_GHC -Wno-deriving-defaults #-}
 {- HLINT ignore "Functor law" -}
 
 module Core
@@ -62,7 +63,7 @@ deriving instance (Show (f Word)) => Show (Input f)
 
 deriving instance Generic (Input f)
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
+deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
 
 -- | A memory access
 data MemAccess f = MemAccess
@@ -79,7 +80,7 @@ deriving instance (Show (f Word)) => Show (MemAccess f)
 
 deriving instance Generic (MemAccess f)
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
+deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 
 -- | The output of the CPU.
 newtype Output f = Output
@@ -91,7 +92,7 @@ deriving instance (Show (f Word)) => Show (Output f)
 
 deriving instance Generic (Output f)
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
+deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
 
 instance Semigroup (Output f) where
   Output mem <> Output mem' =
@@ -142,7 +143,7 @@ deriving instance (Eq (f Word)) => Eq (State f)
 
 deriving instance Generic (State f)
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
+deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
 
 -- | Control lines.
 data Control f = Control
@@ -180,7 +181,7 @@ deriving instance (Eq (f Word)) => Eq (Control f)
 
 deriving instance Generic (Control f)
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
+deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
 
 type CPUM f = RWS (Input f) (Output f) (State f)
 
@@ -298,40 +299,40 @@ decode = do
       then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
-  let branch_current_cycle = isJust (ctrlExJumpAddr ctrl)
-  let branch_previous_cycle = maybe False isNopJumpFirstCycle (ctrlExInstr ctrl)
-
+  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
-  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
-  
-  let store_hazard_current_cycle =
-        (ctrlMeStoreAddr ctrl == Just pc) ||
-        (ctrlExStoreAddr ctrl == Just pc)
-  
-  let store_hazard_previous_cycle = maybe False isNopStoreHazardFirstCycle (ctrlExInstr ctrl)
-  let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
-  let load_hazard_previous_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
 
+  let jump_current_cycle = isJust (ctrlExJumpAddr ctrl)
+  let jump_previous_cycle = maybe False isNopJumpFirstCycle (ctrlExInstr ctrl)
+
+  let store_hazard_current_cycle =
+        (ctrlExStoreAddr ctrl == Just pc) ||
+        (ctrlMeStoreAddr ctrl == Just pc)
+  
+  let store_hazard_previous_cycle = maybe False isNopStoreHazardFirstCycle (ctrlExInstr ctrl)  
+  let load_hazard_previous_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
+  let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
+  
   let ir'
-        -- Stall if there is a jump in this cycle.
-        | branch_current_cycle = Nop JumpFirstCycle
-        -- Stall if there was a jump in the previous cycle.
-        | branch_previous_cycle = Nop JumpSecondCycle
-        -- Halt if a syscall is executed in this cycle.
-        | call_current_cycle = Nop Halted
-        -- Halt if a break is executed in this cycle.
-        | break_current_cycle = Nop Halted
         -- Halt if the core is not running anymore.
         | halted = Nop Halted
-        -- Stall if there is a store hazard in this cycle.
-        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
+        -- Halt if there is a syscall in this cycle.
+        | call_current_cycle = Nop Halted
+        -- Halt if there is a break in this cycle.
+        | break_current_cycle = Nop Halted
+        -- Stall if there was a jump in the previous cycle.
+        | jump_previous_cycle = Nop JumpSecondCycle
+        -- Stall if there is a jump in this cycle.
+        | jump_current_cycle = Nop JumpFirstCycle
         -- Stall if there was a store hazard in the previous cycle.
         | store_hazard_previous_cycle = Nop StoreHazardSecondCycle
-        -- Stall if there is a load hazard in this cycle.
-        | load_hazard_current_cycle = Nop LoadHazardFirstCycle
+        -- Stall if there is a store hazard in this cycle.
+        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
         -- Stall if there was a load hazard in the previous cycle.
         | load_hazard_previous_cycle = Nop LoadHazardSecondCycle
+        -- Stall if there is a load hazard in this cycle.
+        | load_hazard_current_cycle = Nop LoadHazardFirstCycle
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
 
@@ -392,14 +393,16 @@ execute = do
         when doBranch' $ do
           let imm' = signExtend imm
           let branchAddr = alu ADD (pure pc) (pure imm') :: f Word
-          setLines $ \c -> c {ctrlExJumpAddr = fromPublic $ unpack <$> branchAddr}
+          setLines $ \c ->
+            c {ctrlExJumpAddr = fromPublic $ unpack <$> branchAddr}
     Instruction.JType _ imm -> do
       pc <- gets $ pack . stateExPc
       let res = alu ADD (pure pc) (pure 4)
       modify $ \s -> s {stateMeRes = res}
       let imm' = signExtend imm
       let jumpAddr = alu ADD (pure pc) (pure imm') :: f Word
-      setLines $ \c -> c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
+      setLines $ \c ->
+        c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
     Instruction.IType Jump _ rs1 imm -> do
       r1 <- getFirstArg rs1
       pc <- gets $ pack . stateExPc
@@ -408,7 +411,8 @@ execute = do
       noSecrets' r1 () $ \r1' -> do
         let imm' = signExtend imm
         let jumpAddr = alu ADD (pure r1') (pure imm') :: f Word
-        setLines $ \c -> c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
+        setLines $ \c ->
+          c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
     Instruction.UType base _ imm -> do
       base' <-
         case base of
@@ -477,7 +481,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
-memory :: (Access f) => CPUM f ()
+memory :: CPUM f ()
 memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
@@ -486,10 +490,11 @@ memory = do
 
   case pending of
     Just hlt ->
-      modify $ \s -> s {stateHalt = Just hlt, stateHaltPending = Nothing}
+      modify $ \s ->
+        s {stateHalt = Just hlt, stateHaltPending = Nothing}
     Nothing -> pure ()
 
-  modify $ \s -> s { stateWbInstr = ir, stateWbRes = res }
+  modify $ \s -> s {stateWbInstr = ir, stateWbRes = res}
 
   -- Default register forwarding.
   setLines $ \c -> c {ctrlMeRegFwd = Nothing}
@@ -503,7 +508,8 @@ memory = do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readRAM addr size
     Instruction.SType size _ _ _ -> do
-      setLines $ \c -> c {ctrlMeMemInstr = True, ctrlMeStoreAddr = Just addr}
+      setLines $ \c ->
+        c {ctrlMeMemInstr = True, ctrlMeStoreAddr = Just addr}
       writeRAM addr size res
     Instruction.JType rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
