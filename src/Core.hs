@@ -63,7 +63,7 @@ deriving instance (Show (f Word)) => Show (Input f)
 
 deriving instance Generic (Input f)
 
-deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
 
 -- | A memory access
 data MemAccess f = MemAccess
@@ -80,7 +80,7 @@ deriving instance (Show (f Word)) => Show (MemAccess f)
 
 deriving instance Generic (MemAccess f)
 
-deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 
 -- | The output of the CPU.
 newtype Output f = Output
@@ -92,7 +92,7 @@ deriving instance (Show (f Word)) => Show (Output f)
 
 deriving instance Generic (Output f)
 
-deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
+deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
 
 instance Semigroup (Output f) where
   Output mem <> Output mem' =
