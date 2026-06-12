@@ -20,8 +20,9 @@ module Instruction
     getRs2,
     isBreak,
     isCall,
-    isNopBranchFirstCycle,
+    isNopJumpFirstCycle,
     isNopLoadHazardFirstCycle,
+    isNopStoreHazardFirstCycle,
     isNopHalted,
     break,
     loadHazard,
@@ -106,21 +107,25 @@ data IOperation
 
 -- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
 data Reason4Stall
-  = -- | We took a branch 1 cycle ago.
-    BranchFirstCycle
-  | -- | We took a branch 2 cycles ago.
-    BranchSecondCycle
-  | -- | A load hazard occurred 1 cycle ago.
+  = -- | First instruction discarded because of a jump.
+    JumpFirstCycle
+  | -- | Second instruction discarded because of a jump.
+    JumpSecondCycle
+  | -- | First instruction discarded because of a load hazard.
     LoadHazardFirstCycle
-  | -- | A load hazard occurred 2 cycles ago.
+  | -- | Second instruction discarded because of a load hazard.
     LoadHazardSecondCycle
+  | -- | First instruction discarded because of a store hazard.
+    StoreHazardFirstCycle
+  | -- | Second instruction discarded because of a store hazard.
+    StoreHazardSecondCycle
   | -- | No instruction read because of memory bus overload.
     MemoryBusBusy
-  | -- | First cycle.
-    FirstCycle
   | -- | Failed to decode an instruction.
     DecodeFail
-  | -- | PC has halted.
+  | -- | First cycle.
+    FirstCycle
+  | -- | The core has halted.
     Halted
   deriving (Eq, Show, Generic, NFDataX, Binary)
 
@@ -443,13 +448,17 @@ isStore :: Instruction -> Bool
 isStore (SType {}) = True
 isStore _ = False
 
-isNopBranchFirstCycle :: Instruction -> Bool
-isNopBranchFirstCycle (Nop BranchFirstCycle) = True
-isNopBranchFirstCycle _ = False
+isNopJumpFirstCycle :: Instruction -> Bool
+isNopJumpFirstCycle (Nop JumpFirstCycle) = True
+isNopJumpFirstCycle _ = False
 
 isNopLoadHazardFirstCycle :: Instruction -> Bool
 isNopLoadHazardFirstCycle (Nop LoadHazardFirstCycle) = True
 isNopLoadHazardFirstCycle _ = False
+
+isNopStoreHazardFirstCycle :: Instruction -> Bool
+isNopStoreHazardFirstCycle (Nop StoreHazardFirstCycle) = True
+isNopStoreHazardFirstCycle _ = False
 
 isNopHalted :: Instruction -> Bool
 isNopHalted (Nop Halted) = True

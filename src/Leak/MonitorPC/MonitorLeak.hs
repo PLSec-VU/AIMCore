@@ -83,4 +83,4 @@ monitorJumpAddress :: LeakMonitor (Core.State Identity) (Core.Input Identity) (C
 monitorJumpAddress = LeakMonitor leak id
  where
   leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Maybe Address)
-  leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExAddress $ Core.stateCtrl s')
+  leak s i = let (s', _) = Core.circuit s i in (s', Core.ctrlExJumpAddr $ Core.stateCtrl s')

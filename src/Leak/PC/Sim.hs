@@ -114,9 +114,9 @@ decode = do
 
   let ir' =
         -- If a branch was taken in this cycle, we stall.
-        if isJust mJumpAddr then Leak.Instr (Leak.Nop Instr.BranchFirstCycle) (Nothing, Nothing)
+        if isJust mJumpAddr then Leak.Instr (Leak.Nop Instr.JumpFirstCycle) (Nothing, Nothing)
         -- If a branch was taken in the previous cycle, we stall.
-        else if branch_first_cycle then Leak.Instr (Leak.Nop Instr.BranchSecondCycle) (Nothing, Nothing)
+        else if branch_first_cycle then Leak.Instr (Leak.Nop Instr.JumpSecondCycle) (Nothing, Nothing)
         -- If there is a load hazard with the instruction executed in this cycle, we stall.
         else if load_hazard_current_cycle then Leak.Instr (Leak.Nop Instr.LoadHazardFirstCycle) (Nothing, Nothing)
         -- If there was a load hazard in the previous cycle, we stall.
@@ -147,7 +147,7 @@ decode = do
       }
   where
     instrBase (Leak.Instr b _) = b
-    isNopBranchFirstCycle (Leak.Instr (Leak.Nop Instr.BranchFirstCycle) _) = True
+    isNopBranchFirstCycle (Leak.Instr (Leak.Nop Instr.JumpFirstCycle) _) = True
     isNopBranchFirstCycle _ = False
     isNopLoadHazardFirstCycle (Leak.Instr (Leak.Nop Instr.LoadHazardFirstCycle) _) = True
     isNopLoadHazardFirstCycle _ = False

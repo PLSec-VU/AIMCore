@@ -175,7 +175,7 @@ decode = do
   mJumpAddr <- gets stateJumpAddr
   firstCycle <- gets stateFirstCycle
 
-  let branch_first_cycle = Instr.isNopBranchFirstCycle exInstr
+  let branch_first_cycle = Instr.isNopJumpFirstCycle exInstr
   let load_hazard_current_cycle = Instr.loadHazard instr exInstr
   let load_hazard_first_cycle = Instr.isNopLoadHazardFirstCycle exInstr
   let call_current_cycle = Instr.isCall exInstr
@@ -184,9 +184,9 @@ decode = do
 
   let ir' =
         -- If a branch was taken in this cycle, we stall.
-        if isJust mJumpAddr then Instr.Nop Instr.BranchFirstCycle
+        if isJust mJumpAddr then Instr.Nop Instr.JumpFirstCycle
         -- If a branch was taken in the previous cycle, we stall.
-        else if branch_first_cycle then Instr.Nop Instr.BranchSecondCycle
+        else if branch_first_cycle then Instr.Nop Instr.JumpSecondCycle
         -- If there is a load hazard with the instruction executed in this cycle, we stall.
         else if load_hazard_current_cycle then Instr.Nop Instr.LoadHazardFirstCycle
         -- If there was a load hazard in the previous cycle, we stall.
