@@ -78,8 +78,17 @@ ghc-options:
 - -fplugin Pantomime
 
 library:
-  source-dirs: src
+  source-dirs:
+    - src
+    - proof
   exposed-modules:
+    - Machine
+    - ISAStep
+    - Driver
+    - Invariant
+    - ArrayRF
+    - Axioms
+    - Verify
     - Access
     - Core
     - Elf.ElfLoader
@@ -105,6 +114,7 @@ library:
     - Leak.MonitorPC.Sim
     - Leak.Existence
     - Pretty
+    - Proof.Sanity
     - RegFile
     - Simulate
     - Types
@@ -137,4 +147,5 @@ tests:
     - melf
     - bytestring
     - exceptions
+    - QuickCheck
 

@@ -82,7 +82,7 @@ mkBenchmarkTest testName _benchmark =
         (benchmarkInstrument _benchmark)
         (sim
           { circuitState =
-              (Core.init @Identity)
+              (Core.init @Identity @RegFile)
                 { Core.stateFePc = fromIntegral entryOffset,
                   Core.stateRegFile = modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) initRF
                 }

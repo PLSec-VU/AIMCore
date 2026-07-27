@@ -21,6 +21,9 @@ import RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
+import qualified Proof.Sanity as Sanity
+import qualified Verify
+import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
@@ -58,11 +61,50 @@ mkSecretPCLeakTest s prog =
     assertBool "" $
       Leak.SecretPC.pcsEqual prog
 
+-- | Checks that the Pantomime/symfc plugin is wired in and actually discharging
+-- properties. Since pantomime 1821a71 an invalid property no longer fails the
+-- build, so the negative control has to be asserted here instead.
+sanityTests :: TestTree
+sanityTests =
+  testGroup
+    "Pantomime plugin sanity"
+    [ testCase "deMorgan is valid" $ verdict "deMorgan" @?= Nothing,
+      testCase "doubling is valid" $ verdict "doubling" @?= Nothing,
+      testCase "negative control yields a counterexample" $
+        assertBool "expected a counterexample for 'bogus'" $
+          isJust (verdict "bogus"),
+      -- The one proof property symbolic execution can currently discharge; see
+      -- the "Verify" module header for what blocks the rest.
+      testCase "symbolic: pureAdt is valid" $
+        lookup "pureAdt" Verify.results @?= Just Nothing,
+      testCase "symbolic: vecCons is valid" $
+        lookup "vecCons" Verify.results @?= Just Nothing,
+      testCase "symbolic: rfPointwise is valid" $
+        lookup "rfPointwise" Verify.results @?= Just Nothing,
+      testCase "symbolic: one core cycle (PC) is valid" $
+        lookup "coreStepPc" Verify.results @?= Just Nothing,
+      testCase "symbolic: one core cycle (writeback rd) is valid" $
+        lookup "coreWritebackRd" Verify.results @?= Just Nothing,
+      testCase "symbolic: one system step (memory stable) is valid" $
+        lookup "sysStepMemStable" Verify.results @?= Just Nothing,
+      testCase "symbolic: driver 0 lands on a real instruction" $
+        lookup "driverZeroLands" Verify.results @?= Just Nothing,
+      testCase "symbolic: register file as SMT array round-trips" $
+        lookup "arrRoundTrip" Verify.results @?= Just Nothing
+    ]
+  where
+    verdict :: String -> Maybe String
+    verdict name = case lookup name Sanity.results of
+      Just v -> v
+      Nothing -> error "Proof.Sanity.results is missing an expected entry"
+
 tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [ instructionTests,
+    [ sanityTests,
+      proofTests,
+      instructionTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup
