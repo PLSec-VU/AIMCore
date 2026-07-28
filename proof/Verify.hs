@@ -102,6 +102,7 @@ import Driver (driver)
 import ISAStep
 import Invariant
 import Machine
+import Obligation (indStepObligation)
 import Pantomime (Theory (..), pantomime)
 import qualified Pantomime.BuiltIn as Pantomime
 import RegFile
@@ -368,24 +369,29 @@ arrRoundTrip a i v = Pantomime.boolean $ loadRA (storeRA a i v) i == v
 
 -- | Verdicts for the properties the plugin can currently discharge.
 --
--- STATUS of 'indStep0' (the k = 0 inductive step): disabled, because it still
--- exhausts the symbolic executor -- >10 min of GHC CPU with Z3 never invoked,
--- i.e. path explosion in the plugin rather than solver time.
+-- STATUS of 'indStep0' (the k = 0 inductive step).
 --
--- Both containers are now array-backed -- 'ArrayRF.RegArrF' for the register
--- file, 'ArrayRF.MemArr' for memory -- so the schemas and their soundness
--- side-condition are gone. That did NOT fix the explosion: with the full array
--- encoding, k = 0 still ran 19+ minutes of GHC CPU without ever invoking Z3.
+-- It no longer hangs. The cause was recursion, not path explosion: the
+-- invariant used to be a list of named conjuncts checked with 'P.all' / 'P.any'
+-- and appended with 'P.++', and Pantomime's evaluator diverges on recursion it
+-- cannot prove terminating -- which it fails to do even for a statically known,
+-- fully concrete list. Switching to 'Invariant.invAtFree', which is the same
+-- predicate built from '&&' and '||' with no lists, took this from >19 minutes
+-- of GHC CPU with no solver call to 131 seconds reaching Z3.
 --
--- So the container representation was not the bottleneck. What remains is the
--- fan-out that arrays cannot touch: the address fed to the post-state
--- @decode'@ is itself derived from an earlier @decode'@ (via 'ISAStep.isaStep'
--- branching on the decoded instruction), and full-path execution multiplies
--- the two decision trees. That matches the isolation experiment, where a
--- single such conjunct -- no invariant, no case fan-out -- timed out on its
--- own. The decode mitigation is therefore the next lever, not more work on
--- representations.
+-- Z3 then answers /sat/: as stated, k = 0 does not hold. We cannot yet see why,
+-- because the counterexample contains array-valued variables and SBV fails to
+-- parse them back out of the model:
 --
+-- >  Data.SBV.interpretArray: Unable to process solver output.
+-- >  Kind: SArray Word32 Word8
+--
+-- This is a second, separate reporting bug from the @version (...) /=
+-- storageVersion@ one. To get a readable counterexample, try re-running this
+-- property under the old function-schema encoding ('mkRFPts' / 'mkMemPts',
+-- still present below): with the recursion fixed it may now terminate too, and
+-- its model is all scalars, so it should decode.
+
 -- A note on wiring an axiomatised operation into a class instance: the wrappers
 -- 'ArrayRF.loadRA' / 'ArrayRF.storeRA' must be @OPAQUE@. The term axiom is
 -- keyed on the name, so once GHC inlines the wrapper only the polymorphic
@@ -401,7 +407,7 @@ results =
     ("coreWritebackRd", $(pantomime 'coreWritebackRd)),
     ("sysStepMemStable", $(pantomime 'sysStepMemStable)),
     ("driverZeroLands", $(pantomime 'driverZeroLands)),
-    ("indStep0Disabled", Nothing),
+    ("indStep0", $(pantomime 'indStep0)),
     ("arrRoundTrip", $(pantomime 'arrRoundTrip))
   ]
 
@@ -435,11 +441,11 @@ mkRFPts (RFPts i1 x1 i2 x2 i3 x3 i4 x4 xd) =
 -- 'memReadWord' -- so one point covers one read instead of four byte points.
 data MemPt = MemPt Address Word
 
-data MemPts = MemPts MemPt MemPt Byte
+data MemPts = MemPts MemPt MemPt MemPt MemPt Byte
 
 mkMemPts :: MemPts -> MemFn
-mkMemPts (MemPts p1 p2 dflt) =
-  MemFn (\j -> at p1 j (at p2 j dflt))
+mkMemPts (MemPts p1 p2 p3 p4 dflt) =
+  MemFn (\j -> at p1 j (at p2 j (at p3 j (at p4 j dflt))))
   where
     at (MemPt a w) j rest
       | j == a = slice d7 d0 w
@@ -488,28 +494,14 @@ sysOf ss i ra ma =
       sysMem = ma
     }
 
--- | The architectural state the invariant claims @sys@ corresponds to.
---
--- Deriving it from @sys@ by the flush, rather than taking it as a further
--- symbolic input, is what makes the premise expressible: the invariant's
--- container equalities then hold by construction, so assuming @invAt@ at one
--- witness reduces to assuming its scalar conjuncts -- which is the full
--- container invariant, not a weakening of it.
-isaOf :: SysG RegArrF MemArr -> IsaStateG RegArrF MemArr
-isaOf sys@(Sys st inp mem) =
-  IsaState {isaPc = Core.stateExPc st, isaRegFile = frf, isaMem = fm}
-  where
-    (fm, frf) =
-      flushMeStage
-        (jumpsWriteRdInMe proposed)
-        (Core.stateMeInstr st)
-        (runIdentity (Core.stateMeRes st))
-        (Core.stateMeAddr st)
-        (flushWbStage (Core.stateWbInstr st) (runIdentity (Core.stateWbRes st)) (runIdentity (Core.inputMem inp)) (mem, Core.stateRegFile st))
-
 -- | The inductive step for @k = 0@: the driver's shortest hop, one cycle.
--- DISABLED: see the status note above 'results'.
--- {-# ANN indStep0 (Theory arrayAxioms) #-}
+--
+-- Re-enabled after the fifth counterexample was explained and closed: it was
+-- 'Invariant.noStoreAlias' using non-wrapping interval arithmetic, so a store
+-- into (or wrapping into) a PC word at the top of the address space slipped
+-- past the no-self-modifying-code assumption. See @counterexample-k0.txt@ and
+-- the wrap-around tests in @ProofSpec@.
+{-# ANN indStep0 (Theory arrayAxioms) #-}
 indStep0 ::
   StateScalars ->
   Core.Input Identity ->
@@ -519,15 +511,4 @@ indStep0 ::
   Address ->
   Pantomime.Bool
 indStep0 ss i ra ma wr wa =
-  Pantomime.boolean $ not premises || conclusion
-  where
-    sys = sysOf ss i ra ma
-    isa = isaOf sys
-    premises = invAt wr wa isa sys && driver sys == 0
-    conclusion =
-      case isaStep isa of
-        Next isa' -> invAt wr wa isa' (stepSys sys)
-        -- driver == 0 excludes environment instructions, so the ISA cannot
-        -- halt on this hop.
-        IsaHalted -> True
-
+  Pantomime.boolean $ indStepObligation wr wa (sysOf ss i ra ma)
