@@ -22,6 +22,8 @@ import Simulate
 import Memory.Types
 import Memory.Vec
 import qualified Proof.Sanity as Sanity
+import qualified ClosureProbe
+import qualified Prelude
 import qualified Verify
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -90,7 +92,11 @@ sanityTests =
       testCase "symbolic: driver 0 lands on a real instruction" $
         lookup "driverZeroLands" Verify.results @?= Just Nothing,
       testCase "symbolic: register file as SMT array round-trips" $
-        lookup "arrRoundTrip" Verify.results @?= Just Nothing
+        lookup "arrRoundTrip" Verify.results @?= Just Nothing,
+      testCase "symbolic: k = 0 inductive step is valid" $
+        lookup "indStep0" Verify.results @?= Just Nothing,
+      testCase "symbolic: closure probes all valid" $
+        [v | (_, v) <- ClosureProbe.results] @?= Prelude.replicate 6 Nothing
     ]
   where
     verdict :: String -> Maybe String

@@ -19,6 +19,8 @@ module Invariant
     inv,
     invAt,
     invAtWith,
+    invAtFree,
+    noStoreAlias,
     invStrictCtrl,
     invLiteral,
     explain,
@@ -36,6 +38,7 @@ import Data.Proxy (Proxy (..))
 import Memory.Types
 import RegFile
 import Types
+import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 
@@ -279,6 +282,7 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
           ("exPc == isaPc", stateExPc st == ipc),
           exDecodeClause,
           ("dePc == exPc + 4", stateDePc st == stateExPc st + 4),
+          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr st) (stateMeInstr st))),
           ( "(isaMem, isaRegFile) == flush",
             let (fm, frf) =
                   flushMeStage
@@ -320,3 +324,158 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
 
     isSyscall (Core.Syscall _) = True
     isSyscall _ = False
+
+-- | The invariant, pointwise, built from '&&' and '||' with no lists and no
+-- folds.
+--
+-- Semantically identical to @'invAtWith' cfg wr wa@. The difference is
+-- operational: the named-conjunct version represents each case as a list of
+-- @(String, Bool)@ and checks it with 'P.all' / 'P.any', and appends case lists
+-- with 'P.++'. Those are recursive over the list, and Pantomime's evaluator
+-- diverges on recursion it cannot prove terminating -- which it fails to do
+-- even when the list is statically known and fully concrete.
+--
+-- So: use this version for anything the plugin symbolically executes. The
+-- named-conjunct version stays for QuickCheck and for 'explain', where the
+-- per-clause diagnostics are worth having and nothing recurses symbolically.
+invAtFree ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig ->
+  RegIdx ->
+  Address ->
+  IsaStateG r m ->
+  SysG r m ->
+  Bool
+invAtFree cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
+  runningCases
+    || ( not (runningCasesOnly cfg)
+           && ( startupCase
+                  || haltedCase isBreak isEBreak
+                  || haltedCase isCall isSyscall
+              )
+       )
+  where
+    eqRF a b = runIdentity (lookupRFg wr a) == runIdentity (lookupRFg wr b)
+    eqMem a b = memReadByte wa a == memReadByte wa b
+
+    ctrlOk = not (checkCtrl cfg) || stateCtrl st == initCtrl
+    haltPendingOk = not (checkHaltPending cfg) || stateHaltPending st == Nothing
+    inputWord = runIdentity (inputMem inp)
+    isaInstr = decode' (memReadWord ipc imem)
+    exDecodeOk = not (checkExDecode cfg) || stateExInstr st == isaInstr
+    dePcWord = memReadWord (stateDePc st) mem
+    isMem ir = isLoad ir || isStore ir
+
+
+    startupCase =
+      running sys
+        && ctrlOk
+        && haltPendingOk
+        && stateWbInstr st == Nop FirstCycle
+        && stateMeInstr st == Nop FirstCycle
+        && stateExInstr st == Nop FirstCycle
+        && not (inputIsInstr inp)
+        && stateFePc st == ipc
+        && eqRF irf (stateRegFile st)
+        && eqMem imem mem
+
+    -- The list version enumerates four cases, one per valuation of
+    -- @(isMem wb, isMem me)@ -- useful for 'explain', where the case name says
+    -- which shape the state has. But the parameters occur only in the pinning
+    -- equalities (and the fetch split on @isMem wb@), so the disjunction over
+    -- all four valuations is just the shared body with the computed values
+    -- substituted in: @isMem me@ drops out entirely and @isMem wb@ selects the
+    -- fetch branch. Writing it collapsed matters operationally: the symbolic
+    -- executor does not share subterms across disjuncts, so the enumerated
+    -- form pays for four copies of the flush expression and the decode tree at
+    -- every occurrence of the invariant.
+    runningCases =
+      running sys
+        && ctrlOk
+        && haltPendingOk
+        && stateExPc st == ipc
+        && exDecodeOk
+        && stateDePc st == stateExPc st + 4
+        && not (loadHazard (stateExInstr st) (stateMeInstr st))
+        && flushOk
+        && ( if isMem (stateWbInstr st)
+               then not (inputIsInstr inp) && stateFePc st == stateExPc st + 4
+               else
+                 inputIsInstr inp
+                   && inputWord == dePcWord
+                   && stateFePc st == stateExPc st + 8
+           )
+
+    flushOk =
+      let (fm, frf) =
+            flushMeStage
+              (jumpsWriteRdInMe cfg)
+              (stateMeInstr st)
+              (runIdentity (stateMeRes st))
+              (stateMeAddr st)
+              (flushWbStage (stateWbInstr st) (runIdentity (stateWbRes st)) inputWord (mem, stateRegFile st))
+       in eqMem imem fm && eqRF irf frf
+
+    haltedCase isKind matchesHalt =
+      isKind isaInstr
+        && maybe False matchesHalt (stateHalt st)
+        && ctrlOk
+        && haltPendingOk
+        && stateWbInstr st == Nop Halted
+        && stateMeInstr st == Nop Halted
+        && stateExInstr st == Nop Halted
+        && eqRF irf (stateRegFile st)
+        && eqMem imem mem
+
+    isEBreak (EBreak _) = True
+    isEBreak _ = False
+
+    isSyscall (Core.Syscall _) = True
+    isSyscall _ = False
+
+-- | Side condition: no store aliases a word the fetch path is using.
+--
+-- This is an ASSUMPTION, not part of the invariant. RISC-V requires a FENCE.I
+-- between writing an instruction and executing it, so a store that rewrites an
+-- instruction already in flight is out of spec. 'Core.decode' only guards the
+-- exact-address case (@ctrlMeStoreAddr == Just dePc@); a store at @dePc + 1@
+-- slips through and rewrites bytes of the word already latched into
+-- 'inputMem'.
+--
+-- Because it is an assumption it does not need to be inductive: the proof
+-- obligation assumes it of the /pre- and post-state both/, which simply rules
+-- out transitions that would create an aliasing store. Putting it inside the
+-- invariant instead would force us to re-establish it for the successor, and
+-- it is not preserved -- a store in the execute stage becomes the
+-- memory-stage store next cycle with an address @rs1 + imm@ that nothing
+-- constrains.
+--
+-- Note this is about addresses only, not about tagging: the core already
+-- distinguishes instruction from data accesses structurally, via
+-- 'Core.memIsInstr'.
+-- The overlap check must be wrap-correct: 'Address' is 'Unsigned 32', so both
+-- @p + 4@ and @a + n@ can wrap around the top of the address space. The
+-- original interval form @a < p + 4 && p < a + n@ silently admitted exactly
+-- those cases -- with a PC word at @0xFFFFFFFC@, @a < p + 4@ is @a < 0@,
+-- false for every store address -- which is what the fifth symbolic
+-- counterexample exploited (see @counterexample-k0.txt@ and the wrap-around
+-- tests in @ProofSpec@). Byte @x@ lies in the word starting at @p@ iff
+-- @x - p < 4@ in wrapping arithmetic; checking each written byte this way is
+-- correct even when the store's byte range or the PC word wraps. Written
+-- without lists or folds so Pantomime can execute it.
+noStoreAlias :: SysG r m -> Bool
+noStoreAlias (Sys st _ _) =
+  case stateMeInstr st of
+    SType size _ _ _ ->
+      let a = stateMeAddr st
+          inWordAt p x = x - p < 4
+          hitsPc x =
+            inWordAt (stateExPc st) x
+              || inWordAt (stateDePc st) x
+              || inWordAt (stateFePc st) x
+          clash = case size of
+            Types.Byte -> hitsPc a
+            Types.Half -> hitsPc a || hitsPc (a + 1)
+            Types.Word -> hitsPc a || hitsPc (a + 1) || hitsPc (a + 2) || hitsPc (a + 3)
+       in P.not clash
+    _ -> True

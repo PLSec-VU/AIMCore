@@ -86,8 +86,10 @@ library:
     - ISAStep
     - Driver
     - Invariant
+    - Obligation
     - ArrayRF
     - Axioms
+    - ClosureProbe
     - Verify
     - Access
     - Core

@@ -8,6 +8,8 @@ module RegFile
     lookupRF,
     modifyRF,
     censorRF,
+    RegFileOps (..),
+    RegFn (..),
   )
 where
 
@@ -60,3 +62,33 @@ modifyRF idx val (RegFile rf) = case idx of
 -- | Censor all registers in the register file.
 censorRF :: (Access f) => RegFile f -> RegFile f
 censorRF _ = initRF
+
+-- | The operations the pipeline needs from a register file.
+--
+-- 'Core.StateG' is parameterised over this so that the same pipeline can run on
+-- two representations: the synthesisable 'RegFile' (a 'Vec'), and 'RegFn' (a
+-- function) which is what symbolic execution can actually handle. See
+-- "Verify" for why the 'Vec' one cannot be symbolically executed.
+class RegFileOps r where
+  lookupRFg :: (Access f) => RegIdx -> r f -> f Word
+  modifyRFg :: (Access f) => RegIdx -> f Word -> r f -> r f
+  initRFg :: (Access f) => r f
+
+instance RegFileOps RegFile where
+  lookupRFg = lookupRF
+  modifyRFg = modifyRF
+  initRFg = initRF
+
+-- | Verification-only register file: a function rather than a container.
+--
+-- Not synthesisable -- Clash cannot turn a function into hardware -- so this
+-- must never reach 'Core.topEntity'. It exists purely so that reads become
+-- applications and writes become lambdas, both of which the symbolic executor
+-- handles natively.
+newtype RegFn f = RegFn (RegIdx -> f Word)
+
+instance RegFileOps RegFn where
+  lookupRFg idx (RegFn g) = if idx == 0 then pure 0 else g idx
+  modifyRFg idx v rf@(RegFn g) =
+    if idx == 0 then rf else RegFn (\j -> if j == idx then v else g j)
+  initRFg = RegFn (const (pure 0))
