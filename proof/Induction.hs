@@ -1,10 +1,10 @@
 -- | The inductive steps of the refinement proof, checked symbolically.
 --
--- One property per driver delay: if the invariant relates @(isa, sys)@ and the
--- driver says the hop takes @k + 1@ cycles, then after those cycles (and one
--- ISA step, where the hop retires an instruction) the invariant relates them
--- again. Together with the base case -- 'Core.init' satisfies the startup case
--- by construction -- these four properties are the whole refinement theorem.
+-- 'baseCase' says the invariant holds at reset. Then one property per driver
+-- delay: if the invariant relates @(isa, sys)@ and the driver says the hop takes
+-- @k + 1@ cycles, then after those cycles (and one ISA step, where the hop
+-- retires an instruction) the invariant relates them again. Base case plus the
+-- four steps is the whole refinement theorem.
 --
 -- Checking one @k@ at a time keeps the number of unrolled cycles concrete,
 -- which sidesteps Pantomime's termination check: @stepSysN (driver sys + 1)@
@@ -22,6 +22,7 @@
 module Induction
   ( arrRoundTrip,
     shiftsSane,
+    baseCase,
     indStep0,
     indStep1,
     indStep2,
@@ -35,9 +36,12 @@ import Axioms (arrayAxioms)
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
+import ISAStep (IsaStateG (..))
 import Instruction
+import Invariant (invAtFree)
 import LoggedPantomime (pantomime)
 import Machine
+import Memory.Types (initPc)
 import Obligation
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
@@ -112,6 +116,42 @@ shiftsSane x =
   where
     sign = slice d31 d31 x
 
+-- The base case ----------------------------------------------------------------
+
+-- | The invariant holds of the pipeline's initial state.
+--
+-- Without this the four steps below say only that the invariant is /preserved/,
+-- which is vacuous if it never holds anywhere. Together they give the theorem:
+-- the invariant relates the core to the ISA at every state the driver lands on,
+-- starting from reset.
+--
+-- 'Core.init' has nothing in flight and its fetch PC at 'initPc', which is
+-- exactly the invariant's startup case, so this holds for any loaded program --
+-- hence the arbitrary memory rather than a particular one. What it therefore
+-- checks is the reset state's /shape/: three stages holding @Nop FirstCycle@,
+-- nothing on the bus, no halt raised or pending, and @stateFePc@ equal to the
+-- address the ISA starts at.
+--
+-- Every field except the register file comes from 'Core.init' itself, so the
+-- shape cannot drift from the real reset state. The register file has to be
+-- substituted because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque
+-- 'repeat'.
+--
+-- Note what that substitution costs: memory and the register file are the same
+-- symbolic values on both sides, so the invariant's two container equalities
+-- hold by construction here and this property alone would not notice if the
+-- core's reset register file and the ISA's ('RegFile.initRF') disagreed. The
+-- concrete test in "ProofSpec" closes that gap -- it runs on the real
+-- 'Vec'-backed state, where both files are built independently.
+{-# ANN baseCase (Theory arrayAxioms) #-}
+baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
+baseCase ra ma wr wa =
+  Pantomime.boolean $ invAtFree wr wa isa sys
+  where
+    st = (Core.init :: Core.StateG RegArrF Identity) {Core.stateRegFile = RegArrF ra}
+    sys = Sys st Core.initInput ma
+    isa = IsaState {isaPc = initPc, isaRegFile = RegArrF ra, isaMem = ma}
+
 -- The inductive steps ----------------------------------------------------------
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
@@ -145,6 +185,7 @@ results :: [(String, Maybe String)]
 results =
   [ ("arrRoundTrip", $(pantomime 'arrRoundTrip)),
     ("shiftsSane", $(pantomime 'shiftsSane)),
+    ("baseCase", $(pantomime 'baseCase)),
     ("indStep0", $(pantomime 'indStep0)),
     ("indStep1", $(pantomime 'indStep1)),
     ("indStep2", $(pantomime 'indStep2)),
