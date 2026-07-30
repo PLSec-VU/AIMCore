@@ -60,6 +60,12 @@ walkReport k prog =
         running s'
     ]
 
+-- | The architectural state @prog@ starts in: execution begins at 'initPc', the
+-- register file is zeroed, and memory holds the program. The counterpart of
+-- 'Machine.initSys' on the ISA side.
+initIsa :: Vec PROG_SIZE Word -> IsaState
+initIsa prog = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
+
 -- | The driver and the ISA walked in lockstep.
 --
 -- The first hop (out of the startup state) brings the first instruction into
@@ -68,7 +74,7 @@ walkReport k prog =
 invTrace :: Int -> Vec PROG_SIZE Word -> [(Int, IsaState, Sys)]
 invTrace k prog = (0, isa0, sys0) : go k 0 isa0 sys0 True
   where
-    isa0 = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
+    isa0 = initIsa prog
     sys0 = initSys prog
 
     go 0 _ _ _ _ = []
@@ -210,7 +216,27 @@ proofTests :: TestTree
 proofTests =
   testGroup
     "Driver and invariant"
-    [ testGroup
+    [ -- The base case, on the real 'Vec'-backed reset state. 'Induction.baseCase'
+      -- proves this for an arbitrary memory, but has to substitute the register
+      -- file (Clash's 'repeat' is opaque to the symbolic executor), so the
+      -- concrete check is what pins that the state it describes is the one
+      -- 'Machine.initSys' actually produces -- including 'Core.init''s reset
+      -- register file and the loaded program.
+      testCase "invariant holds at reset" $
+        let bad =
+              [ name
+                | (name, prog) <- progs,
+                  P.not (inv (initIsa prog) (initSys prog))
+              ]
+         in if P.null bad
+              then pure ()
+              else assertFailure (P.unlines [n P.++ ":\n" P.++ explain (initIsa prog) (initSys prog) | (n, prog) <- progs, P.elem n bad]),
+      testProperty "invariant holds at reset for any program" $
+        withMaxSuccess 2000 $
+          forAll genProg $ \prog ->
+            counterexample (explain (initIsa prog) (initSys prog)) $
+              inv (initIsa prog) (initSys prog),
+      testGroup
         "driver lands on aligned states"
         [ testCase name $
             let r = walkReport 40 prog
@@ -259,44 +285,28 @@ proofTests =
                     P.++ show missing
                     P.++ "\nreached:\n"
                     P.++ unlines ["  " P.++ k P.++ ": " P.++ show v | (k, v) <- cov],
-      -- This is why the @JType@ / @IType Jump@ clauses of 'flushMeStage' are
-      -- never exercised: a jump costs 3 cycles, so by the time the next aligned
-      -- state is reached it has already retired past writeback. The clauses are
-      -- therefore unconstrained by any test here.
-      -- Control: on reachable states, the driven step preserves the invariant.
+      -- On reachable states, the driven step preserves the invariant.
       testCase "inductive on reachable states" $
-        let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep proposed sys]]
+        let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep sys]]
          in if P.null bad then pure () else assertFailure (P.head bad),
-      -- The counterexample: same check, but with a jump spliced into the
-      -- memory stage, which the invariant admits and reachability forbids.
-      testCase "NOT inductive with a jump in me (literal flushMeStage)" $
-        let bad =
-              [ e
-                | sys <- sampleStates 200,
-                  Just e <- [inductiveStep literal {checkCtrl = False} (withJumpInMe sys)]
-              ]
-         in if P.null bad
-              then assertFailure "expected the literal invariant to fail here, but it held"
-              else pure (),
-      -- ...and the proposed fix repairs exactly that.
-      testCase "inductive with a jump in me once flushMeStage writes rd" $
-        let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep proposed (withJumpInMe sys)]]
+      -- DEVIATION 2 of "Invariant": a jump spliced into the memory stage. No
+      -- reachable state has one -- a jump costs three cycles, so it has retired
+      -- past writeback by the next aligned state -- and nothing else in the
+      -- invariant rules it out, so this is the only thing constraining the
+      -- @JType@ / @IType Jump@ clauses of 'Invariant.flushMeStage'. It fails if
+      -- those clauses stop writing @rd@.
+      testCase "inductive with a jump in the memory stage" $
+        let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep (withJumpInMe sys)]]
          in if P.null bad then pure () else assertFailure (P.head bad),
-      testCase "NOT inductive with a halt in flight (unconstrained)" $
-        let bad =
-              [ e
-                | sys <- sampleStates 200,
-                  Just e <- [inductiveStep proposed {checkHaltPending = False} (withPendingHalt sys)]
-              ]
-         in if P.null bad
-              then assertFailure "expected an unconstrained pending halt to break induction, but it held"
-              else pure (),
-      testCase "pending halt is excluded once the conjunct is added" $
+      -- DEVIATION 3: the added @no halt pending@ conjunct is what excludes a
+      -- halt in flight. Without it such a state satisfies the invariant, and
+      -- 'Core.memory' then halts the core part-way through the hop.
+      testCase "invariant rejects a halt in flight" $
         let admitted =
               [ ()
                 | sys <- sampleStates 200,
                   let s = withPendingHalt sys,
-                  P.any (P.all P.snd . caseConjuncts) (invCasesWith proposed (isaFromSys proposed s) s)
+                  P.any (P.all P.snd . caseConjuncts) (invCases (isaFromSys s) s)
               ]
          in if P.null admitted then pure () else assertFailure "invariant still admits a pending halt",
       -- The pointwise form is what symbolic execution uses, since function-backed
@@ -324,7 +334,7 @@ proofTests =
                   (c, isa, sys) <- invTrace 40 prog,
                   wr <- [0 .. 31],
                   wa <- [0, 16 .. 396],
-                  invAt wr wa isa sys /= invAtFree proposed wr wa isa sys
+                  invAt wr wa isa sys /= invAtFree wr wa isa sys
               ]
          in if P.null bad then pure () else assertFailure (show (P.take 5 bad)),
       -- The mechanism behind the fifth counterexample, concretely: a store
@@ -332,16 +342,16 @@ proofTests =
       -- address space. See the comment above 'wrapCESys'.
       testCase "wrap-around aliasing store breaks the un-guarded inductive step" $ do
         let sys = wrapCESys
-            isa = isaFromSys proposed sys
+            isa = isaFromSys sys
             sys' = stepSys sys
             isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
             wr = 1
             wa = 0xFFFFFFFD
-        assertBool "state satisfies the invariant" (invAtFree proposed wr wa isa sys)
+        assertBool "state satisfies the invariant" (invAtFree wr wa isa sys)
         assertBool "driver picks the one-cycle hop" (driver sys P.== 0)
         assertBool
           "the driven step breaks the invariant (mod the store-alias assumption)"
-          (P.not (invAtFree proposed wr wa isa' sys')),
+          (P.not (invAtFree wr wa isa' sys')),
       -- ...and the (wrap-corrected) assumption must therefore exclude it.
       testCase "wrap-around aliasing store is excluded by noStoreAlias" $ do
         let sys = wrapCESys
@@ -357,7 +367,7 @@ proofTests =
         -- no counterexample.
         withMaxSuccess 20000 $
           forAllShow genArbSys (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
-            let isa = isaFromSys proposed sys
+            let isa = isaFromSys sys
                 sys' = stepSys sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
@@ -366,7 +376,7 @@ proofTests =
                       P.++ "\nex=" P.++ show (exInstr sys)
                       P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
-                      P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt proposed wr wa isa' sys'))))
+                      P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' sys'))))
                   )
                   (indStepObligation wr wa sys),
       -- k = 1: the two-cycle hop. Both shapes that reach it are generated;
@@ -376,7 +386,7 @@ proofTests =
         -- 1e6 run by hand: 23s, no counterexample. 20k keeps the suite fast.
         withMaxSuccess 20000 $
           forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
-            let isa = isaOfHop proposed sys
+            let isa = isaOfHop sys
                 s2 = stepSysN 2 sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
@@ -387,7 +397,7 @@ proofTests =
                       P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
                       P.++ " fePc=" P.++ show (stateFePc (sysState sys))
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
-                      P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt proposed wr wa isa' s2))))
+                      P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' s2))))
                   )
                   (indStepObligation1 wr wa sys),
       testCase "k=1 generator reaches both hop shapes" $
@@ -397,7 +407,7 @@ proofTests =
                 | s <- sample,
                   p s,
                   driver s P.== 1,
-                  invAtFree proposed 1 0 (isaOfHop proposed s) s
+                  invAtFree 1 0 (isaOfHop s) s
               ]
             startups = admitted isStartupShape
             steadies = admitted (P.not . isStartupShape)
@@ -410,7 +420,7 @@ proofTests =
       -- there rather than saying anything.
       testCase "startup states need the fetch-stage PC to be admitted" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 2000 genArbSys1) (mkQCGen 11) 30, isStartupShape s]
-            admits f s = invAtFree proposed 1 0 (f proposed s) s
+            admits f s = invAtFree 1 0 (f s) s
          in do
               assertBool "generator produced no startup states" (P.not (P.null sample))
               assertBool
@@ -441,7 +451,7 @@ proofTests =
                 | (label, s, wr, wa) <-
                     unGen (vectorOf 4000 genArbSys2) (mkQCGen 29) 30,
                   driver s P.== 2,
-                  invAtFree proposed wr wa (isaOfG proposed s) s
+                  invAtFree wr wa (isaOfG s) s
               ]
             has label = P.any ((P.== label) . P.fst) sample
          in do
@@ -470,24 +480,24 @@ proofTests =
 -- construction. If @sys@ is an aligned running state, this is the ISA state the
 -- invariant claims it corresponds to.
 -- Shared with 'Induction.indStep0' via "Obligation", so the two cannot drift.
-isaFromSys :: (RegFileOps r, MemOps m) => InvConfig -> SysG r m -> IsaStateG r m
+isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
 isaFromSys = isaOfG
 
 -- | Take one driven step and report whether the invariant survived. Returns
 -- 'Nothing' when @sys@ does not satisfy the invariant to begin with (such a
 -- state is not a counterexample to inductiveness).
-inductiveStep :: InvConfig -> Sys -> Maybe String
-inductiveStep cfg sys
-  | P.not (P.any holdsCase (invCasesWith cfg isa sys)) = Nothing
+inductiveStep :: Sys -> Maybe String
+inductiveStep sys
+  | P.not (P.any holdsCase (invCases isa sys)) = Nothing
   | inv' isa' sys' = Nothing
-  | otherwise = Just (explainWith cfg isa' sys')
+  | otherwise = Just (explain isa' sys')
   where
-    isa = isaFromSys cfg sys
+    isa = isaFromSys sys
     sys' = stepSysN (driver sys + 1) sys
     isa' = case isaStep isa of
       Next i -> i
       IsaHalted -> isa
-    inv' a s = P.any holdsCase (invCasesWith cfg a s)
+    inv' a s = P.any holdsCase (invCases a s)
     holdsCase c = P.all P.snd (caseConjuncts c)
 
 -- | Aligned, running states drawn from the programs under test.

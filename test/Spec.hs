@@ -81,6 +81,8 @@ sanityTests =
         lookup "arrRoundTrip" Induction.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
         lookup "shiftsSane" Induction.results @?= Just Nothing,
+      testCase "base case: invariant holds at reset" $
+        lookup "baseCase" Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
         lookup "indStep0" Induction.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
