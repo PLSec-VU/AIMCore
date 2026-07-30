@@ -407,7 +407,7 @@ results =
     ("coreWritebackRd", $(pantomime 'coreWritebackRd)),
     ("sysStepMemStable", $(pantomime 'sysStepMemStable)),
     ("driverZeroLands", $(pantomime 'driverZeroLands)),
-    ("indStep0", Nothing), -- TEMP: restore $(pantomime 'indStep0) with the ANN
+    ("indStep0", $(pantomime 'indStep0)), -- TEMP: restore $(pantomime 'indStep0) with the ANN
     ("arrRoundTrip", $(pantomime 'arrRoundTrip))
   ]
 
@@ -505,7 +505,7 @@ sysOf ss i ra ma =
 -- to "Obligation" recompiles this module and re-runs the check, which costs
 -- 36 minutes of solver time. PROVED on 2026-07-28 (Z3 4.15.3, unsat in
 -- 36m14s); re-enable for the final run.
--- {-# ANN indStep0 (Theory arrayAxioms) #-}
+{-# ANN indStep0 (Theory arrayAxioms) #-}
 indStep0 ::
   StateScalars ->
   Core.Input Identity ->

@@ -80,7 +80,7 @@ sysOf ss i ra ma =
 -- without terminating, and on a later attempt was killed at 457MB+ RSS. It is
 -- superseded by the split obligations in "VerifyK1Split"; kept for reference
 -- and as the statement those splits must together imply.
--- {-# ANN indStep1 (Theory arrayAxioms) #-}
+{-# ANN indStep1 (Theory arrayAxioms) #-}
 indStep1 ::
   K1State ->
   Core.Input Identity ->
@@ -93,4 +93,4 @@ indStep1 ss i ra ma wr wa =
   Pantomime.boolean $ indStepObligation1 wr wa (sysOf ss i ra ma)
 
 results :: [(String, Maybe String)]
-results = [("indStep1", Nothing)] -- see the note on the disabled ANN above
+results = [("indStep1", $(pantomime 'indStep1))] -- see the note on the disabled ANN above

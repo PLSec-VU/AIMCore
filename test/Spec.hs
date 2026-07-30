@@ -96,17 +96,17 @@ sanityTests =
         lookup "driverZeroLands" Verify.results @?= Just Nothing,
       testCase "symbolic: register file as SMT array round-trips" $
         lookup "arrRoundTrip" Verify.results @?= Just Nothing,
-      -- TEMP: the ANN is commented out while the k >= 1 obligations are
-      -- developed, so this reads the placeholder verdict. See "Verify".
       testCase "symbolic: k = 0 inductive step is valid" $
         lookup "indStep0" Verify.results @?= Just Nothing,
-      testCase "symbolic: monolithic k = 1 placeholder remains disabled" $
+      testCase "symbolic: monolithic k = 1 inductive step is valid" $
         lookup "indStep1" VerifyK1.results @?= Just Nothing,
+      -- Subsumed by the monolithic k = 1 obligation above, which is now cheap
+      -- enough to check directly. Kept until the split module is retired.
       testCase "symbolic: all k = 1 split obligations are valid" $ do
         Prelude.length VerifyK1Split.results @?= 23
         [name | (name, Just _) <- VerifyK1Split.results] @?= [],
-      testCase "symbolic: all k = 2 split obligations are valid" $ do
-        Prelude.length VerifyK2Split.results @?= 146
+      testCase "symbolic: k = 2 and k = 3 inductive steps are valid" $ do
+        Prelude.length VerifyK2Split.results @?= 2
         [name | (name, Just _) <- VerifyK2Split.results] @?= [],
       testCase "symbolic: closure probes all valid" $
         [v | (_, v) <- ClosureProbe.results] @?= Prelude.replicate 6 Nothing

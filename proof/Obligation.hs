@@ -20,6 +20,7 @@ module Obligation
     indStepObligation1AtWord,
     indStepObligation1AtWordCase,
     indStepObligation2,
+    indStepObligation3,
     K2Conj (..),
     indStepObligation2AtWord,
     indStepObligation2AtWordCase,
@@ -454,6 +455,43 @@ indStepObligation2 wr wa sys =
       case isaStep isa of
         Next isa' -> invAtFree proposed wr wa isa' s3
         IsaHalted -> invAtFree proposed wr wa isa s3
+
+-- k = 3 ----------------------------------------------------------------------
+
+-- | The driver's four-cycle inductive step, the longest hop the table produces.
+--
+-- Reached by a store hazard with a memory instruction in execute, by a load
+-- hazard, and by the steady case with memory instructions in all three stages.
+--
+-- Stated exactly as 'indStepObligation2', one cycle longer. The @IsaHalted@
+-- alternative is kept even though this hop should not be able to trap -- the
+-- driver routes environment instructions to a three-cycle hop -- because
+-- covering it costs nothing and assuming it away would be another unchecked
+-- side argument of the kind that has already gone wrong twice here.
+indStepObligation3 ::
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
+indStepObligation3 wr wa sys =
+  not premises || conclusion
+  where
+    isa = isaOfG proposed sys
+    s1 = stepSys sys
+    s2 = stepSys s1
+    s3 = stepSys s2
+    s4 = stepSys s3
+
+    premises =
+      invAtFree proposed wr wa isa sys
+        && driver sys == 3
+        && noStoreAlias sys
+        && noStoreAlias s1
+        && noStoreAlias s2
+        && noStoreAlias s3
+        && noStoreAlias s4
+
+    conclusion =
+      case isaStep isa of
+        Next isa' -> invAtFree proposed wr wa isa' s4
+        IsaHalted -> invAtFree proposed wr wa isa s4
 
 -- | One post-state group for a @k = 2@ obligation.
 --
