@@ -19,6 +19,7 @@ module ISAStep
     StepG (..),
     Step,
     isaStep,
+    isaStepDecoded,
     isaRun,
     isaInstrAt,
   )
@@ -63,7 +64,21 @@ isaInstrAt :: (MemOps m) => IsaStateG r m -> Instruction
 isaInstrAt (IsaState pc _ mem) = decode' (memReadWord pc mem)
 
 isaStep :: (RegFileOps r, MemOps m) => IsaStateG r m -> StepG r m
-isaStep st@(IsaState pc rf mem) =
+isaStep st = isaStepDecoded (isaInstrAt st) st
+
+-- | Step the ISA using an instruction that has already been decoded.
+--
+-- This is definitionally the same transition as 'isaStep' when @ir@ is
+-- @isaInstrAt st@.  Keeping the decoded instruction explicit is useful in the
+-- refinement proof: the invariant already states that the core's execute-stage
+-- instruction equals @isaInstrAt st@, so the transition can execute that
+-- instruction directly instead of nesting one decoder inside another.
+isaStepDecoded ::
+  (RegFileOps r, MemOps m) =>
+  Instruction ->
+  IsaStateG r m ->
+  StepG r m
+isaStepDecoded ir st@(IsaState pc rf mem) =
   case instr of
     ISA.Reg rd f ->
       Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (pure (ap f)) rf}
@@ -84,7 +99,7 @@ isaStep st@(IsaState pc rf mem) =
     ISA.Break -> IsaHalted
     ISA.Syscall -> IsaHalted
   where
-    instr = ISA.interp' (isaInstrAt st)
+    instr = ISA.interp' ir
 
     reg = maybe 0 (\idx -> runIdentity (lookupRFg idx rf))
 

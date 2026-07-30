@@ -62,6 +62,7 @@ dependencies:
 - pantomime
 - pantomime-clash
 - pantomime-base
+- template-haskell
 
 ghc-options:
 - -Wall
@@ -91,6 +92,10 @@ library:
     - Axioms
     - ClosureProbe
     - Verify
+    - VerifyK1
+    - VerifyK1Split
+    - VerifyK2Split
+    - LoggedPantomime
     - Access
     - Core
     - Elf.ElfLoader
@@ -150,4 +155,3 @@ tests:
     - bytestring
     - exceptions
     - QuickCheck
-

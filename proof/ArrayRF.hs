@@ -32,6 +32,9 @@ module ArrayRF
     storeRA,
     loadRAE,
     storeRAE,
+    sllWordE,
+    srlWordE,
+    sraWordE,
   )
 where
 
@@ -131,6 +134,59 @@ instance RegFileOps RegArrF where
   -- they build the pipeline state from symbolic scalars instead. 'repeat' is
   -- OPAQUE and would not symbolise.
   initRFg = RegArrF (RegArr (Clash.Prelude.repeat 0))
+
+-- Shifts as SMT bitvector shifts ----------------------------------------------
+--
+-- Embeddings for 'Core.sllWord', 'Core.srlWord' and 'Core.sraWord'. See the note
+-- on those functions for why they exist: without them each shift site converts
+-- its five-bit amount through 'Integer', and the resulting @ubv_to_int@ /
+-- @int_to_bv@ pair makes every query unreadable to the bitvector-only solvers.
+--
+-- The amount is zero-extended to the word width because SMT's shifts require
+-- both operands to have the same sort. That is exact rather than a choice: the
+-- amount is five bits, so it is always less than 32 and no shift saturates.
+
+-- | @shiftL@ on a 'Word' as @bvshl@.
+sllWordE ::
+  forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
+  (Coercible Clash.BitVec bvX) =>
+  (Coercible Clash.BitVec bvN) =>
+  bvX 32 ->
+  bvN 5 ->
+  bvX 32
+sllWordE = coerce go
+  where
+    go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
+    go (Clash.BitVecP x) (Clash.BitVecP n) =
+      Clash.BitVecP (P.bvshl x (P.bvzext n))
+
+-- | @shiftR@ on a 'Word' as @bvlshr@.
+srlWordE ::
+  forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
+  (Coercible Clash.BitVec bvX) =>
+  (Coercible Clash.BitVec bvN) =>
+  bvX 32 ->
+  bvN 5 ->
+  bvX 32
+srlWordE = coerce go
+  where
+    go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
+    go (Clash.BitVecP x) (Clash.BitVecP n) =
+      Clash.BitVecP (P.bvlshr x (P.bvzext n))
+
+-- | Arithmetic @shiftR@ on a 'Word' as @bvashr@.
+sraWordE ::
+  forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
+  (Coercible Clash.BitVec bvX) =>
+  (Coercible Clash.BitVec bvN) =>
+  bvX 32 ->
+  bvN 5 ->
+  bvX 32
+sraWordE = coerce go
+  where
+    go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
+    go (Clash.BitVecP x) (Clash.BitVecP n) =
+      Clash.BitVecP (P.bvashr x (P.bvzext n))
 
 -- Memory as an SMT array ------------------------------------------------------
 

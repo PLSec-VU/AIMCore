@@ -11,7 +11,7 @@ import ISAStep
 import Instruction
 import Invariant
 import Machine
-import Obligation (indStepObligation, isaOfG)
+import Obligation (DecodeWordCase (..), HopCase (..), K2Conj (..), PreProfile (..), decodeWordCaseHolds, decodeWordCasesExhaustive, indStepObligation, indStepObligation1, indStepObligation1At, indStepObligation1AtP, indStepObligation1AtWord, indStepObligation1AtWordCase, indStepObligation2, indStepObligation2AtWord, indStepObligation2AtWordCase, isStartupShape, isaOfG, isaOfHop)
 import Memory.Types
 import RegFile
 import Test.Tasty (TestTree, testGroup)
@@ -492,6 +492,238 @@ proofTests =
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt proposed wr wa isa' sys'))))
                   )
                   (indStepObligation wr wa sys),
+      -- k = 1: the two-cycle hop. Both shapes that reach it are generated;
+      -- 'coverage1' asserts each is actually sampled, since a premise this
+      -- specific is easy to miss entirely and still see a green property.
+      testProperty "k=1 inductive step on arbitrary pipeline states" $
+        -- 1e6 run by hand: 23s, no counterexample. 20k keeps the suite fast.
+        withMaxSuccess 20000 $
+          forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
+            let isa = isaOfHop proposed sys
+                s2 = stepSysN 2 sys
+                isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
+             in counterexample
+                  ( "startupShape=" P.++ show (isStartupShape sys)
+                      P.++ "\nme=" P.++ show (stateMeInstr (sysState sys))
+                      P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
+                      P.++ "\nex=" P.++ show (exInstr sys)
+                      P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
+                      P.++ " fePc=" P.++ show (stateFePc (sysState sys))
+                      P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
+                      P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt proposed wr wa isa' s2))))
+                  )
+                  (indStepObligation1 wr wa sys),
+      -- The split form is what will actually be sent to the solver, so it is
+      -- checked directly rather than inferred from the whole form.
+      testProperty "k=1 split obligations hold, and imply the unsplit one" $
+        withMaxSuccess 20000 $
+          forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
+            let splits =
+                  [ (hop, c, indStepObligation1At hop c wr wa sys)
+                    | hop <- [HopStartup, HopRunning],
+                      c <- [RunStruct, RunDecode, RunFlushMem, RunFlushRf]
+                  ]
+                broken = [(hop, c) | (hop, c, ok) <- splits, P.not ok]
+                allSplit = P.null broken
+             in counterexample
+                  ( "startupShape=" P.++ show (isStartupShape sys)
+                      P.++ " driver=" P.++ show (driver sys)
+                      P.++ "\nbroken=" P.++ show broken
+                  )
+                  -- Both that every split piece holds, and that together they
+                  -- are at least as strong as the obligation they replace.
+                  (allSplit P.&& (P.not allSplit P.|| indStepObligation1 wr wa sys)),
+      -- The fresh-word encoding used by the symbolic running obligations is
+      -- not a new theorem. Choosing the actual architectural instruction word
+      -- makes its factored premise and transition equivalent to the original
+      -- full-premise running obligation.
+      testProperty "k=1 decoded-word running obligations equal the original splits" $
+        withMaxSuccess 20000 $
+          forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
+            let isa = isaOfHop proposed sys
+                iw = memReadWord (isaPc isa) (isaMem isa)
+                comparisons =
+                  [ ( c,
+                      indStepObligation1AtWord c iw wr wa sys,
+                      indStepObligation1At HopRunning c wr wa sys
+                    )
+                    | c <- [RunStruct, RunDecode, RunFlushMem, RunFlushRf]
+                  ]
+                unequal = [c | (c, wordForm, original) <- comparisons, wordForm P./= original]
+             in counterexample
+                  ("startupShape=" P.++ show (isStartupShape sys) P.++ "\nunequal=" P.++ show unequal)
+                  (P.null unequal),
+      testProperty "k=1 decoded-word opcode split is exhaustive and implies each running obligation" $
+        withMaxSuccess 20000 $
+          forAll genW $ \iw ->
+            forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
+              let wordCases =
+                    [ WordR,
+                      WordIArith,
+                      WordLoad,
+                      WordJalr,
+                      WordSystem,
+                      WordStore,
+                      WordBranch,
+                      WordLui,
+                      WordAuipc,
+                      WordJal,
+                      WordOther
+                    ]
+                  matching = [wc | wc <- wordCases, decodeWordCaseHolds wc iw]
+                  allCasePieces c = P.all (\wc -> indStepObligation1AtWordCase wc c iw wr wa sys) wordCases
+                  implied c = P.not (allCasePieces c) P.|| indStepObligation1AtWord c iw wr wa sys
+               in counterexample
+                    ("word=" P.++ show iw P.++ "\nmatching cases=" P.++ show matching)
+                    ( decodeWordCasesExhaustive iw
+                        P.&& P.length matching P.== 1
+                        P.&& P.all implied [RunStruct, RunDecode, RunFlushMem, RunFlushRf]
+                    ),
+      -- Heuristic counterexample search for dropping the decode conjunct.
+      -- Absence of a sampled counterexample is not evidence that an obligation
+      -- can safely use the smaller premise: symbolic execution found a model
+      -- that this generator missed, because the equality also restricts the
+      -- execute instruction to the image of 'decode''.
+      testCase "k=1 premise minimisation: sample states without the decode conjunct" $
+        let sample = [x | x <- unGen (vectorOf 3000 genArbSys1) (mkQCGen 23) 30]
+            broke (hop, c) =
+              [ ()
+                | (sys, wr, wa) <- sample,
+                  P.not (indStepObligation1AtP PreNoDecode hop c wr wa sys)
+              ]
+            combos = [(hop, c) | hop <- [HopStartup, HopRunning], c <- [RunStruct, RunDecode, RunFlushMem, RunFlushRf]]
+            verdicts = [(hop, c, P.null (broke (hop, c))) | (hop, c) <- combos]
+         in P.mapM_
+              ( \(hop, c, ok) ->
+                  P.putStrLn
+                    ( "    "
+                        P.++ show hop
+                        P.++ "/"
+                        P.++ show c
+                        P.++ ": "
+                        P.++ if ok then "no sampled counterexample" else "sampled counterexample"
+                    )
+              )
+              verdicts,
+      testCase "k=1 generator reaches both hop shapes" $
+        let sample = [s | (s, _, _) <- unGen (vectorOf 4000 genArbSys1) (mkQCGen 7) 30]
+            admitted p =
+              [ ()
+                | s <- sample,
+                  p s,
+                  driver s P.== 1,
+                  invAtFree proposed 1 0 (isaOfHop proposed s) s
+              ]
+            startups = admitted isStartupShape
+            steadies = admitted (P.not . isStartupShape)
+         in do
+              assertBool "no startup state satisfied the k=1 premise" (P.not (P.null startups))
+              assertBool "no steady state satisfied the k=1 premise" (P.not (P.null steadies)),
+      -- Why 'isaOfHop' exists: deriving the architectural PC from the execute
+      -- stage, as 'isaOfG' does, leaves a startup state satisfying no case of
+      -- the invariant at all -- so the k=1 obligation would hold vacuously
+      -- there rather than saying anything.
+      testCase "startup states need the fetch-stage PC to be admitted" $
+        let sample = [s | (s, _, _) <- unGen (vectorOf 2000 genArbSys1) (mkQCGen 11) 30, isStartupShape s]
+            admits f s = invAtFree proposed 1 0 (f proposed s) s
+         in do
+              assertBool "generator produced no startup states" (P.not (P.null sample))
+              assertBool
+                "isaOfHop should admit some startup state"
+                (P.any (admits isaOfHop) sample)
+              assertBool
+                "isaOfG should admit no startup state (that is why isaOfHop exists)"
+                (P.not (P.any (admits isaOfG) sample)),
+      -- k = 2: jumps and the all-memory steady shape return to a running
+      -- invariant case after three core cycles; ecall/ebreak return to one of
+      -- the two halted cases.
+      testProperty "k=2 inductive step on arbitrary pipeline states" $
+        withMaxSuccess 20000 $
+          forAllShow genArbSys2 (\_ -> "<k=2 state; see counterexample below>") $ \(label, sys, wr, wa) ->
+            counterexample
+              ( "case=" P.++ label
+                  P.++ " driverCase=" P.++ driverCaseName sys
+                  P.++ "\nme=" P.++ show (stateMeInstr (sysState sys))
+                  P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
+                  P.++ "\nex=" P.++ show (exInstr sys)
+                  P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
+                  P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
+              )
+              (indStepObligation2 wr wa sys),
+      testProperty "k=2 decoded-word splits equal the relevant original conclusion" $
+        withMaxSuccess 20000 $
+          forAllShow genArbSys2 (\_ -> "<k=2 state; see counterexample below>") $ \(label, sys, wr, wa) ->
+            let isa = isaOfG proposed sys
+                iw = memReadWord (isaPc isa) (isaMem isa)
+                cs =
+                  [ K2Run RunStruct,
+                    K2Run RunDecode,
+                    K2Run RunFlushMem,
+                    K2Run RunFlushRf,
+                    K2Halt HaltBreak HaltStruct,
+                    K2Halt HaltBreak HaltFlushMem,
+                    K2Halt HaltBreak HaltFlushRf,
+                    K2Halt HaltCall HaltStruct,
+                    K2Halt HaltCall HaltFlushMem,
+                    K2Halt HaltCall HaltFlushRf
+                  ]
+                broken = [c | c <- cs, P.not (indStepObligation2AtWord c iw wr wa sys)]
+             in counterexample
+                  ("case=" P.++ label P.++ "\nbroken=" P.++ show broken)
+                  ( P.null broken
+                      P.&& indStepObligation2 wr wa sys
+                  ),
+      testProperty "k=2 opcode split is exhaustive and implies each word obligation" $
+        withMaxSuccess 20000 $
+          forAll genW $ \iw ->
+            forAllShow genArbSys2 (\_ -> "<k=2 state; see counterexample below>") $ \(_, sys, wr, wa) ->
+              let wordCases =
+                    [ WordR,
+                      WordIArith,
+                      WordLoad,
+                      WordJalr,
+                      WordSystem,
+                      WordStore,
+                      WordBranch,
+                      WordLui,
+                      WordAuipc,
+                      WordJal,
+                      WordOther
+                    ]
+                  cs =
+                    [ K2Run RunStruct,
+                      K2Run RunDecode,
+                      K2Run RunFlushMem,
+                      K2Run RunFlushRf,
+                      K2Halt HaltBreak HaltStruct,
+                      K2Halt HaltBreak HaltFlushMem,
+                      K2Halt HaltBreak HaltFlushRf,
+                      K2Halt HaltCall HaltStruct,
+                      K2Halt HaltCall HaltFlushMem,
+                      K2Halt HaltCall HaltFlushRf
+                    ]
+                  allPieces c =
+                    P.all
+                      (\wc -> indStepObligation2AtWordCase wc c iw wr wa sys)
+                      wordCases
+                  implied c =
+                    P.not (allPieces c)
+                      P.|| indStepObligation2AtWord c iw wr wa sys
+               in decodeWordCasesExhaustive iw
+                    P.&& P.all implied cs,
+      testCase "k=2 generator reaches env, jump, and steady cases" $
+        let sample =
+              [ (label, driverCaseName s)
+                | (label, s, wr, wa) <-
+                    unGen (vectorOf 4000 genArbSys2) (mkQCGen 29) 30,
+                  driver s P.== 2,
+                  invAtFree proposed wr wa (isaOfG proposed s) s
+              ]
+            has label = P.any ((P.== label) . P.fst) sample
+         in do
+              assertBool "no env k=2 state satisfied the premise" (has "env")
+              assertBool "no jump k=2 state satisfied the premise" (has "jump")
+              assertBool "no steady k=2 state satisfied the premise" (has "steady"),
       testCase "jumps never occupy me/wb at a checked state" $
         let bad =
               [ (shape (stateMeInstr (sysState sys)), shape (stateWbInstr (sysState sys)))
@@ -1079,6 +1311,291 @@ genArbSys = do
           (Input True (pure w1))
           (MemFn memf)
   P.pure (sys, wr, wa)
+
+-- | States the driver sends on a two-cycle hop, i.e. @driver == 1@. Two shapes
+-- reach it, and they are generated separately because their invariant cases
+-- constrain the fetch path differently:
+--
+--   * startup -- every stage holds @Nop FirstCycle@ and nothing is on the bus;
+--   * steady with a memory instruction in writeback -- it occupied the bus
+--     last cycle, so no instruction was fetched and @fePc == exPc + 4@.
+genArbSys1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genArbSys1 = oneof [genStartup1, genSteady1]
+
+-- | Arbitrary running states sent on a three-cycle hop. The three satisfiable
+-- driver branches are generated separately:
+--
+--   * an environment instruction;
+--   * a taken jump (JAL is unconditionally taken);
+--   * memory instructions in both writeback and memory, with a non-memory
+--     execute instruction.
+--
+-- The driver's @storeHazard/nomem@ branch is incompatible with the theorem's
+-- pre-state 'noStoreAlias' assumption: it requires a memory-stage store at
+-- exactly @dePc@, while the assumption rejects even a one-byte overlap with
+-- that word. It is therefore an empty proof case rather than a generator case.
+genArbSys2 :: Gen (String, SysG RegFn MemFn, RegIdx, Address)
+genArbSys2 =
+  oneof
+    [ genRunning2 "env" $
+        elements
+          [ IType (Env Call) 0 0 0,
+            IType (Env Break) 0 0 0
+          ],
+      genRunning2 "jump" $
+        JType <$> gr3 <*> (fromIntegral . (2 *) <$> choose (0 :: Int, 7)),
+      genSteady2
+    ]
+
+-- | Environment and jump states permit arbitrary earlier pipeline shapes.
+-- Fetch-input shape follows writeback exactly as the invariant requires.
+genRunning2 ::
+  String ->
+  Gen Instruction ->
+  Gen (String, SysG RegFn MemFn, RegIdx, Address)
+genRunning2 label genEx = do
+  base <- genBase
+  ex0 <- genEx
+  let exI = roundTrips ex0
+  meI <- genMeInstr exI
+  wbI <- oneof [genNonMem, genMemInstr]
+  nextI <- genDeInstr
+  let w0 = P.maybe 0 P.id (encode' exI)
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+  w2 <- genW
+  (memf, _) <- genMemWindow base w0 w1 w2
+  rfF <- genFn (chooseBoundedIntegral (0, 3)) genW genW
+  mr <- genW
+  wbr <- genW
+  loaded <- genW
+  -- Keep memory-stage stores away from all three PC words so the non-alias
+  -- premise is exercised rather than making those samples vacuous.
+  let ma = base + 64
+      wbMem = isMemInstr wbI
+      inp = if wbMem then Input False (pure loaded) else Input True (pure w1)
+      fePc = if wbMem then base + 4 else base + 8
+  wr <- genWitnessReg
+  wa <- unpack <$> genW
+  let sys =
+        Sys
+          ( (sysState (initSys (mkProg prog1)))
+              { stateFePc = fePc,
+                stateDePc = base + 4,
+                stateExPc = base,
+                stateExInstr = decode' w0,
+                stateMeInstr = meI,
+                stateWbInstr = wbI,
+                stateMeRes = pure mr,
+                stateWbRes = pure wbr,
+                stateMeAddr = ma,
+                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateCtrl = initCtrl,
+                stateHalt = Nothing,
+                stateHaltPending = Nothing
+              }
+          )
+          inp
+          (MemFn memf)
+  P.pure (label, sys, wr, wa)
+
+-- | The steady @wb=memory, me=memory, ex=non-memory@ branch.
+genSteady2 :: Gen (String, SysG RegFn MemFn, RegIdx, Address)
+genSteady2 = do
+  base <- genBase
+  exI <-
+    oneof
+      [ RType <$> elements [ADD, SUB, XOR, AND, SLT] <*> gr3 <*> gr3 <*> gr3,
+        (\op rd rs i -> IType (Arith op) rd rs i)
+          <$> elements [ADD, XOR] <*> gr3 <*> gr3 <*> gi15,
+        UType <$> elements [Zero, PC] <*> gr3 <*> (fromIntegral <$> choose (0 :: Int, 15)),
+        P.pure (Nop MemoryBusBusy)
+      ]
+  meI <-
+    oneof
+      [ (\sz sg rd rs i -> IType (Load sz sg) rd rs i)
+          <$> elements [Types.Byte, Types.Half, Types.Word]
+          <*> elements [Signed, Unsigned]
+          <*> grAvoiding (P.concat [getRs1 exI, getRs2 exI])
+          <*> gr3
+          <*> gi15,
+        (\sz i r1 r2 -> SType sz i r1 r2)
+          <$> elements [Types.Byte, Types.Half, Types.Word]
+          <*> gi15
+          <*> gr3
+          <*> gr3
+      ]
+  wbI <- genMemInstr
+  nextI <- genDeInstr
+  let w0 = P.maybe 0 P.id (encode' (roundTrips exI))
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+  w2 <- genW
+  (memf, _) <- genMemWindow base w0 w1 w2
+  rfF <- genFn (chooseBoundedIntegral (0, 3)) genW genW
+  mr <- genW
+  wbr <- genW
+  loaded <- genW
+  wr <- genWitnessReg
+  wa <- unpack <$> genW
+  let sys =
+        Sys
+          ( (sysState (initSys (mkProg prog1)))
+              { stateFePc = base + 4,
+                stateDePc = base + 4,
+                stateExPc = base,
+                stateExInstr = decode' w0,
+                stateMeInstr = meI,
+                stateWbInstr = wbI,
+                stateMeRes = pure mr,
+                stateWbRes = pure wbr,
+                stateMeAddr = base + 64,
+                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateCtrl = initCtrl,
+                stateHalt = Nothing,
+                stateHaltPending = Nothing
+              }
+          )
+          (Input False (pure loaded))
+          (MemFn memf)
+  P.pure ("steady", sys, wr, wa)
+
+-- | The startup shape. @fePc@ is where the ISA's PC sits, and the pipeline is
+-- empty, so no memory word is pinned to any stage.
+genStartup1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genStartup1 = do
+  fePc <- genBase
+  firstI <- genNonMem
+  nextI <- genDeInstr
+  let w0 = P.maybe 0 P.id (encode' (roundTrips firstI))
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+  w2 <- genW
+  (memf, _) <- genMemWindow fePc w0 w1 w2
+  rfF <- genFn (chooseBoundedIntegral (0, 3)) genW genW
+  wr <- genWitnessReg
+  wa <- unpack <$> genW
+  let sys =
+        Sys
+          ( (sysState (initSys (mkProg prog1)))
+              { stateFePc = fePc,
+                -- The other PCs are unconstrained by the startup case; give
+                -- them junk so nothing accidentally relies on them.
+                stateDePc = 0,
+                stateExPc = 0,
+                stateExInstr = Nop FirstCycle,
+                stateMeInstr = Nop FirstCycle,
+                stateWbInstr = Nop FirstCycle,
+                stateMeRes = pure 0,
+                stateWbRes = pure 0,
+                stateMeAddr = 0,
+                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateCtrl = initCtrl,
+                stateHalt = Nothing,
+                stateHaltPending = Nothing
+              }
+          )
+          (Input False (pure 0))
+          (MemFn memf)
+  P.pure (sys, wr, wa)
+
+-- | The steady two-cycle shape: a load or store in writeback, a non-memory
+-- instruction in the memory stage. Nothing is on the bus this cycle, so
+-- @inputMem@ is the value the writeback-stage load reads, not an instruction.
+genSteady1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genSteady1 = do
+  base <- genBase
+  exI <- genExInstr
+  meI <- suchThat genNonMem (\i -> P.not (loadHazard exI i))
+  wbI <- genMemInstr
+  nextI <- genDeInstr
+  let w0 = P.maybe 0 P.id (encode' (roundTrips exI))
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+  w2 <- genW
+  (memf, _) <- genMemWindow base w0 w1 w2
+  rfF <- genFn (chooseBoundedIntegral (0, 3)) genW genW
+  mr <- genW
+  wbr <- genW
+  -- The word the writeback-stage load takes its value from.
+  loaded <- genW
+  ma <- genStoreAddr base
+  wr <- genWitnessReg
+  wa <- unpack <$> genW
+  let sys =
+        Sys
+          ( (sysState (initSys (mkProg prog1)))
+              { stateFePc = base + 4,
+                stateDePc = base + 4,
+                stateExPc = base,
+                stateExInstr = decode' w0,
+                stateMeInstr = meI,
+                stateWbInstr = wbI,
+                stateMeRes = pure mr,
+                stateWbRes = pure wbr,
+                stateMeAddr = ma,
+                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateCtrl = initCtrl,
+                stateHalt = Nothing,
+                stateHaltPending = Nothing
+              }
+          )
+          (Input False (pure loaded))
+          (MemFn memf)
+  P.pure (sys, wr, wa)
+
+-- | Loads and stores, for the writeback stage of a @k = 1@ steady state.
+genMemInstr :: Gen Instruction
+genMemInstr =
+  oneof
+    [ (\sz sg rd rs i -> IType (Load sz sg) rd rs i)
+        <$> elements [Types.Byte, Types.Half, Types.Word]
+        <*> elements [Signed, Unsigned]
+        <*> gr3
+        <*> gr3
+        <*> gi15,
+      (\sz i r1 r2 -> SType sz i r1 r2)
+        <$> elements [Types.Byte, Types.Half, Types.Word]
+        <*> gi15
+        <*> gr3
+        <*> gr3
+    ]
+
+-- | A PC base, biased towards the top of the address space so hops that
+-- straddle the 0xFFFFFFFF -> 0 wrap are sampled. See the wrap-around note on
+-- 'genArbSys'.
+genBase :: Gen Address
+genBase =
+  frequency
+    [ (7, unpack <$> genW),
+      (1, elements [0xFFFFFFF4, 0xFFFFFFF8, 0xFFFFFFFC])
+    ]
+
+-- | Three instruction words at @base@, @base+4@, @base+8@ over arbitrary
+-- background bytes, with wrap-correct bounds.
+genMemWindow :: Address -> Word -> Word -> Word -> Gen (Address -> Byte, ())
+genMemWindow base w0 w1 w2 = do
+  extra <- genFn (unpack <$> genW) (fromIntegral <$> choose (0 :: Int, 255)) (P.pure 0)
+  let byteOf w k = case k of
+        0 -> slice d7 d0 w
+        1 -> slice d15 d8 w
+        2 -> slice d23 d16 w
+        _ -> slice d31 d24 w
+      memf a
+        | a - base P.< 4 = byteOf w0 (a - base)
+        | a - base P.< 8 = byteOf w1 (a - base - 4)
+        | a - base P.< 12 = byteOf w2 (a - base - 8)
+        | P.otherwise = extra a
+  P.pure (memf, ())
+
+-- | Store addresses biased into the PC window, where the aliasing corner cases
+-- live.
+genStoreAddr :: Address -> Gen Address
+genStoreAddr base =
+  frequency
+    [ (1, unpack <$> genW),
+      (1, (\d -> base + fromIntegral (d :: Int) - 8) <$> choose (0, 24))
+    ]
+
+genWitnessReg :: Gen RegIdx
+genWitnessReg =
+  frequency [(3, chooseBoundedIntegral (0, 3)), (1, chooseBoundedIntegral (0, 31))]
 
 isJumpShape :: Instruction -> Bool
 isJumpShape (JType _ _) = True

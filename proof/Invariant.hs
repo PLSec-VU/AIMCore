@@ -20,6 +20,14 @@ module Invariant
     invAt,
     invAtWith,
     invAtFree,
+    RunConj (..),
+    runningConjAt,
+    runningCasesAt,
+    startupCaseAt,
+    HaltKind (..),
+    HaltConj (..),
+    haltedConjAt,
+    haltedCaseAt,
     noStoreAlias,
     invStrictCtrl,
     invLiteral,
@@ -112,12 +120,13 @@ data InvConfig = InvConfig
     checkHaltPending :: Bool,
     -- | Include the @ex == decode (mem[isaPc])@ conjunct.
     --
-    -- Setting this 'False' /defers/ the conjunct rather than dropping it: the
-    -- caller is expected to discharge it in the cheaper word-level form (see
-    -- 'indStep0'). It exists because in a post-state this conjunct applies
-    -- 'decode'' to a read at an address that is itself the result of an
-    -- earlier 'decode'', and under full-path symbolic execution the two
-    -- decision trees multiply.
+    -- Setting this 'False' is only for diagnostic premise-strengthening
+    -- experiments. It is not a valid replacement for the proposed invariant
+    -- unless the caller supplies both the semantic connection to memory and
+    -- the restriction that the execute instruction lies in the image of
+    -- 'decode''. In a post-state the full conjunct applies 'decode'' to a read
+    -- at an address that is itself the result of an earlier 'decode'', and
+    -- under full-path symbolic execution the two decision trees multiply.
     checkExDecode :: Bool,
     -- | Consider only the four running cases. Restricting the disjunction
     -- makes the resulting statement /stronger/, not weaker.
@@ -346,92 +355,291 @@ invAtFree ::
   IsaStateG r m ->
   SysG r m ->
   Bool
-invAtFree cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
-  runningCases
+invAtFree cfg wr wa isa sys =
+  runningCasesAt cfg wr wa isa sys
     || ( not (runningCasesOnly cfg)
-           && ( startupCase
-                  || haltedCase isBreak isEBreak
-                  || haltedCase isCall isSyscall
+           && ( startupCaseAt cfg wr wa isa sys
+                  || haltedCaseAt cfg HaltBreak wr wa isa sys
+                  || haltedCaseAt cfg HaltCall wr wa isa sys
               )
        )
-  where
-    eqRF a b = runIdentity (lookupRFg wr a) == runIdentity (lookupRFg wr b)
-    eqMem a b = memReadByte wa a == memReadByte wa b
 
-    ctrlOk = not (checkCtrl cfg) || stateCtrl st == initCtrl
-    haltPendingOk = not (checkHaltPending cfg) || stateHaltPending st == Nothing
-    inputWord = runIdentity (inputMem inp)
-    isaInstr = decode' (memReadWord ipc imem)
-    exDecodeOk = not (checkExDecode cfg) || stateExInstr st == isaInstr
-    dePcWord = memReadWord (stateDePc st) mem
-    isMem ir = isLoad ir || isStore ir
+-- | Which of the two halted cases: @ebreak@ or @ecall@.
+data HaltKind = HaltBreak | HaltCall
+  deriving (Eq, Show)
 
+-- | The halted case's conjuncts, grouped for the same reason as 'RunConj'.
+--
+-- A @k = 2@ hop can terminate on @ebreak@ or @ecall@. Keeping the pointwise
+-- memory and register-file equalities out of the structural group lets the
+-- symbolic proof discharge the two arrays independently.
+data HaltConj
+  = -- | The architectural halt kind, core halt state, reset control lines,
+    -- empty pending-halt slot, and three flushed pipeline stages.
+    HaltStruct
+  | -- | The memory byte agrees at the witness address.
+    HaltFlushMem
+  | -- | The register file agrees at the witness register.
+    HaltFlushRf
+  deriving (Eq, Show)
 
-    startupCase =
-      running sys
-        && ctrlOk
-        && haltPendingOk
-        && stateWbInstr st == Nop FirstCycle
-        && stateMeInstr st == Nop FirstCycle
-        && stateExInstr st == Nop FirstCycle
-        && not (inputIsInstr inp)
-        && stateFePc st == ipc
-        && eqRF irf (stateRegFile st)
-        && eqMem imem mem
-
-    -- The list version enumerates four cases, one per valuation of
-    -- @(isMem wb, isMem me)@ -- useful for 'explain', where the case name says
-    -- which shape the state has. But the parameters occur only in the pinning
-    -- equalities (and the fetch split on @isMem wb@), so the disjunction over
-    -- all four valuations is just the shared body with the computed values
-    -- substituted in: @isMem me@ drops out entirely and @isMem wb@ selects the
-    -- fetch branch. Writing it collapsed matters operationally: the symbolic
-    -- executor does not share subterms across disjuncts, so the enumerated
-    -- form pays for four copies of the flush expression and the decode tree at
-    -- every occurrence of the invariant.
-    runningCases =
-      running sys
-        && ctrlOk
-        && haltPendingOk
-        && stateExPc st == ipc
-        && exDecodeOk
-        && stateDePc st == stateExPc st + 4
-        && not (loadHazard (stateExInstr st) (stateMeInstr st))
-        && flushOk
-        && ( if isMem (stateWbInstr st)
-               then not (inputIsInstr inp) && stateFePc st == stateExPc st + 4
-               else
-                 inputIsInstr inp
-                   && inputWord == dePcWord
-                   && stateFePc st == stateExPc st + 8
-           )
-
-    flushOk =
-      let (fm, frf) =
-            flushMeStage
-              (jumpsWriteRdInMe cfg)
-              (stateMeInstr st)
-              (runIdentity (stateMeRes st))
-              (stateMeAddr st)
-              (flushWbStage (stateWbInstr st) (runIdentity (stateWbRes st)) inputWord (mem, stateRegFile st))
-       in eqMem imem fm && eqRF irf frf
-
-    haltedCase isKind matchesHalt =
-      isKind isaInstr
+-- | One group of one halted invariant case.
+haltedConjAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig ->
+  HaltKind ->
+  HaltConj ->
+  RegIdx ->
+  Address ->
+  IsaStateG r m ->
+  SysG r m ->
+  Bool
+haltedConjAt cfg kind c wr wa (IsaState ipc irf imem) (Sys st _ mem) =
+  case c of
+    HaltStruct ->
+      isKind (decode' (memReadWord ipc imem))
         && maybe False matchesHalt (stateHalt st)
-        && ctrlOk
-        && haltPendingOk
+        && ctrlOkOf cfg st
+        && haltPendingOkOf cfg st
         && stateWbInstr st == Nop Halted
         && stateMeInstr st == Nop Halted
         && stateExInstr st == Nop Halted
-        && eqRF irf (stateRegFile st)
-        && eqMem imem mem
+    HaltFlushMem ->
+      memReadByte wa imem == memReadByte wa mem
+    HaltFlushRf ->
+      runIdentity (lookupRFg wr irf)
+        == runIdentity (lookupRFg wr (stateRegFile st))
+  where
+    isKind = case kind of
+      HaltBreak -> isBreak
+      HaltCall -> isCall
+    matchesHalt h = case kind of
+      HaltBreak -> case h of EBreak _ -> True; _ -> False
+      HaltCall -> case h of Core.Syscall _ -> True; _ -> False
 
-    isEBreak (EBreak _) = True
-    isEBreak _ = False
+-- | One halted case, on its own.
+haltedCaseAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig -> HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+haltedCaseAt cfg kind wr wa isa sys =
+  haltedConjAt cfg kind HaltStruct wr wa isa sys
+    && haltedConjAt cfg kind HaltFlushMem wr wa isa sys
+    && haltedConjAt cfg kind HaltFlushRf wr wa isa sys
 
-    isSyscall (Core.Syscall _) = True
-    isSyscall _ = False
+-- Split form, for decomposing the proof obligation ---------------------------
+--
+-- A single symbolic query for a whole hop turned out not to scale: @k = 0@
+-- reached @unsat@ in 36 minutes, and @k = 1@ -- one extra cycle, a formula
+-- only ~1.4x larger -- was still running after nearly four hours of solver
+-- time. Since the executor had long finished by then, the cost is in the SMT
+-- query, so the lever is the shape of the statement rather than the encoding.
+--
+-- Two observations make the statement decomposable.
+--
+--   1. The invariant is a DISJUNCTION of cases. In the premise, an implication
+--      out of a disjunction splits: @(P1 || P2) ==> C@ is exactly
+--      @(P1 ==> C) && (P2 ==> C)@. So each case of the invariant becomes its
+--      own obligation, with no disjunction left in its premise.
+--
+--   2. In the conclusion, a disjunction cannot be split -- but it can be
+--      STRENGTHENED. Claiming the post-state satisfies one specific case
+--      implies it satisfies the disjunction, so proving the stronger statement
+--      is sound (see 'runningCasesOnly', which does the same thing wholesale).
+--      Once the conclusion names a single case it is a plain CONJUNCTION, and
+--      @P ==> (X && Y && Z)@ splits into @P ==> X@, @P ==> Y@, @P ==> Z@.
+--
+-- Together these turn one large query into many small independent ones. The
+-- grouping below isolates the two expensive conjuncts -- the decode tree and
+-- the memory half of the flush -- from the cheap scalar ones, so that solver
+-- time is spent only where it is actually needed, and a failure says which
+-- conjunct broke instead of just \"invalid\".
+
+-- | The running case's conjuncts, grouped so an obligation can discharge them
+-- one at a time.
+data RunConj
+  = -- | The scalar conjuncts: liveness, the PC relations, the load-use side
+    -- condition, and the fetch behaviour. Cheap -- no array, no decode.
+    RunStruct
+  | -- | @ex == decode (mem[isaPc])@. Expensive: in a post-state the address is
+    -- itself derived from an earlier 'decode'', so the two decision trees
+    -- multiply.
+    RunDecode
+  | -- | The memory half of the flush equality. Expensive: array selects over
+    -- the store chains 'flushMeStage' builds.
+    RunFlushMem
+  | -- | The register-file half of the flush equality.
+    RunFlushRf
+  deriving (Eq, Show)
+
+ctrlOkOf :: InvConfig -> Core.StateG r Identity -> Bool
+ctrlOkOf cfg st = not (checkCtrl cfg) || stateCtrl st == initCtrl
+
+haltPendingOkOf :: InvConfig -> Core.StateG r Identity -> Bool
+haltPendingOkOf cfg st = not (checkHaltPending cfg) || stateHaltPending st == Nothing
+
+-- | The pending effects of the memory and writeback stages, applied.
+flushOf :: (RegFileOps r, MemOps m) => InvConfig -> SysG r m -> (m, r Identity)
+flushOf cfg (Sys st inp mem) =
+  flushMeStage
+    (jumpsWriteRdInMe cfg)
+    (stateMeInstr st)
+    (runIdentity (stateMeRes st))
+    (stateMeAddr st)
+    ( flushWbStage
+        (stateWbInstr st)
+        (runIdentity (stateWbRes st))
+        (runIdentity (inputMem inp))
+        (mem, stateRegFile st)
+    )
+
+-- | One group of the running case's conjuncts.
+runningConjAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig -> RunConj -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+runningConjAt cfg c wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
+  case c of
+    RunStruct ->
+      running sys
+        && ctrlOkOf cfg st
+        && haltPendingOkOf cfg st
+        && stateExPc st == ipc
+        && stateDePc st == stateExPc st + 4
+        && not (loadHazard (stateExInstr st) (stateMeInstr st))
+        && ( if isLoad (stateWbInstr st) || isStore (stateWbInstr st)
+               then not (inputIsInstr inp) && stateFePc st == stateExPc st + 4
+               else
+                 inputIsInstr inp
+                   && runIdentity (inputMem inp) == memReadWord (stateDePc st) mem
+                   && stateFePc st == stateExPc st + 8
+           )
+    RunDecode ->
+      not (checkExDecode cfg) || stateExInstr st == decode' (memReadWord ipc imem)
+    RunFlushMem ->
+      memReadByte wa imem == flushMemByteAt wa sys
+    RunFlushRf ->
+      runIdentity (lookupRFg wr irf)
+        == flushRfWordAt cfg wr sys
+
+-- | Read one byte from the memory produced by the invariant's pipeline flush,
+-- without constructing that whole memory first.
+--
+-- 'flushWbStage' never changes memory. 'flushMeStage' changes it only for a
+-- store, by writing up to four consecutive bytes. Consequently this mux is
+-- exactly
+--
+-- > memReadByte wa (fst (flushOf cfg sys))
+--
+-- for every @cfg@, but it sends the solver a pointwise read-over-write formula
+-- instead of an SMT @select@ over a nested @store@ chain. That distinction is
+-- decisive for the three-cycle proof.
+flushMemByteAt :: (MemOps m) => Address -> SysG r m -> Byte
+flushMemByteAt wa (Sys st _ mem) =
+  case stateMeInstr st of
+    SType size _ _ _ ->
+      let a = stateMeAddr st
+          w = runIdentity (stateMeRes st)
+          b0 = slice d7 d0 w
+          b1 = slice d15 d8 w
+          b2 = slice d23 d16 w
+          b3 = slice d31 d24 w
+          old = memReadByte wa mem
+       in case size of
+            Types.Byte ->
+              if wa == a then b0 else old
+            Types.Half ->
+              if wa == a
+                then b0
+                else if wa == a + 1 then b1 else old
+            Types.Word ->
+              if wa == a
+                then b0
+                else
+                  if wa == a + 1
+                    then b1
+                    else
+                      if wa == a + 2
+                        then b2
+                        else if wa == a + 3 then b3 else old
+    _ -> memReadByte wa mem
+
+-- | Read one register from the register file produced by the invariant's
+-- pipeline flush, without constructing the two nested array updates first.
+--
+-- Writeback is applied before memory, so a memory-stage write to the witness
+-- register wins. Register zero is immutable. This is exactly
+--
+-- > runIdentity (lookupRFg wr (snd (flushOf cfg sys)))
+--
+-- but avoids sending the solver a @select@ over two symbolic @store@s.
+flushRfWordAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig -> RegIdx -> SysG r m -> Word
+flushRfWordAt cfg wr (Sys st inp mem)
+  | wr == 0 = 0
+  | otherwise = applyMe (applyWb old)
+  where
+    old = runIdentity (lookupRFg wr (stateRegFile st))
+    inputWord = runIdentity (inputMem inp)
+
+    put rd value prior = if wr == rd then value else prior
+
+    applyWb prior =
+      case stateWbInstr st of
+        RType _ rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
+        IType (Arith _) rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
+        IType (Load size sign) rd _ _ ->
+          put rd (loadExtend size sign inputWord) prior
+        JType rd _ -> put rd (runIdentity (stateWbRes st)) prior
+        IType Jump rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
+        UType _ rd _ -> put rd (runIdentity (stateWbRes st)) prior
+        _ -> prior
+
+    applyMe prior =
+      case stateMeInstr st of
+        RType _ rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
+        IType (Arith _) rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
+        IType (Load size sign) rd _ _ ->
+          put
+            rd
+            (loadExtend size sign (memReadWord (stateMeAddr st) mem))
+            prior
+        JType rd _ ->
+          if jumpsWriteRdInMe cfg
+            then put rd (runIdentity (stateMeRes st)) prior
+            else prior
+        IType Jump rd _ _ ->
+          if jumpsWriteRdInMe cfg
+            then put rd (runIdentity (stateMeRes st)) prior
+            else prior
+        UType _ rd _ -> put rd (runIdentity (stateMeRes st)) prior
+        _ -> prior
+
+-- | The running case, as the conjunction of its groups. 'invAtFree' is defined
+-- in terms of this, so the split form cannot drift from the whole form.
+runningCasesAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+runningCasesAt cfg wr wa isa sys =
+  runningConjAt cfg RunStruct wr wa isa sys
+    && runningConjAt cfg RunDecode wr wa isa sys
+    && runningConjAt cfg RunFlushMem wr wa isa sys
+    && runningConjAt cfg RunFlushRf wr wa isa sys
+
+-- | The startup case, on its own.
+startupCaseAt ::
+  (RegFileOps r, MemOps m) =>
+  InvConfig -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+startupCaseAt cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
+  running sys
+    && ctrlOkOf cfg st
+    && haltPendingOkOf cfg st
+    && stateWbInstr st == Nop FirstCycle
+    && stateMeInstr st == Nop FirstCycle
+    && stateExInstr st == Nop FirstCycle
+    && not (inputIsInstr inp)
+    && stateFePc st == ipc
+    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr (stateRegFile st))
+    && memReadByte wa imem == memReadByte wa mem
 
 -- | Side condition: no store aliases a word the fetch path is using.
 --
