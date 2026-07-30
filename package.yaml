@@ -90,11 +90,7 @@ library:
     - Obligation
     - ArrayRF
     - Axioms
-    - ClosureProbe
-    - Verify
-    - VerifyK1
-    - VerifyK1Split
-    - VerifyK2Split
+    - Induction
     - LoggedPantomime
     - Access
     - Core

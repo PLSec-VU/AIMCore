@@ -22,12 +22,8 @@ import Simulate
 import Memory.Types
 import Memory.Vec
 import qualified Proof.Sanity as Sanity
-import qualified ClosureProbe
 import qualified Prelude
-import qualified Verify
-import qualified VerifyK1
-import qualified VerifyK1Split
-import qualified VerifyK2Split
+import qualified Induction
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -66,50 +62,33 @@ mkSecretPCLeakTest s prog =
     assertBool "" $
       Leak.SecretPC.pcsEqual prog
 
--- | Checks that the Pantomime/symfc plugin is wired in and actually discharging
--- properties. Since pantomime 1821a71 an invalid property no longer fails the
--- build, so the negative control has to be asserted here instead.
+-- | The compile-time symbolic checks, read back out.
+--
+-- The first three establish that the Pantomime plugin is wired in and actually
+-- discharging properties -- since pantomime 1821a71 an invalid property no
+-- longer fails the build, so the negative control has to be asserted here.
+-- The rest are the refinement proof itself; see "Induction".
 sanityTests :: TestTree
 sanityTests =
   testGroup
-    "Pantomime plugin sanity"
-    [ testCase "deMorgan is valid" $ verdict "deMorgan" @?= Nothing,
-      testCase "doubling is valid" $ verdict "doubling" @?= Nothing,
-      testCase "negative control yields a counterexample" $
+    "Symbolic proof results"
+    [ testCase "plugin sanity: deMorgan is valid" $ verdict "deMorgan" @?= Nothing,
+      testCase "plugin sanity: doubling is valid" $ verdict "doubling" @?= Nothing,
+      testCase "plugin sanity: negative control yields a counterexample" $
         assertBool "expected a counterexample for 'bogus'" $
           isJust (verdict "bogus"),
-      -- The one proof property symbolic execution can currently discharge; see
-      -- the "Verify" module header for what blocks the rest.
-      testCase "symbolic: pureAdt is valid" $
-        lookup "pureAdt" Verify.results @?= Just Nothing,
-      testCase "symbolic: vecCons is valid" $
-        lookup "vecCons" Verify.results @?= Just Nothing,
-      testCase "symbolic: rfPointwise is valid" $
-        lookup "rfPointwise" Verify.results @?= Just Nothing,
-      testCase "symbolic: one core cycle (PC) is valid" $
-        lookup "coreStepPc" Verify.results @?= Just Nothing,
-      testCase "symbolic: one core cycle (writeback rd) is valid" $
-        lookup "coreWritebackRd" Verify.results @?= Just Nothing,
-      testCase "symbolic: one system step (memory stable) is valid" $
-        lookup "sysStepMemStable" Verify.results @?= Just Nothing,
-      testCase "symbolic: driver 0 lands on a real instruction" $
-        lookup "driverZeroLands" Verify.results @?= Just Nothing,
-      testCase "symbolic: register file as SMT array round-trips" $
-        lookup "arrRoundTrip" Verify.results @?= Just Nothing,
-      testCase "symbolic: k = 0 inductive step is valid" $
-        lookup "indStep0" Verify.results @?= Just Nothing,
-      testCase "symbolic: monolithic k = 1 inductive step is valid" $
-        lookup "indStep1" VerifyK1.results @?= Just Nothing,
-      -- Subsumed by the monolithic k = 1 obligation above, which is now cheap
-      -- enough to check directly. Kept until the split module is retired.
-      testCase "symbolic: all k = 1 split obligations are valid" $ do
-        Prelude.length VerifyK1Split.results @?= 23
-        [name | (name, Just _) <- VerifyK1Split.results] @?= [],
-      testCase "symbolic: k = 2 and k = 3 inductive steps are valid" $ do
-        Prelude.length VerifyK2Split.results @?= 2
-        [name | (name, Just _) <- VerifyK2Split.results] @?= [],
-      testCase "symbolic: closure probes all valid" $
-        [v | (_, v) <- ClosureProbe.results] @?= Prelude.replicate 6 Nothing
+      testCase "array embedding round-trips" $
+        lookup "arrRoundTrip" Induction.results @?= Just Nothing,
+      testCase "shift embeddings are sane" $
+        lookup "shiftsSane" Induction.results @?= Just Nothing,
+      testCase "k = 0 inductive step is valid" $
+        lookup "indStep0" Induction.results @?= Just Nothing,
+      testCase "k = 1 inductive step is valid" $
+        lookup "indStep1" Induction.results @?= Just Nothing,
+      testCase "k = 2 inductive step is valid" $
+        lookup "indStep2" Induction.results @?= Just Nothing,
+      testCase "k = 3 inductive step is valid" $
+        lookup "indStep3" Induction.results @?= Just Nothing
     ]
   where
     verdict :: String -> Maybe String

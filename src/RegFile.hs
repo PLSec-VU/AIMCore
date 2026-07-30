@@ -68,7 +68,7 @@ censorRF _ = initRF
 -- 'Core.StateG' is parameterised over this so that the same pipeline can run on
 -- two representations: the synthesisable 'RegFile' (a 'Vec'), and 'RegFn' (a
 -- function) which is what symbolic execution can actually handle. See
--- "Verify" for why the 'Vec' one cannot be symbolically executed.
+-- "Induction" for why the 'Vec' one cannot be symbolically executed.
 class RegFileOps r where
   lookupRFg :: (Access f) => RegIdx -> r f -> f Word
   modifyRFg :: (Access f) => RegIdx -> f Word -> r f -> r f

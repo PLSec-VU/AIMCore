@@ -50,7 +50,7 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 --
 -- Parameterised for the same reason as 'RegFileOps': the @Vec@-backed
 -- 'MemBytes' cannot be symbolically executed, while the function-backed
--- 'MemFn' can. See "Verify".
+-- 'MemFn' can. See "Induction".
 class MemOps m where
   memReadWord :: Address -> m -> Word
   memWriteWord :: Size -> Address -> Word -> m -> m
