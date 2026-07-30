@@ -6,7 +6,7 @@
 --
 -- Two forms of the same predicate live here:
 --
---   * 'invCasesWith' represents each case as a named list of conjuncts, so a
+--   * 'invCases' represents each case as a named list of conjuncts, so a
 --     failing QuickCheck run can report which clause broke ('explain');
 --   * 'invAtFree' is the identical predicate built from '&&' and '||' with no
 --     lists, because Pantomime's evaluator diverges on recursion it cannot
@@ -15,21 +15,41 @@
 --
 -- The test \"fold-free invariant agrees with the list version\" keeps the two
 -- from drifting.
+--
+-- == Where this differs from @invariant.txt@
+--
+-- Three places, each marked again at its definition. The note as written does
+-- not give an inductive invariant; these are the corrections that do.
+--
+--   1. NO @stateCtrl == initCtrl@ clause. The note asks for the control lines
+--      to sit at their reset values, which no state reached by stepping the
+--      core satisfies -- 'Core.withCtrlReset' rewrites them every cycle -- so
+--      that reading is unsatisfiable rather than merely too strong.
+--
+--   2. 'flushMeStage' writes @rd@ for jumps. The note binds @rd@ in that case
+--      and then never uses it. A pending effect must be counted identically
+--      wherever the instruction sits, because an instruction in the memory
+--      stage this cycle is in writeback the next one; the asymmetry is what
+--      breaks inductiveness.
+--
+--   3. An added @no halt pending@ conjunct. Without it the invariant admits a
+--      halt in flight, and 'Core.memory' then halts the core part-way through a
+--      driver hop.
+--
+-- Points 2 and 3 are each pinned by a test in "ProofSpec" that splices the
+-- offending shape into an otherwise reachable state ("inductive with a jump in
+-- the memory stage", "invariant rejects a halt in flight").
 module Invariant
   ( flushWbStage,
     flushMeStage,
     Case (..),
-    InvConfig (..),
-    proposed,
-    literal,
     inv,
     invAt,
-    invCasesWith,
+    invCases,
     invCasesAt,
     invAtFree,
     noStoreAlias,
     explain,
-    explainWith,
   )
 where
 
@@ -72,21 +92,19 @@ flushWbStage ir res inputWord (mem, rf) =
 
 -- | Apply the pending effect of the memory-stage instruction.
 --
--- @jumpsWriteRd@ should be 'True': a jump writes @rd@ here just as it does in
--- 'flushWbStage' -- an instruction in the memory stage this cycle is in the
--- writeback stage the next one, so its pending effect must be counted
--- identically in both. @invariant.txt@ originally left @rd@ alone here, and
--- that asymmetry broke inductiveness; 'False' reproduces the original for the
--- regression test.
+-- DEVIATION 2 from @invariant.txt@ (see the module header): the two jump cases
+-- write @rd@, where the note binds it and does not use it. An instruction in
+-- the memory stage this cycle is in the writeback stage the next one, so its
+-- pending effect has to be counted the same way in both, or the invariant is
+-- not preserved across the step that moves it along.
 flushMeStage ::
   (RegFileOps r, MemOps m) =>
-  Bool ->
   Instruction ->
   Word ->
   Address ->
   (m, r Identity) ->
   (m, r Identity)
-flushMeStage jumpsWriteRd ir res addr (mem, rf) =
+flushMeStage ir res addr (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
     IType (Arith _) rd _ _ -> (mem, put rd res)
@@ -94,34 +112,13 @@ flushMeStage jumpsWriteRd ir res addr (mem, rf) =
       (mem, put rd (loadExtend size sign (memReadWord addr mem)))
     SType size _ _ _ -> (memWriteWord size addr res mem, rf)
     BType {} -> (mem, rf)
-    JType rd _ -> (mem, if jumpsWriteRd then put rd res else rf)
-    IType Jump rd _ _ -> (mem, if jumpsWriteRd then put rd res else rf)
+    JType rd _ -> (mem, put rd res)
+    IType Jump rd _ _ -> (mem, put rd res)
     UType _ rd _ -> (mem, put rd res)
     IType (Env _) _ _ _ -> (mem, rf)
     Nop _ -> (mem, rf)
   where
     put rd v = modifyRFg rd (pure v) rf
-
--- | The places where @invariant.txt@ is ambiguous or wrong, as switches, so
--- the regression tests can check each reading.
-data InvConfig = InvConfig
-  { -- | Include the @stateCtrl == initCtrl@ clause. Unsatisfiable on any state
-    -- reached by stepping the core, so normally 'False'.
-    checkCtrl :: Bool,
-    -- | Have 'flushMeStage' write @rd@ for jumps, matching 'flushWbStage'.
-    jumpsWriteRdInMe :: Bool,
-    -- | Require that no halt is in flight. Without it the core can halt
-    -- part-way through a driver hop.
-    checkHaltPending :: Bool
-  }
-
--- | The reading this module recommends.
-proposed :: InvConfig
-proposed = InvConfig {checkCtrl = False, jumpsWriteRdInMe = True, checkHaltPending = True}
-
--- | Exactly what @invariant.txt@ says.
-literal :: InvConfig
-literal = InvConfig {checkCtrl = True, jumpsWriteRdInMe = False, checkHaltPending = False}
 
 -- | A named case of the invariant, with its conjuncts.
 data Case = Case
@@ -132,9 +129,9 @@ data Case = Case
 holds :: Case -> Bool
 holds = P.all snd . caseConjuncts
 
--- | Does any case of the invariant hold? Container form, 'proposed' reading.
+-- | Does any case of the invariant hold? Container form.
 inv :: IsaState -> Sys -> Bool
-inv isa sys = P.any holds (invCasesWith proposed isa sys)
+inv isa sys = P.any holds (invCases isa sys)
 
 -- | The invariant in pointwise form: instead of comparing whole register files
 -- and memories, compare them at one witness register @wr@ and one witness byte
@@ -143,50 +140,52 @@ inv isa sys = P.any holds (invCasesWith proposed isa sys)
 -- This is the version symbolic execution can use: function-backed containers
 -- have no decidable equality, but they can be read at a symbolic point.
 invAt :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-invAt wr wa isa sys = P.any holds (invCasesAt proposed wr wa isa sys)
+invAt wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
 
 -- | Human-readable account of why the invariant failed: for each case, the
 -- conjuncts that were false.
 explain :: IsaState -> Sys -> String
-explain = explainWith proposed
-
-explainWith :: InvConfig -> IsaState -> Sys -> String
-explainWith cfg isa sys =
+explain isa sys =
   unlines
     [ "  case " P.++ caseName c P.++ ": failed " P.++ show (P.map fst (P.filter (P.not . snd) (caseConjuncts c)))
-      | c <- invCasesWith cfg isa sys
+      | c <- invCases isa sys
     ]
 
 -- | Container-level cases: compare register files and memories directly.
-invCasesWith :: InvConfig -> IsaState -> Sys -> [Case]
-invCasesWith cfg = invCasesGen (==) (==) cfg
+invCases :: IsaState -> Sys -> [Case]
+invCases = invCasesGen (==) (==)
 
 -- | The cases at one witness register and one witness byte address.
 invCasesAt ::
   (RegFileOps r, MemOps m) =>
-  InvConfig -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> [Case]
-invCasesAt cfg wr wa =
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> [Case]
+invCasesAt wr wa =
   invCasesGen
     (\a b -> runIdentity (lookupRFg wr a) == runIdentity (lookupRFg wr b))
     (\a b -> memReadByte wa a == memReadByte wa b)
-    cfg
 
 -- | The cases of the invariant, parameterised over how register files and
 -- memories are compared.
+--
+-- DEVIATION 1 is a silence: @invariant.txt@ opens every case with
+-- @stateCtrl == initCtrl@, and no case here has it. 'Core.withCtrlReset' resets
+-- the control lines at the start of each cycle and the stages then set them, so
+-- only 'Core.init' itself satisfies that clause -- with it the invariant holds of
+-- no state the driver ever lands on, and every obligation would be vacuous.
+-- Dropping it is sound because the lines carry no information between cycles:
+-- 'Machine.stepSys' overwrites them before any stage reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
   (r Identity -> r Identity -> Bool) ->
   (m -> m -> Bool) ->
-  InvConfig ->
   IsaStateG r m ->
   SysG r m ->
   [Case]
-invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
+invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
   [ runningCase,
     Case
       "startup"
       [ ("running", running sys),
-        ctrlClause,
         noPendingHalt,
         ("wb == Nop FirstCycle", stateWbInstr st == Nop FirstCycle),
         ("me == Nop FirstCycle", stateMeInstr st == Nop FirstCycle),
@@ -200,15 +199,11 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
     haltedCase "halted/ecall" isCall isSyscall
   ]
   where
-    ctrlClause
-      | checkCtrl cfg = ("ctrl == initCtrl", stateCtrl st == initCtrl)
-      | otherwise = ("ctrl (not checked)", True)
-
-    -- 'Core.execute' raises a pending halt and 'Core.memory' consumes it the
-    -- next cycle; at a state the driver lands on there is never one in flight.
-    noPendingHalt
-      | checkHaltPending cfg = ("no halt pending", stateHaltPending st == Nothing)
-      | otherwise = ("halt pending (not checked)", True)
+    -- DEVIATION 3: not in @invariant.txt@. 'Core.execute' raises a pending halt
+    -- and 'Core.memory' consumes it the next cycle, so at a state the driver
+    -- lands on there is never one in flight; leaving it unconstrained lets the
+    -- core halt part-way through a hop.
+    noPendingHalt = ("no halt pending", stateHaltPending st == Nothing)
 
     inputWord = runIdentity (inputMem inp)
 
@@ -226,7 +221,6 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
     runningCase =
       Case "running" $
         [ ("running", running sys),
-          ctrlClause,
           noPendingHalt,
           ("exPc == isaPc", stateExPc st == ipc),
           ("ex == decode (mem[isaPc])", stateExInstr st == isaInstr),
@@ -235,7 +229,6 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
           ( "(isaMem, isaRegFile) == flush",
             let (fm, frf) =
                   flushMeStage
-                    (jumpsWriteRdInMe cfg)
                     (stateMeInstr st)
                     (runIdentity (stateMeRes st))
                     (stateMeAddr st)
@@ -259,7 +252,6 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
         name
         [ ("isa instruction is of this kind", isKind isaInstr),
           ("halt state matches", maybe False matchesHalt (stateHalt st)),
-          ctrlClause,
           noPendingHalt,
           ("wb == Nop Halted", stateWbInstr st == Nop Halted),
           ("me == Nop Halted", stateMeInstr st == Nop Halted),
@@ -277,39 +269,31 @@ invCasesGen eqRF eqMem cfg (IsaState ipc irf imem) sys@(Sys st inp mem) =
 -- The fold-free form ----------------------------------------------------------
 
 -- | The invariant, pointwise, built from '&&' and '||' with no lists and no
--- folds. Semantically identical to @'P.any' holds ('invCasesAt' cfg wr wa)@;
--- see the module header for why both exist.
+-- folds. Semantically identical to @'P.any' holds ('invCasesAt' wr wa)@; see
+-- the module header for why both exist.
 invAtFree ::
   (RegFileOps r, MemOps m) =>
-  InvConfig ->
   RegIdx ->
   Address ->
   IsaStateG r m ->
   SysG r m ->
   Bool
-invAtFree cfg wr wa isa sys =
-  runningCaseAt cfg wr wa isa sys
-    || startupCaseAt cfg wr wa isa sys
-    || haltedCaseAt cfg HaltBreak wr wa isa sys
-    || haltedCaseAt cfg HaltCall wr wa isa sys
+invAtFree wr wa isa sys =
+  runningCaseAt wr wa isa sys
+    || startupCaseAt wr wa isa sys
+    || haltedCaseAt HaltBreak wr wa isa sys
+    || haltedCaseAt HaltCall wr wa isa sys
 
 -- | Which of the two halted cases: @ebreak@ or @ecall@.
 data HaltKind = HaltBreak | HaltCall
 
-ctrlOkOf :: InvConfig -> Core.StateG r Identity -> Bool
-ctrlOkOf cfg st = not (checkCtrl cfg) || stateCtrl st == initCtrl
-
-haltPendingOkOf :: InvConfig -> Core.StateG r Identity -> Bool
-haltPendingOkOf cfg st = not (checkHaltPending cfg) || stateHaltPending st == Nothing
-
 -- | The running case.
 runningCaseAt ::
   (RegFileOps r, MemOps m) =>
-  InvConfig -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-runningCaseAt cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
   running sys
-    && ctrlOkOf cfg st
-    && haltPendingOkOf cfg st
+    && stateHaltPending st == Nothing
     && stateExPc st == ipc
     && stateExInstr st == decode' (memReadWord ipc imem)
     && stateDePc st == stateExPc st + 4
@@ -322,16 +306,15 @@ runningCaseAt cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
                && stateFePc st == stateExPc st + 8
        )
     && memReadByte wa imem == flushMemByteAt wa sys
-    && runIdentity (lookupRFg wr irf) == flushRfWordAt cfg wr sys
+    && runIdentity (lookupRFg wr irf) == flushRfWordAt wr sys
 
 -- | The startup case.
 startupCaseAt ::
   (RegFileOps r, MemOps m) =>
-  InvConfig -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-startupCaseAt cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+startupCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
   running sys
-    && ctrlOkOf cfg st
-    && haltPendingOkOf cfg st
+    && stateHaltPending st == Nothing
     && stateWbInstr st == Nop FirstCycle
     && stateMeInstr st == Nop FirstCycle
     && stateExInstr st == Nop FirstCycle
@@ -343,12 +326,11 @@ startupCaseAt cfg wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
 -- | One halted case.
 haltedCaseAt ::
   (RegFileOps r, MemOps m) =>
-  InvConfig -> HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-haltedCaseAt cfg kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
+  HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
   isKind (decode' (memReadWord ipc imem))
     && maybe False matchesHalt (stateHalt st)
-    && ctrlOkOf cfg st
-    && haltPendingOkOf cfg st
+    && stateHaltPending st == Nothing
     && stateWbInstr st == Nop Halted
     && stateMeInstr st == Nop Halted
     && stateExInstr st == Nop Halted
@@ -406,8 +388,8 @@ flushMemByteAt wa (Sys st _ mem) =
 -- register wins. Register zero is immutable.
 flushRfWordAt ::
   (RegFileOps r, MemOps m) =>
-  InvConfig -> RegIdx -> SysG r m -> Word
-flushRfWordAt cfg wr (Sys st inp mem)
+  RegIdx -> SysG r m -> Word
+flushRfWordAt wr (Sys st inp mem)
   | wr == 0 = 0
   | otherwise = applyMe (applyWb old)
   where
@@ -436,14 +418,9 @@ flushRfWordAt cfg wr (Sys st inp mem)
             rd
             (loadExtend size sign (memReadWord (stateMeAddr st) mem))
             prior
-        JType rd _ ->
-          if jumpsWriteRdInMe cfg
-            then put rd (runIdentity (stateMeRes st)) prior
-            else prior
-        IType Jump rd _ _ ->
-          if jumpsWriteRdInMe cfg
-            then put rd (runIdentity (stateMeRes st)) prior
-            else prior
+        -- DEVIATION 2 again: jumps write @rd@ here, matching 'flushMeStage'.
+        JType rd _ -> put rd (runIdentity (stateMeRes st)) prior
+        IType Jump rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
         UType _ rd _ -> put rd (runIdentity (stateMeRes st)) prior
         _ -> prior
 

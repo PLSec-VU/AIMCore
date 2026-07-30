@@ -34,13 +34,12 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- invariant's container equalities then hold by construction, so assuming the
 -- invariant at one witness reduces to assuming its scalar conjuncts -- which is
 -- the full container invariant, not a weakening of it.
-isaOfG :: (RegFileOps r, MemOps m) => InvConfig -> SysG r m -> IsaStateG r m
-isaOfG cfg (Sys st inp mem) =
+isaOfG :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
+isaOfG (Sys st inp mem) =
   IsaState {isaPc = Core.stateExPc st, isaRegFile = frf, isaMem = fm}
   where
     (fm, frf) =
       flushMeStage
-        (jumpsWriteRdInMe cfg)
         (Core.stateMeInstr st)
         (runIdentity (Core.stateMeRes st))
         (Core.stateMeAddr st)
@@ -75,10 +74,10 @@ isStartupShape (Sys st inp _) =
 --
 -- The register file and memory need no special case: on a startup-shaped state
 -- both flushes are the identity, since every stage holds @Nop FirstCycle@.
-isaOfHop :: (RegFileOps r, MemOps m) => InvConfig -> SysG r m -> IsaStateG r m
-isaOfHop cfg sys
-  | isStartupShape sys = (isaOfG cfg sys) {isaPc = Core.stateFePc (sysState sys)}
-  | otherwise = isaOfG cfg sys
+isaOfHop :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
+isaOfHop sys
+  | isStartupShape sys = (isaOfG sys) {isaPc = Core.stateFePc (sysState sys)}
+  | otherwise = isaOfG sys
 
 -- | The @k = 0@ inductive step: the driver's one-cycle hop.
 --
@@ -96,18 +95,18 @@ indStepObligation ::
 indStepObligation wr wa sys =
   not premises || conclusion
   where
-    isa = isaOfG proposed sys
+    isa = isaOfG sys
     sys' = stepSys sys
 
     premises =
-      invAtFree proposed wr wa isa sys
+      invAtFree wr wa isa sys
         && driver sys == 0
         && noStoreAlias sys
         && noStoreAlias sys'
 
     conclusion =
       case isaStep isa of
-        Next isa' -> invAtFree proposed wr wa isa' sys'
+        Next isa' -> invAtFree wr wa isa' sys'
         IsaHalted -> True
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
@@ -122,22 +121,22 @@ indStepObligation1 ::
 indStepObligation1 wr wa sys =
   not premises || conclusion
   where
-    isa = isaOfHop proposed sys
+    isa = isaOfHop sys
     s1 = stepSys sys
     s2 = stepSys s1
 
     premises =
-      invAtFree proposed wr wa isa sys
+      invAtFree wr wa isa sys
         && driver sys == 1
         && noStoreAlias sys
         && noStoreAlias s1
         && noStoreAlias s2
 
     conclusion
-      | isStartupShape sys = invAtFree proposed wr wa isa s2
+      | isStartupShape sys = invAtFree wr wa isa s2
       | otherwise =
           case isaStep isa of
-            Next isa' -> invAtFree proposed wr wa isa' s2
+            Next isa' -> invAtFree wr wa isa' s2
             -- driver == 1 excludes environment instructions (they route to a
             -- three-cycle hop), so the ISA cannot halt here either.
             IsaHalted -> True
@@ -152,13 +151,13 @@ indStepObligation2 ::
 indStepObligation2 wr wa sys =
   not premises || conclusion
   where
-    isa = isaOfG proposed sys
+    isa = isaOfG sys
     s1 = stepSys sys
     s2 = stepSys s1
     s3 = stepSys s2
 
     premises =
-      invAtFree proposed wr wa isa sys
+      invAtFree wr wa isa sys
         && driver sys == 2
         && noStoreAlias sys
         && noStoreAlias s1
@@ -167,8 +166,8 @@ indStepObligation2 wr wa sys =
 
     conclusion =
       case isaStep isa of
-        Next isa' -> invAtFree proposed wr wa isa' s3
-        IsaHalted -> invAtFree proposed wr wa isa s3
+        Next isa' -> invAtFree wr wa isa' s3
+        IsaHalted -> invAtFree wr wa isa s3
 
 -- | The @k = 3@ inductive step: the driver's four-cycle hop, the longest.
 --
@@ -182,14 +181,14 @@ indStepObligation3 ::
 indStepObligation3 wr wa sys =
   not premises || conclusion
   where
-    isa = isaOfG proposed sys
+    isa = isaOfG sys
     s1 = stepSys sys
     s2 = stepSys s1
     s3 = stepSys s2
     s4 = stepSys s3
 
     premises =
-      invAtFree proposed wr wa isa sys
+      invAtFree wr wa isa sys
         && driver sys == 3
         && noStoreAlias sys
         && noStoreAlias s1
@@ -199,5 +198,5 @@ indStepObligation3 wr wa sys =
 
     conclusion =
       case isaStep isa of
-        Next isa' -> invAtFree proposed wr wa isa' s4
-        IsaHalted -> invAtFree proposed wr wa isa s4
+        Next isa' -> invAtFree wr wa isa' s4
+        IsaHalted -> invAtFree wr wa isa s4
