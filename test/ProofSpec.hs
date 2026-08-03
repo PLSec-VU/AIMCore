@@ -1,17 +1,17 @@
 {-# LANGUAGE PackageImports #-}
 
-module ProofSpec (proofTests, progs, alignedWalk, invTrace, invReport, genProg) where
+module ProofSpec (proofTests, progs, alignedWalk, invTrace, invReport, genProg, genArbSys, genArbSys1, genArbSys2, genArbSys3, genTakenTransfer) where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Core
 import Data.Functor.Identity (Identity (..), runIdentity)
-import Driver
-import ISAStep
+import Proof.Driver
+import Proof.ISAStep
 import Instruction
-import Invariant
-import Machine
-import Obligation (indStepObligation, indStepObligation1, indStepObligation2, isStartupShape, isaOfG, isaOfHop)
+import Proof.Functional.Invariant
+import Proof.Machine
+import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isStartupShape, isaOfG, isaOfHop)
 import Memory.Types
 import RegFile
 import Test.Tasty (TestTree, testGroup)
@@ -26,7 +26,7 @@ import qualified Prelude as P
 -- | A state the driver is meant to be evaluated in: the execute stage holds a
 -- real instruction. The startup state (@Nop FirstCycle@) is the one bubble the
 -- driver has an explicit case for. Note @Nop DecodeFail@ is /not/ a bubble --
--- see 'Machine.isBubble'.
+-- see 'Proof.Machine.isBubble'.
 aligned :: Sys -> Bool
 aligned s = not (isBubble (exInstr s)) || exInstr s == Nop FirstCycle
 
@@ -62,7 +62,7 @@ walkReport k prog =
 
 -- | The architectural state @prog@ starts in: execution begins at 'initPc', the
 -- register file is zeroed, and memory holds the program. The counterpart of
--- 'Machine.initSys' on the ISA side.
+-- 'Proof.Machine.initSys' on the ISA side.
 initIsa :: Vec PROG_SIZE Word -> IsaState
 initIsa prog = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
 
@@ -216,11 +216,11 @@ proofTests :: TestTree
 proofTests =
   testGroup
     "Driver and invariant"
-    [ -- The base case, on the real 'Vec'-backed reset state. 'Induction.baseCase'
+    [ -- The base case, on the real 'Vec'-backed reset state. 'Proof.Functional.Induction.baseCase'
       -- proves this for an arbitrary memory, but has to substitute the register
       -- file (Clash's 'repeat' is opaque to the symbolic executor), so the
       -- concrete check is what pins that the state it describes is the one
-      -- 'Machine.initSys' actually produces -- including 'Core.init''s reset
+      -- 'Proof.Machine.initSys' actually produces -- including 'Core.init''s reset
       -- register file and the loaded program.
       testCase "invariant holds at reset" $
         let bad =
@@ -289,11 +289,11 @@ proofTests =
       testCase "inductive on reachable states" $
         let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep sys]]
          in if P.null bad then pure () else assertFailure (P.head bad),
-      -- DEVIATION 2 of "Invariant": a jump spliced into the memory stage. No
+      -- DEVIATION 2 of "Proof.Functional.Invariant": a jump spliced into the memory stage. No
       -- reachable state has one -- a jump costs three cycles, so it has retired
       -- past writeback by the next aligned state -- and nothing else in the
       -- invariant rules it out, so this is the only thing constraining the
-      -- @JType@ / @IType Jump@ clauses of 'Invariant.flushMeStage'. It fails if
+      -- @JType@ / @IType Jump@ clauses of 'Proof.Functional.Invariant.flushMeStage'. It fails if
       -- those clauses stop writing @rd@.
       testCase "inductive with a jump in the memory stage" $
         let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep (withJumpInMe sys)]]
@@ -479,7 +479,7 @@ proofTests =
 -- | The architectural state that makes the flush conjunct hold at @sys@ by
 -- construction. If @sys@ is an aligned running state, this is the ISA state the
 -- invariant claims it corresponds to.
--- Shared with 'Induction.indStep0' via "Obligation", so the two cannot drift.
+-- Shared with 'Proof.Functional.Induction.indStep0' via "Proof.Functional.Obligation", so the two cannot drift.
 isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
 isaFromSys = isaOfG
 
@@ -600,7 +600,7 @@ wrapCESys =
 --
 -- 'stateCtrl' is left at 'initCtrl' soundly: 'Core.pipe' is wrapped in
 -- 'Core.withCtrlReset', which overwrites it before any stage reads it, so the
--- incoming value cannot affect 'Machine.stepSys'.
+-- incoming value cannot affect 'Proof.Machine.stepSys'.
 
 -- | Instruction generators that build in the premise's constraints, rather than
 -- generating freely and filtering. Filtering discarded ~6 examples per hit,
@@ -1174,3 +1174,213 @@ sumTo n =
       SType Word 0 0 2,
       Instruction.break
     ]
+
+-- Targeted generators for the transfer and four-cycle shapes ---------------------
+--
+-- 'genArbSys2' puts only a @JType@ in the execute stage, so a taken branch and
+-- a @jalr@ -- the transfers whose target is data dependent -- need generators
+-- of their own, as does the four-cycle hop.
+
+-- | A k=2 state whose execute stage is a /taken/ transfer: a branch whose
+-- comparison holds, or a @jalr@.
+genTakenTransfer :: Bool -> Gen (SysG RegFn MemFn, RegIdx, Address)
+genTakenTransfer useJalr = do
+  -- Small base: a @jalr@ target has to fit a sign-extended 12-bit immediate to
+  -- be representable, and the target sits near the base.
+  base <- (\k -> fromIntegral (k * 4)) <$> choose (0 :: Int, 200)
+  rs1 <- genSmallReg
+  rs2 <- genSmallReg
+  rd <- genSmallReg
+  delta <- (\k -> fromIntegral (k * 4)) <$> choose (-3 :: Int, 7)
+  meI <- genStageInstr
+  wbI <- genStageInstr
+  nextI <- genStageInstr
+  tgtI <- genStageInstr
+  rfF <- genFn genSmallReg genW genW
+  mr <- genW
+  wbr <- genW
+  loaded <- genW
+  wr <- genSmallReg
+  wa <- unpack <$> genW
+
+  let target = base + delta
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+      wT = P.maybe 0 P.id (encode' (roundTrips tgtI))
+      wbMem = isLoad wbI || isStore wbI
+      inp = if wbMem then Input False (pure loaded) else Input True (pure w1)
+      fePc = if wbMem then base + 4 else base + 8
+      ma = base + 4096 -- parked away from every PC and from the target
+
+      mkSys w0 rfun =
+        Sys
+          ( (sysState (initSys (mkProg prog1)))
+              { stateFePc = fePc,
+                stateDePc = base + 4,
+                stateExPc = base,
+                stateExInstr = decode' w0,
+                stateMeInstr = meI,
+                stateWbInstr = wbI,
+                stateMeRes = pure mr,
+                stateWbRes = pure wbr,
+                stateMeAddr = ma,
+                stateRegFile = RegFn (P.fmap Identity rfun),
+                stateCtrl = initCtrl,
+                stateHalt = Nothing,
+                stateHaltPending = Nothing
+              }
+          )
+          inp
+          (MemFn (memFor w0))
+        where
+          memFor w a
+            | a - base P.< 4 = byteAt w (a - base)
+            | a - base P.< 8 = byteAt w1 (a - base - 4)
+            | a - target P.< 4 = byteAt wT (a - target)
+            | P.otherwise = 0
+
+  -- Probe the forwarded operands; 'Proof.Driver.exArg' never reads the execute
+  -- stage, so a provisional instruction there makes the probe exact.
+  let probe = mkSys 0 rfF
+      v1 = exArg probe rs1
+      v2 = exArg probe rs2
+
+  if useJalr
+    then do
+      immv <- (\k -> fromIntegral (k * 2)) <$> choose (0 :: Int, 15)
+      let need = pack target - signExtend (immv :: Imm)
+          rfun i = if i P.== rs1 then need else rfF i
+          w0 = P.maybe 0 P.id (encode' (roundTrips (IType Jump rd rs1 immv)))
+      P.pure (mkSys w0 rfun, wr, wa)
+    else do
+      let cmp = if v1 P.== v2 then EQ else NE
+          w0 = P.maybe 0 P.id (encode' (roundTrips (BType cmp (fromIntegral (delta :: Address)) rs1 rs2)))
+      P.pure (mkSys w0 rfF, wr, wa)
+
+-- | States the driver sends on a four-cycle hop. Two shapes reach it once the
+-- strengthened 'Proof.Functional.Invariant.noStoreAlias' rules out the store-hazard route: a
+-- load-use hazard with the incoming instruction, and memory instructions in
+-- all three older stages.
+genArbSys3 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genArbSys3 = oneof [genLoadHazard3, genAllMem3]
+
+genLoadHazard3 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genLoadHazard3 = do
+  base <- genBase
+  -- Full register range, not just 0..3: @ecall@ reads x17 and writes x10, so a
+  -- load into one of those is the only way an environment instruction can be
+  -- the one the hazard fires on.
+  rd <- frequency [(3, chooseBoundedIntegral (1, 3)), (1, elements [10, 17]), (1, chooseBoundedIntegral (1, 31))]
+  sz <- genStageSize
+  sg <- elements [Signed, Unsigned]
+  rs1 <- genSmallReg
+  let exI = roundTrips (IType (Load sz sg) rd rs1 0)
+  -- The incoming instruction must read rd; that is what makes the hazard.
+  nextI <-
+    oneof
+      [ (\op rd' r2 -> RType op rd' rd r2) <$> elements [ADD, SUB, XOR] <*> genSmallReg <*> genSmallReg,
+        (\op rd' -> IType (Arith op) rd' rd 0) <$> elements [ADD, XOR] <*> genSmallReg,
+        (\szz r2 -> SType szz 0 rd r2) <$> genStageSize <*> genSmallReg,
+        (\cmp r2 -> BType cmp 0 rd r2) <$> elements [EQ, NE, LT] <*> genSmallReg,
+        (\szz sgg rd' -> IType (Load szz sgg) rd' rd 0) <$> genStageSize <*> elements [Signed, Unsigned] <*> genSmallReg,
+        (\rd' -> IType Jump rd' rd 0) <$> genSmallReg,
+        P.pure (IType (Env Call) 0 0 0),
+        -- An @ebreak@ whose encoded rs1 is the load's destination.
+        -- 'Instruction.getRs1' reports that field -- it hardcodes x17 only for
+        -- @ecall@ -- so this is a genuine load-use hazard.
+        P.pure (IType (Env Break) 0 rd 1)
+      ]
+  meI <- suchThat genStageInstr (\m -> P.not (loadHazard exI m))
+  wbI <- suchThat genStageInstr (\i -> P.not (isLoad i || isStore i))
+  mk3 base exI meI wbI nextI False
+
+genAllMem3 :: Gen (SysG RegFn MemFn, RegIdx, Address)
+genAllMem3 = do
+  base <- genBase
+  exI <- roundTrips <$> genStageMem
+  meI <- suchThat genStageMem (\m -> P.not (loadHazard exI m))
+  wbI <- genStageMem
+  nextI <- genStageInstr
+  mk3 base exI meI wbI nextI True
+
+mk3 ::
+  Address -> Instruction -> Instruction -> Instruction -> Instruction -> Bool ->
+  Gen (SysG RegFn MemFn, RegIdx, Address)
+mk3 base exI meI wbI nextI wbMem = do
+  aheadI <- genStageInstr
+  rfF <- genFn genSmallReg genW genW
+  mr <- genW
+  wbr <- genW
+  loaded <- genW
+  ma <- oneof [P.pure (base + 4096), genStoreAddr base]
+  wr <- genSmallReg
+  wa <- unpack <$> genW
+  let w0 = P.maybe 0 P.id (encode' exI)
+      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
+      -- A real instruction at base+8 as well: a load-hazard hop fetches it on
+      -- its first cycle and then discards it, and leaving it zero would never
+      -- exercise that discard against a decodable word.
+      w2 = P.maybe 0 P.id (encode' (roundTrips aheadI))
+      memf a
+        | a - base P.< 4 = byteAt w0 (a - base)
+        | a - base P.< 8 = byteAt w1 (a - base - 4)
+        | a - base P.< 12 = byteAt w2 (a - base - 8)
+        | P.otherwise = 0
+  P.pure
+    ( Sys
+        ( (sysState (initSys (mkProg prog1)))
+            { stateFePc = if wbMem then base + 4 else base + 8,
+              stateDePc = base + 4,
+              stateExPc = base,
+              stateExInstr = decode' w0,
+              stateMeInstr = meI,
+              stateWbInstr = wbI,
+              stateMeRes = pure mr,
+              stateWbRes = pure wbr,
+              stateMeAddr = ma,
+              stateRegFile = RegFn (P.fmap Identity rfF),
+              stateCtrl = initCtrl,
+              stateHalt = Nothing,
+              stateHaltPending = Nothing
+            }
+        )
+        (if wbMem then Input False (pure loaded) else Input True (pure w1))
+        (MemFn memf),
+      wr,
+      wa
+    )
+
+genSmallReg :: Gen RegIdx
+genSmallReg = chooseBoundedIntegral (0, 3)
+
+genStageSize :: Gen Size
+genStageSize = elements [Types.Byte, Types.Half, Types.Word]
+
+genStageMem :: Gen Instruction
+genStageMem =
+  oneof
+    [ (\sz sg rd rs1 -> IType (Load sz sg) rd rs1 0) <$> genStageSize <*> elements [Signed, Unsigned] <*> genSmallReg <*> genSmallReg,
+      (\sz rs1 rs2 -> SType sz 0 rs1 rs2) <$> genStageSize <*> genSmallReg <*> genSmallReg
+    ]
+
+-- | Anything that can legitimately occupy a pipeline stage.
+genStageInstr :: Gen Instruction
+genStageInstr =
+  oneof
+    [ RType <$> elements [ADD, SUB, XOR, OR, AND, SLT] <*> genSmallReg <*> genSmallReg <*> genSmallReg,
+      IType <$> (Arith <$> elements [ADD, XOR, OR]) <*> genSmallReg <*> genSmallReg <*> (fromIntegral <$> choose (0 :: Int, 31)),
+      UType <$> elements [PC, Zero] <*> genSmallReg <*> (fromIntegral <$> choose (0 :: Int, 15)),
+      BType <$> elements [EQ, NE, LT, GE] <*> P.pure 0 <*> genSmallReg <*> genSmallReg,
+      genStageMem,
+      P.pure (IType (Env Call) 0 0 0),
+      IType (Env Break) 0 <$> genSmallReg <*> P.pure 1,
+      JType <$> genSmallReg <*> (fromIntegral . (2 *) <$> choose (0 :: Int, 7)),
+      P.pure (Nop MemoryBusBusy),
+      P.pure (Nop DecodeFail)
+    ]
+
+byteAt :: Word -> Address -> Byte
+byteAt w k = case k of
+  0 -> slice d7 d0 w
+  1 -> slice d15 d8 w
+  2 -> slice d23 d16 w
+  _ -> slice d31 d24 w

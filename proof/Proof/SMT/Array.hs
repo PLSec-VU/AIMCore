@@ -18,7 +18,7 @@
 -- are @OPAQUE@ and cannot be embedded. They appear here only inside the
 -- Haskell implementations, which the axioms replace before symbolic execution
 -- ever sees them.
-module ArrayRF
+module Proof.SMT.Array
   ( RegArr (..),
     RegArrF (..),
     MemArr (..),
@@ -30,6 +30,8 @@ module ArrayRF
     RegArrSMT (..),
     loadRA,
     storeRA,
+    zeroRA,
+    zeroRAE,
     loadRAE,
     storeRAE,
     sllWordE,
@@ -45,7 +47,7 @@ import Data.Coerce (Coercible, coerce)
 import Data.Kind (Type)
 import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Clash as Clash
-import Machine (MemOps (..))
+import Proof.Machine (MemOps (..))
 import Memory.Types (MEM_SIZE_BYTES)
 import RegFile (RegFileOps (..))
 import Types
@@ -117,6 +119,21 @@ storeRAE = coerce go
     go (RegArrSMT arr) (Clash.BitVecP k) (Clash.BitVecP v) =
       RegArrSMT (P.astore arr k v)
 
+-- | The all-zero register file.
+--
+-- 'Proof.Leakage.Simulator.censor' installs this on every state it builds, so
+-- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
+-- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
+-- under the term axiom, which is keyed on this name -- hence OPAQUE, for the
+-- same reason as 'loadRA'.
+{-# OPAQUE zeroRA #-}
+zeroRA :: RegArr
+zeroRA = RegArr (Clash.Prelude.repeat 0)
+
+-- | Embedding of 'zeroRA' as a constant array.
+zeroRAE :: forall arr. (Coercible RegArrSMT arr) => arr
+zeroRAE = coerce (RegArrSMT (P.aconst 0))
+
 -- | The array-backed register file, wrapped so it fits 'RegFileOps'.
 --
 -- The @f@ parameter is phantom: the embedding must be monomorphic, so the
@@ -130,10 +147,8 @@ instance RegFileOps RegArrF where
     | idx == 0 = rf
     | otherwise = RegArrF (storeRA a idx (unAccess v))
 
-  -- Only reachable via 'Core.init', which the proof properties do not use:
-  -- they build the pipeline state from symbolic scalars instead. 'repeat' is
-  -- OPAQUE and would not symbolise.
-  initRFg = RegArrF (RegArr (Clash.Prelude.repeat 0))
+  -- On the symbolic path; see 'zeroRA'.
+  initRFg = RegArrF zeroRA
 
 -- Shifts as SMT bitvector shifts ----------------------------------------------
 --

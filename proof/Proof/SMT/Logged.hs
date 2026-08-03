@@ -3,7 +3,7 @@
 -- Pantomime's solver transcript does not identify the splice that produced a
 -- query.  Printing a marker on either side lets a timeout be mapped back to the
 -- exact obligation without changing the proposition sent to the solver.
-module LoggedPantomime
+module Proof.SMT.Logged
   ( pantomime,
   )
 where

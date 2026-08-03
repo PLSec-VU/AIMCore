@@ -1,6 +1,6 @@
--- | The driver from @proof/driver.txt@, as code.
+-- | The driver from @proof/notes/driver.txt@, as code.
 --
--- The driver says how many cycles 'Machine.stepSys' should advance the core
+-- The driver says how many cycles 'Proof.Machine.stepSys' should advance the core
 -- before its state is compared against the ISA again. Its stated invariant is
 -- operational -- \"step until the instruction in the execute phase is no longer
 -- a no-op\" -- so this module provides both:
@@ -18,7 +18,7 @@
 -- 'inputMem'. So they are given here as functions of the whole system state.
 -- The stage ordering below mirrors 'Core.pipe': writeback, then memory, then
 -- execute.
-module Driver
+module Proof.Driver
   ( driver,
     driverCaseName,
     driverRef,
@@ -35,7 +35,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Functor.Identity
 import Instruction
-import Machine
+import Proof.Machine
 import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -178,11 +178,11 @@ driverCaseName sys@(Sys st _ _)
 
 -- | The operational reading of the driver's stated invariant: step until the
 -- execute stage holds something that is not a no-op. Returns the number of
--- 'Machine.stepSys' steps taken, or 'Nothing' if @fuel@ ran out (which is what
+-- 'Proof.Machine.stepSys' steps taken, or 'Nothing' if @fuel@ ran out (which is what
 -- happens once the core has halted, since the execute stage then holds
 -- @Nop Halted@ forever).
 --
--- \"No longer a no-op\" is read as 'Machine.isBubble': @Nop DecodeFail@ counts
+-- \"No longer a no-op\" is read as 'Proof.Machine.isBubble': @Nop DecodeFail@ counts
 -- as a real instruction, since it is what an undecodable word in memory
 -- decodes to.
 driverRef :: (RegFileOps r, MemOps m) => Int -> SysG r m -> Maybe Int

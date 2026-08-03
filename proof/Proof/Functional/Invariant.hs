@@ -1,4 +1,4 @@
--- | The invariant from @proof/invariant.txt@, as code.
+-- | The invariant from @proof/notes/invariant.txt@, as code.
 --
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
@@ -39,7 +39,7 @@
 -- Points 2 and 3 are each pinned by a test in "ProofSpec" that splices the
 -- offending shape into an otherwise reachable state ("inductive with a jump in
 -- the memory stage", "invariant rejects a halt in flight").
-module Invariant
+module Proof.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
     Case (..),
@@ -56,9 +56,10 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Functor.Identity
-import ISAStep
+import Proof.Driver (storeHazard)
+import Proof.ISAStep
 import Instruction
-import Machine
+import Proof.Machine
 import Memory.Types
 import RegFile
 import Types
@@ -173,7 +174,7 @@ invCasesAt wr wa =
 -- only 'Core.init' itself satisfies that clause -- with it the invariant holds of
 -- no state the driver ever lands on, and every obligation would be vacuous.
 -- Dropping it is sound because the lines carry no information between cycles:
--- 'Machine.stepSys' overwrites them before any stage reads them.
+-- 'Proof.Machine.stepSys' overwrites them before any stage reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
   (r Identity -> r Identity -> Bool) ->
@@ -424,36 +425,46 @@ flushRfWordAt wr (Sys st inp mem)
         UType _ rd _ -> put rd (runIdentity (stateMeRes st)) prior
         _ -> prior
 
--- | Side condition: no store aliases a word the fetch path is using.
+-- | Side condition: no store writes a word the fetch path is using.
 --
--- This is an ASSUMPTION, not part of the invariant: RISC-V requires a FENCE.I
--- between writing an instruction and executing it, so a store that rewrites an
--- instruction already in flight is out of spec. The proof obligations assume
--- it of every state of a hop, which rules such transitions out rather than
--- obliging us to show none can arise. (It could not be part of the invariant:
--- it is not preserved -- a store in the execute stage becomes the memory-stage
--- store next cycle with an address nothing constrains.)
+-- An ASSUMPTION, not part of the invariant. RISC-V requires a @FENCE.I@ between
+-- writing an instruction and executing it, so a store that rewrites an
+-- instruction already in flight is out of spec; the proof obligations assume
+-- this of every state of a hop, which rules such transitions out rather than
+-- obliging us to show none can arise. It could not be part of the invariant
+-- anyway -- it is not preserved, since a store in the execute stage becomes the
+-- memory-stage store next cycle with an address nothing constrains.
 --
--- The overlap check must be wrap-correct: 'Address' is 'Unsigned 32', and the
--- original interval form @a < p + 4 && p < a + n@ silently admitted stores
--- into (or wrapping into) PC words near the top of the address space -- which
--- is exactly what the last @k = 0@ counterexample exploited (see
--- @counterexample-k0.txt@ and the wrap-around tests in @ProofSpec@). Byte @x@
--- lies in the word starting at @p@ iff @x - p < 4@ in wrapping arithmetic.
--- Written without lists or folds so Pantomime can execute it.
-noStoreAlias :: SysG r m -> Bool
-noStoreAlias (Sys st _ _) =
-  case stateMeInstr st of
-    SType size _ _ _ ->
-      let a = stateMeAddr st
-          inWordAt p x = x - p < 4
-          hitsPc x =
-            inWordAt (stateExPc st) x
-              || inWordAt (stateDePc st) x
-              || inWordAt (stateFePc st) x
-          clash = case size of
-            Types.Byte -> hitsPc a
-            Types.Half -> hitsPc a || hitsPc (a + 1)
-            Types.Word -> hitsPc a || hitsPc (a + 1) || hitsPc (a + 2) || hitsPc (a + 3)
-       in P.not clash
-    _ -> True
+-- Two clauses. The first is the memory-stage store against the three program
+-- counters, which is what the functional proof needs. The second rules out
+-- 'Proof.Driver.storeHazard' entirely, which is what the leakage proof needs:
+-- 'Core.decode' compares the /execute/-stage store address against @dePc@, and
+-- a match stalls for two extra cycles. That stall is visible in the
+-- cycle-accurate observation and no instruction 'Proof.Leakage.Model.inv' can
+-- emit reproduces it. With the clause in place the driver's two store-hazard
+-- cases are unreachable.
+--
+-- The overlap check is wrap-correct, which matters because 'Address' is
+-- 'Unsigned 32': an interval form like @a < p + 4 && p < a + n@ silently admits
+-- stores wrapping into PC words at the top of the address space. Byte @x@ lies
+-- in the word starting at @p@ iff @x - p < 4@ in wrapping arithmetic. Written
+-- without lists or folds so Pantomime can execute it.
+noStoreAlias :: (RegFileOps r) => SysG r m -> Bool
+noStoreAlias sys@(Sys st _ _) =
+  noAlias (stateMeInstr st) (stateMeAddr st) && P.not (storeHazard sys)
+  where
+    inWordAt p x = x - p < 4
+
+    hitsPc x =
+      inWordAt (stateExPc st) x
+        || inWordAt (stateDePc st) x
+        || inWordAt (stateFePc st) x
+
+    noAlias ir a = case ir of
+      SType size _ _ _ ->
+        let clash = case size of
+              Types.Byte -> hitsPc a
+              Types.Half -> hitsPc a || hitsPc (a + 1)
+              Types.Word -> hitsPc a || hitsPc (a + 1) || hitsPc (a + 2) || hitsPc (a + 3)
+         in P.not clash
+      _ -> True

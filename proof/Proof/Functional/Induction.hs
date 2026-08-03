@@ -12,14 +12,14 @@
 --
 -- Each property is checked by the plugin at compile time and spliced into
 -- 'results': 'Nothing' when valid, @'Just' counterexample@ when not. The
--- statements themselves live in "Obligation", shared with the QuickCheck
+-- statements themselves live in "Proof.Functional.Obligation", shared with the QuickCheck
 -- harness so the two cannot drift.
 --
 -- The pipeline state is passed as an ADT of scalars ('KState') plus SMT-array
 -- register file and memory: an ADT of scalars can be a fresh symbolic
 -- argument, a record containing a function cannot, and the Clash @Vec@ API is
--- opaque to the plugin (see "ArrayRF").
-module Induction
+-- opaque to the plugin (see "Proof.SMT.Array").
+module Proof.Functional.Induction
   ( arrRoundTrip,
     shiftsSane,
     baseCase,
@@ -31,18 +31,18 @@ module Induction
   )
 where
 
-import ArrayRF
-import Axioms (arrayAxioms)
+import Proof.SMT.Array
+import Proof.SMT.Axioms (arrayAxioms)
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
-import ISAStep (IsaStateG (..))
+import Proof.ISAStep (IsaStateG (..))
 import Instruction
-import Invariant (invAtFree)
-import LoggedPantomime (pantomime)
-import Machine
+import Proof.Functional.Invariant (invAtFree)
+import Proof.SMT.Logged (pantomime)
+import Proof.Machine
 import Memory.Types (initPc)
-import Obligation
+import Proof.Functional.Obligation
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Types
@@ -90,7 +90,7 @@ sysOf ss i ra ma =
 
 -- Sanity probes for the trusted embeddings -------------------------------------
 --
--- The term axioms in "Axioms" replace Haskell functions by hand-written SMT
+-- The term axioms in "Proof.SMT.Axioms" replace Haskell functions by hand-written SMT
 -- counterparts, so they are trusted, not proved. These two probes check each
 -- embedding against facts a broken one would get wrong.
 

@@ -14,6 +14,7 @@ import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import InstructionSpec (instructionTests)
+import LeakageSpec (leakageTests)
 import qualified Leak.MonitorPC.PC as Leak.MonitorPC
 import qualified Leak.PC.PC as Leak.PC
 import qualified Leak.SecretPC.PC as Leak.SecretPC
@@ -21,9 +22,10 @@ import RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
-import qualified Proof.Sanity as Sanity
+import qualified Proof.SMT.Sanity as Sanity
 import qualified Prelude
-import qualified Induction
+import qualified Proof.Functional.Induction
+import qualified Proof.Leakage.Induction
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -67,7 +69,7 @@ mkSecretPCLeakTest s prog =
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the refinement proof itself; see "Induction".
+-- The rest are the refinement proof itself; see "Proof.Functional.Induction".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -78,25 +80,33 @@ sanityTests =
         assertBool "expected a counterexample for 'bogus'" $
           isJust (verdict "bogus"),
       testCase "array embedding round-trips" $
-        lookup "arrRoundTrip" Induction.results @?= Just Nothing,
+        lookup "arrRoundTrip" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
-        lookup "shiftsSane" Induction.results @?= Just Nothing,
+        lookup "shiftsSane" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "base case: invariant holds at reset" $
-        lookup "baseCase" Induction.results @?= Just Nothing,
+        lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep0" Induction.results @?= Just Nothing,
+        lookup "indStep0" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
-        lookup "indStep1" Induction.results @?= Just Nothing,
+        lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
-        lookup "indStep2" Induction.results @?= Just Nothing,
+        lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Induction.results @?= Just Nothing
+        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+      testCase "k = 0 leakage step is valid" $
+        lookup "leakStep0" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 1 leakage step is valid" $
+        lookup "leakStep1" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 2 leakage step is valid" $
+        lookup "leakStep2" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 3 leakage step is valid" $
+        lookup "leakStep3" Proof.Leakage.Induction.results @?= Just Nothing
     ]
   where
     verdict :: String -> Maybe String
     verdict name = case lookup name Sanity.results of
       Just v -> v
-      Nothing -> error "Proof.Sanity.results is missing an expected entry"
+      Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
 
 tests :: TestTree
 tests =
@@ -104,6 +114,7 @@ tests =
     "All Tests"
     [ sanityTests,
       proofTests,
+      leakageTests,
       instructionTests,
       testGroup
         "Haskell simulation tests"

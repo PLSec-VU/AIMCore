@@ -12,13 +12,14 @@
 -- > (Core.State f, Input f, Mem)
 --
 -- which is exactly the shape the driver and invariant notes use.
-module Machine
+module Proof.Machine
   ( SysG (..),
     Sys,
     MemBytes,
     MemOps (..),
     MemFn (..),
     stepSys,
+    stepSysOut,
     stepSysN,
     initSys,
     running,
@@ -50,7 +51,7 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 --
 -- Parameterised for the same reason as 'RegFileOps': the @Vec@-backed
 -- 'MemBytes' cannot be symbolically executed, while the function-backed
--- 'MemFn' can. See "Induction".
+-- 'MemFn' can. See "Proof.Functional.Induction".
 class MemOps m where
   memReadWord :: Address -> m -> Word
   memWriteWord :: Size -> Address -> Word -> m -> m
@@ -108,10 +109,18 @@ instance (Eq (r Identity), Eq m) => Eq (SysG r m) where
 -- memory access it emitted. Mirrors 'Simulate.simulator', except that a halted
 -- core simply stops changing instead of ending the stream.
 stepSys :: (RegFileOps r, MemOps m) => SysG r m -> SysG r m
-stepSys (Sys s i m) =
+stepSys = fst . stepSysOut
+
+-- | 'stepSys', but also returning the pipeline's 'Output' for that cycle.
+--
+-- The leakage proof observes the cycle-by-cycle memory traffic, which 'stepSys'
+-- discards. Defining both here means what it observes is exactly the traffic
+-- the memory service responds to.
+stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output Identity)
+stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
       (i', m') = service (getFirst (outMem o)) m
-   in Sys s' i' m'
+   in (Sys s' i' m', o)
   where
     service (Just (MemAccess isInstr addr size mval)) mem =
       case mval of

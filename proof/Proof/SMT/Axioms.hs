@@ -2,9 +2,9 @@
 --
 -- This lives in its own module because GHC's stage restriction requires a value
 -- mentioned in an @ANN@ pragma to be imported rather than defined locally.
-module Axioms (axioms, arrayAxioms) where
+module Proof.SMT.Axioms (axioms, arrayAxioms) where
 
-import ArrayRF
+import Proof.SMT.Array
 import Core (sllWord, sraWord, srlWord)
 import qualified Data.Map as Map
 import Pantomime (PluginAxioms (..))
@@ -53,6 +53,7 @@ arrayAxioms =
             ],
         termAxioms =
           [ ('loadRA, 'loadRAE),
+            ('zeroRA, 'zeroRAE),
             ('storeRA, 'storeRAE),
             ('loadM, 'loadME),
             ('storeM, 'storeME)

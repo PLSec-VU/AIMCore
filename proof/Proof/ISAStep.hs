@@ -12,8 +12,8 @@
 -- side remains the one in "ISA" rather than a second implementation.
 --
 -- Parameterised over the register-file and memory representations for the same
--- reason as "Machine": the @Vec@-backed ones cannot be symbolically executed.
-module ISAStep
+-- reason as "Proof.Machine": the @Vec@-backed ones cannot be symbolically executed.
+module Proof.ISAStep
   ( IsaStateG (..),
     IsaState,
     StepG (..),
@@ -29,7 +29,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Functor.Identity
 import qualified ISA
 import Instruction
-import Machine (MemBytes, MemOps (..))
+import Proof.Machine (MemBytes, MemOps (..))
 import RegFile
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

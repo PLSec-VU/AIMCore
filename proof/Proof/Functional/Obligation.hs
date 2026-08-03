@@ -1,11 +1,11 @@
 -- | The proof obligations, in one place.
 --
--- Both the symbolic properties ("Induction") and the QuickCheck harness
+-- Both the symbolic properties ("Proof.Functional.Induction") and the QuickCheck harness
 -- ("ProofSpec") go through these definitions, so the two cannot drift apart.
 -- The only thing they are allowed to differ in is how the system state is
 -- built: symbolic scalars on one side, a generator on the other. That is the
 -- input space, not the property.
-module Obligation
+module Proof.Functional.Obligation
   ( isaOfG,
     isaOfHop,
     isStartupShape,
@@ -19,11 +19,11 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
-import Driver (driver)
-import ISAStep
+import Proof.Driver (driver)
+import Proof.ISAStep
 import Instruction
-import Invariant
-import Machine
+import Proof.Functional.Invariant
+import Proof.Machine
 import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -85,7 +85,7 @@ isaOfHop sys
 --
 -- The no-self-modifying-store side condition is /assumed/ of both the pre- and
 -- post-state, which rules out transitions that create an aliasing store rather
--- than obliging us to show none can arise. See 'Invariant.noStoreAlias'.
+-- than obliging us to show none can arise. See 'Proof.Functional.Invariant.noStoreAlias'.
 --
 -- @driver == 0@ excludes environment instructions, so the ISA cannot halt on
 -- this hop and the @IsaHalted@ branch is vacuous. Startup states all have

@@ -83,15 +83,20 @@ library:
     - src
     - proof
   exposed-modules:
-    - Machine
-    - ISAStep
-    - Driver
-    - Invariant
-    - Obligation
-    - ArrayRF
-    - Axioms
-    - Induction
-    - LoggedPantomime
+    - Proof.Machine
+    - Proof.Driver
+    - Proof.ISAStep
+    - Proof.Functional.Invariant
+    - Proof.Functional.Obligation
+    - Proof.Functional.Induction
+    - Proof.Leakage.Model
+    - Proof.Leakage.Simulator
+    - Proof.Leakage.Obligation
+    - Proof.Leakage.Induction
+    - Proof.SMT.Array
+    - Proof.SMT.Axioms
+    - Proof.SMT.Logged
+    - Proof.SMT.Sanity
     - Access
     - Core
     - Elf.ElfLoader
@@ -117,7 +122,6 @@ library:
     - Leak.MonitorPC.Sim
     - Leak.Existence
     - Pretty
-    - Proof.Sanity
     - RegFile
     - Simulate
     - Types
