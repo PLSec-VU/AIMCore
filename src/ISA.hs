@@ -4,17 +4,9 @@
 
 module ISA
   ( Func,
-    Done (..),
     DepReg (..),
-    apply,
     Instr (..),
     PC,
-    depSet,
-    getRd,
-    getR1,
-    getR2,
-    isLoad,
-    loadHazard,
     interp,
     interp',
   )
@@ -24,9 +16,6 @@ import Access
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (Syscall)
 import Data.Functor.Identity
-import Data.Maybe (catMaybes)
-import Data.Set (Set)
-import qualified Data.Set as S
 import Instruction (Sign)
 import qualified Instruction
 import Types
@@ -44,12 +33,6 @@ instance Show (Func a) where
 
 instance Functor Func where
   fmap g (Func f d) = Func (\r1 r2 pc -> g $ f r1 r2 pc) d
-
-newtype Done a = Done {unDone :: a}
-  deriving (Show, Eq)
-
-apply :: Func a -> Word -> Word -> PC -> Done a
-apply (Func f _) r1 r2 pc = Done $ f r1 r2 pc
 
 data Instr f
   = Reg RegIdx (f Word)
@@ -75,28 +58,6 @@ deriving instance
   ) =>
   Eq (Instr f)
 
-getRd :: Instr a -> Maybe RegIdx
-getRd (Reg rd _) = pure rd
-getRd (Load _ _ rd _) = pure rd
-getRd (Jump rd _ _) = pure rd
-getRd Syscall = pure 10
-getRd _ = empty
-
-getR1 :: Instr Func -> Maybe RegIdx
-getR1 = fst . deps
-
-getR2 :: Instr Func -> Maybe RegIdx
-getR2 = snd . deps
-
-isLoad :: Instr a -> Bool
-isLoad Load {} = True
-isLoad _ = False
-
-loadHazard :: Instr Func -> Instr Func -> Bool
-loadHazard de_ir (ISA.Load _ _ rd _) =
-  elem rd $ S.toList $ depSet de_ir
-loadHazard _ _ = False
-
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
 
@@ -112,11 +73,6 @@ instance DepReg (Instr Func) where
   deps Break = (empty, empty)
   deps Nop = (empty, empty)
   deps Syscall = (pure 17, empty)
-
-depSet :: (DepReg a) => a -> Set RegIdx
-depSet a =
-  let (mr1, mr2) = deps a
-   in S.fromList $ catMaybes [mr1, mr2]
 
 interp :: (Access f) => Input f -> Instr Func
 interp input
