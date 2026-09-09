@@ -159,14 +159,14 @@ data Control f = Control
     -- | Stores the jump address if the instruction in the `execute` stage
     --   results in a jump.
     ctrlExJumpAddr :: Maybe Address,
-    -- | Stores the write address if the instruction in the `execute` stage
+    -- | Stores the write address and size if the instruction in the `execute` stage
     --   is a store.
-    ctrlExStoreAddr :: Maybe Address,
+    ctrlExStoreAddrSize :: Maybe (Address, Size),
     -- | `True` when the instruction in the `memory` stage is a store or a load.
     ctrlMeMemInstr :: Bool,
-    -- | Stores the write address if the instruction in the `memory` stage
+    -- | Stores the write address and size if the instruction in the `memory` stage
     --   is a store.
-    ctrlMeStoreAddr :: Maybe Address,
+    ctrlMeStoreAddrSize :: Maybe (Address, Size),
     -- | Forwards the `rd` register from the `memory` stage to the `execute`
     -- stage.
     ctrlMeRegFwd :: Maybe (RegIdx, f Word),
@@ -239,9 +239,9 @@ initCtrl =
       ctrlDeStoreHazard = Nothing,
       ctrlExInstr = Nothing,
       ctrlExJumpAddr = Nothing,
-      ctrlExStoreAddr = Nothing,
+      ctrlExStoreAddrSize = Nothing,
       ctrlMeMemInstr = False,
-      ctrlMeStoreAddr = Nothing,
+      ctrlMeStoreAddrSize = Nothing,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing
     }
@@ -303,15 +303,16 @@ decode = do
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
 
-  let jump_current_cycle = isJust (ctrlExJumpAddr ctrl)
   let jump_previous_cycle = maybe False isNopJumpFirstCycle (ctrlExInstr ctrl)
+  let store_hazard_previous_cycle = maybe False isNopStoreHazardFirstCycle (ctrlExInstr ctrl)
+  let load_hazard_previous_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
+
+  let jump_current_cycle = isJust (ctrlExJumpAddr ctrl)
 
   let store_hazard_current_cycle =
-        (ctrlExStoreAddr ctrl == Just pc) ||
-        (ctrlMeStoreAddr ctrl == Just pc)
-  
-  let store_hazard_previous_cycle = maybe False isNopStoreHazardFirstCycle (ctrlExInstr ctrl)  
-  let load_hazard_previous_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
+        maybe False (storeHazard pc) (ctrlExStoreAddrSize ctrl) ||
+        maybe False (storeHazard pc) (ctrlMeStoreAddrSize ctrl)
+
   let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
   
   let ir'
@@ -375,7 +376,7 @@ execute = do
       let res = alu ADD r1 (pure imm')
       noSecrets' res () $ \res' -> do
         modify $ \s -> s {stateMeAddr = unpack res'}
-    Instruction.SType _ imm rs1 rs2 -> do
+    Instruction.SType size imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       let imm' = signExtend imm
@@ -383,7 +384,7 @@ execute = do
       modify $ \s -> s {stateMeRes = r2}
       noSecrets' res () $ \res' -> do
         modify $ \s -> s {stateMeAddr = unpack res'}
-        setLines $ \c -> c {ctrlExStoreAddr = Just $ unpack res'}
+        setLines $ \c -> c {ctrlExStoreAddrSize = Just (unpack res', size)}
     Instruction.BType cmp imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
@@ -477,7 +478,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
-memory :: (Access f) => CPUM f ()
+memory :: CPUM f ()
 memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
@@ -498,7 +499,7 @@ memory = do
       readRAM addr size
     Instruction.SType size _ _ _ -> do
       setLines $ \c ->
-        c {ctrlMeMemInstr = True, ctrlMeStoreAddr = Just addr}
+        c {ctrlMeMemInstr = True, ctrlMeStoreAddrSize = Just (addr, size)}
       writeRAM addr size res
     Instruction.JType rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
