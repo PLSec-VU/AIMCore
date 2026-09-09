@@ -28,14 +28,14 @@ data State = State
     stateJumpAddr :: Maybe Address,
     stateMeMemInstr :: Bool,
     stateHalt :: Maybe AimCore.HaltState,
-    stateHaltPending :: Maybe AimCore.HaltState,
+    stateHaltNextPc :: Address,
     stateDeLoadHazard :: Maybe Address,
     stateDeCall :: Bool,
     stateFirstCycle :: Bool
   }
   deriving (Show, Eq)
 
-init :: State
+init ::State
 init =
   State
     { stateFePc = initPc,
@@ -45,7 +45,7 @@ init =
       stateMemInstr = Leak.nop,
       stateWbInstr = Leak.nop,
       stateHalt = Nothing,
-      stateHaltPending = Nothing,
+      stateHaltNextPc = 0,
       stateMeMemInstr = False,
       stateJumpAddr = Nothing,
       stateDeLoadHazard = Nothing,
@@ -70,9 +70,9 @@ fetch = do
   deCall <- gets stateDeCall
   meMemInstr <- gets stateMeMemInstr
   status <- gets stateHalt
-  pending <- gets stateHaltPending
+  pending <- gets stateHaltNextPc
 
-  let isHalted = isJust status || isJust pending
+  let isHalted = isJust status || pending /= 0
 
   unless (meMemInstr || isHalted) $
     outputPc pc
@@ -100,12 +100,12 @@ decode = do
   mJumpAddr <- gets stateJumpAddr
   firstCycle <- gets stateFirstCycle
   status <- gets stateHalt
-  pending <- gets stateHaltPending
+  pending <- gets stateHaltNextPc
 
   let branch_first_cycle = isNopBranchFirstCycle exInstr
   let load_hazard_first_cycle = isNopLoadHazardFirstCycle exInstr
   let call_current_cycle = isCall exInstr
-  let halt_pending = isJust pending
+  let halt_pending = pending /= 0
 
   -- In Sim, we don't have the real instruction, but we know if it was stalled.
   let load_hazard_current_cycle = case instrBase instr of
@@ -167,7 +167,7 @@ execute = do
       modify $ \s ->
         s
           { stateJumpAddr = Nothing,
-            stateHaltPending = Just (AimCore.EBreak (pc + 4)),
+            stateHaltNextPc = pc + 4,
             stateMemInstr = killJump instr
           }
     _ -> do
@@ -191,11 +191,6 @@ memory :: SimM ()
 memory = do
   instr <- gets stateMemInstr
   modify $ \s -> s {stateWbInstr = killJump instr}
-  
-  pending <- gets stateHaltPending
-  case pending of
-    Just hlt -> modify $ \s -> s {stateHalt = Just hlt, stateHaltPending = Nothing}
-    Nothing -> pure ()
 
   mMeMemInstr <- getFirst . Leak.outMeMemInstr <$> ask
   case mMeMemInstr of
@@ -211,6 +206,10 @@ writeback :: SimM ()
 writeback = do
   instr <- gets stateWbInstr
   halted <- gets stateHalt
+
+  pending <- gets stateHaltNextPc
+  when (pending /= 0) $
+    modify $ \s -> s {stateHalt = Just (AimCore.EBreak pending), stateHaltNextPc = 0}
 
   mLeakedHalt <- getFirst . Leak.outHalt <$> ask
   when (isJust halted || isJust mLeakedHalt) $

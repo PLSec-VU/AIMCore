@@ -133,8 +133,8 @@ data State f = State
     stateCtrl :: Control f,
     -- | CPU halt state.
     stateHalt :: Maybe HaltState,
-    -- | Pending halt state (propagating through pipeline to ensure flush).
-    stateHaltPending :: Maybe HaltState
+    -- | In case of a halt, the address of the next instruction.
+    stateHaltNextPc :: Address
   }
 
 deriving instance (Show (f Word)) => Show (State f)
@@ -228,7 +228,7 @@ init =
       stateRegFile = initRF,
       stateCtrl = initCtrl,
       stateHalt = Nothing,
-      stateHaltPending = Nothing
+      stateHaltNextPc = 0
     }
 
 -- | Initial control lines.
@@ -423,10 +423,10 @@ execute = do
       modify $ \s -> s {stateMeRes = res}
     Instruction.IType (Env Call) _ _ _ -> do
       pc <- gets stateExPc
-      pendingHalt (Syscall (pc + 4))
+      modify $ \s -> s {stateHaltNextPc = pc + 4}
     Instruction.IType (Env Break) _ _ _ -> do
       pc <- gets stateExPc
-      pendingHalt (EBreak (pc + 4))
+      modify $ \s -> s {stateHaltNextPc = pc + 4}
     Instruction.Nop _ -> pure ()
   where
     getFirstArg :: RegIdx -> CPUM f (f Word)
@@ -448,10 +448,6 @@ execute = do
       fmap (fromMaybe def) $
         runMaybeT $
           checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
-
-    pendingHalt :: HaltState -> CPUM f ()
-    pendingHalt hState = do
-      modify $ \s -> s {stateHaltPending = Just hState}
 
 alu :: (Access f) => Arith -> f Word -> f Word -> f Word
 alu op lhs rhs = case op of
@@ -486,13 +482,6 @@ memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
   addr <- gets stateMeAddr
-  pending <- gets stateHaltPending
-
-  case pending of
-    Just hlt ->
-      modify $ \s ->
-        s {stateHalt = Just hlt, stateHaltPending = Nothing}
-    Nothing -> pure ()
 
   modify $ \s -> s {stateWbInstr = ir, stateWbRes = res}
 
@@ -524,7 +513,7 @@ writeback :: forall f. (Access f) => CPUM f ()
 writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
-  res <- gets stateWbRes
+  res <- gets stateWbRes  
 
   case ir of
     Instruction.RType _ rd _ _ -> do
@@ -546,6 +535,12 @@ writeback = do
     Instruction.UType _ rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
+    Instruction.IType (Env Call) _ _ _ -> do
+      cont <- gets stateHaltNextPc
+      modify $ \s -> s {stateHalt = Just (Syscall cont), stateHaltNextPc = 0}
+    Instruction.IType (Env Break) _ _ _ -> do
+      cont <- gets stateHaltNextPc
+      modify $ \s -> s {stateHalt = Just (EBreak cont), stateHaltNextPc = 0}
     _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Nothing}
   where
