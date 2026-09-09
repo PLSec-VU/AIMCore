@@ -324,14 +324,14 @@ decode = do
         -- Stall if there was a jump in the previous cycle.
         | jump_previous_cycle = Nop JumpSecondCycle
         -- Stall if there is a jump in this cycle.
-        | jump_current_cycle = Nop JumpFirstCycle
-        -- Stall if there was a store hazard in the previous cycle.
         | store_hazard_previous_cycle = Nop StoreHazardSecondCycle
         -- Stall if there is a store hazard in this cycle.
-        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
-        -- Stall if there was a load hazard in the previous cycle.
         | load_hazard_previous_cycle = Nop LoadHazardSecondCycle
         -- Stall if there is a load hazard in this cycle.
+        | jump_current_cycle = Nop JumpFirstCycle
+        -- Stall if there was a store hazard in the previous cycle.
+        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
+        -- Stall if there was a load hazard in the previous cycle.
         | load_hazard_current_cycle = Nop LoadHazardFirstCycle
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
