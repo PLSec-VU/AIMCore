@@ -1,0 +1,91 @@
+DRIVER:
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateExInstr == Nop FirstCycle
+   THEN 1
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+	  isEnvInstr stateExInstr == True
+   THEN 2
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+   	  isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == True
+   THEN 2
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+  	  isEnvInstr stateExInstr == False AND
+      isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == True AND
+	  isMemInstr stateExInstr == True
+   THEN 3
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == True AND
+	  isMemInstr stateExInstr == False
+   THEN 2
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == False AND
+	  loadHazard inputMem stateExInstr == True
+   THEN 3
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == False AND
+	  loadHazard inputMem stateExInstr == False AND
+	  isMemInstr stateWbInstr == False
+   THEN 0
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == False AND
+	  loadHazard inputMem stateExInstr == False AND
+	  isMemInstr stateWbInstr == True AND
+	  isMemInstr stateMeInstr == False
+   THEN 1
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == False AND
+	  loadHazard inputMem stateExInstr == False AND
+	  isMemInstr stateWbInstr == True AND
+	  isMemInstr stateMeInstr == True AND
+	  isMemInstr stateExInstr == False
+   THEN 2
+
+- CASE:
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isEnvInstr stateExInstr == False AND
+	  isJumpInstr stateExInstr stateMeInstr stateMeRes stateWbInstr stateWbRes stateRegFile == False AND
+	  storeHazard stateDePc stateExInstr stateMeInstr stateMeAddr == False AND
+	  loadHazard inputMem stateExInstr == False AND
+	  isMemInstr stateWbInstr == True AND
+	  isMemInstr stateMeInstr == True AND
+	  isMemInstr stateExInstr == True
+   THEN 3

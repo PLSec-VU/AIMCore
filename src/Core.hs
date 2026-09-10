@@ -13,7 +13,8 @@ module Core
     circuit,
     Input (..),
     Output (..),
-    State (..),
+    StateG (..),
+    State,
     HaltState (..),
     fetch,
     decode,
@@ -25,6 +26,9 @@ module Core
     Control (..),
     alu,
     branch,
+    sllWord,
+    srlWord,
+    sraWord,
     topEntity,
   )
 where
@@ -43,13 +47,14 @@ import Types
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
 topEntity ::
+  forall f.
   (Access f, Generic (f Word), NFDataX (f Word)) =>
   Clock System ->
   Reset System ->
   Enable System ->
   Signal System (Input f) ->
   Signal System (Output f)
-topEntity = exposeClockResetEnable $ mealy circuit init
+topEntity = exposeClockResetEnable $ mealy (circuit @f @RegFile) (init @f @RegFile)
 
 -- | The input to the CPU.
 data Input f = Input
@@ -108,7 +113,11 @@ data HaltState = EBreak Address | Syscall Address | SecurityViolation
 instance NFDataX HaltState
 
 -- | The internal state of the CPU; essentially the pipeline registers.
-data State f = State
+--
+-- Parameterised over the register-file representation @r@ so that the same
+-- pipeline can be run on the synthesisable 'RegFile' or, for symbolic
+-- execution, on the function-backed 'RegFn'. See 'RegFileOps'.
+data StateG r f = State
   { -- | Program counter fetch stage.
     stateFePc :: Address,
     -- | Program counter decode stage.
@@ -128,7 +137,7 @@ data State f = State
     -- | Computation result writeback stage.
     stateWbRes :: f Word,
     -- | Register file.
-    stateRegFile :: RegFile f,
+    stateRegFile :: r f,
     -- | Control/forwarding lines.
     stateCtrl :: Control f,
     -- | CPU halt state.
@@ -137,13 +146,18 @@ data State f = State
     stateHaltNextPc :: Address
   }
 
-deriving instance (Show (f Word)) => Show (State f)
+-- | The synthesisable state: the register file is a 'Vec'.
+type State = StateG RegFile
 
-deriving instance (Eq (f Word)) => Eq (State f)
+deriving instance (Show (f Word), Show (r f)) => Show (StateG r f)
 
-deriving instance Generic (State f)
+deriving instance (Eq (f Word), Eq (r f)) => Eq (StateG r f)
 
-deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
+deriving instance Generic (StateG r f)
+
+deriving anyclass instance
+  (Generic (f Word), NFDataX (f Word), Generic (r f), NFDataX (r f)) =>
+  NFDataX (StateG r f)
 
 -- | Control lines.
 data Control f = Control
@@ -183,22 +197,22 @@ deriving instance Generic (Control f)
 
 deriving anyclass instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
 
-type CPUM f = RWS (Input f) (Output f) (State f)
+type CPUM r f = RWS (Input f) (Output f) (StateG r f)
 
-setLines :: (MonadState (State f) m) => (Control f -> Control f) -> m ()
+setLines :: (MonadState (StateG r f) m) => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f (stateCtrl s)}
 
 -- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
 -- private, die.
-noSecrets' :: (Access f) => f a -> b -> (a -> CPUM f b) -> CPUM f b
+noSecrets' :: (Access f) => f a -> b -> (a -> CPUM r f b) -> CPUM r f b
 noSecrets' w a = noSecrets w (setSecurityViolation >> pure a)
 
 -- | Run the CPU for one step.
-circuit :: (Access f) => State f -> Input f -> (State f, Output f)
+circuit :: forall f r. (Access f, RegFileOps r) => StateG r f -> Input f -> (StateG r f, Output f)
 circuit = flip $ execRWS pipe
 
 -- | The CPU, composed of each stage.
-pipe :: (Access f) => CPUM f ()
+pipe :: (Access f, RegFileOps r) => CPUM r f ()
 pipe = void $ withCtrlReset $ do
   writeback
   memory
@@ -213,7 +227,7 @@ initInput =
       inputMem = pure 0
     }
 
-init :: (Access f) => State f
+init :: forall f r. (Access f, RegFileOps r) => StateG r f
 init =
   State
     { stateFePc = initPc,
@@ -225,7 +239,7 @@ init =
       stateMeAddr = 0,
       stateWbInstr = Nop FirstCycle,
       stateWbRes = pure 0,
-      stateRegFile = initRF,
+      stateRegFile = initRFg,
       stateCtrl = initCtrl,
       stateHalt = Nothing,
       stateHaltNextPc = 0
@@ -247,19 +261,19 @@ initCtrl =
     }
 
 -- | The control lines need to be reset every tick.
-withCtrlReset :: CPUM f () -> CPUM f (Control f)
+withCtrlReset :: CPUM r f () -> CPUM r f (Control f)
 withCtrlReset m = do
   modify $ \s -> s {stateCtrl = initCtrl}
   m
   gets stateCtrl
 
 -- | Set security violation flag.
-setSecurityViolation :: CPUM f ()
+setSecurityViolation :: CPUM r f ()
 setSecurityViolation =
   modify $ \s -> s {stateHalt = Just SecurityViolation}
 
 -- | The fetch stage.
-fetch :: CPUM f ()
+fetch :: CPUM r f ()
 fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
@@ -288,7 +302,7 @@ fetch = do
       }
 
 -- | Decode stage.
-decode :: (Access f) => CPUM f ()
+decode :: (Access f) => CPUM r f ()
 decode = do
   input <- ask
   pc <- gets stateDePc
@@ -324,15 +338,15 @@ decode = do
         | break_current_cycle = Nop Halted
         -- Stall if there was a jump in the previous cycle.
         | jump_previous_cycle = Nop JumpSecondCycle
-        -- Stall if there is a jump in this cycle.
-        | store_hazard_previous_cycle = Nop StoreHazardSecondCycle
-        -- Stall if there is a store hazard in this cycle.
-        | load_hazard_previous_cycle = Nop LoadHazardSecondCycle
-        -- Stall if there is a load hazard in this cycle.
-        | jump_current_cycle = Nop JumpFirstCycle
         -- Stall if there was a store hazard in the previous cycle.
-        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
+        | store_hazard_previous_cycle = Nop StoreHazardSecondCycle
         -- Stall if there was a load hazard in the previous cycle.
+        | load_hazard_previous_cycle = Nop LoadHazardSecondCycle
+        -- Stall if there is a jump in this cycle.
+        | jump_current_cycle = Nop JumpFirstCycle
+        -- Stall if there is a store hazard in this cycle.
+        | store_hazard_current_cycle = Nop StoreHazardFirstCycle
+        -- Stall if there is a load hazard in this cycle.
         | load_hazard_current_cycle = Nop LoadHazardFirstCycle
         -- Otherwise we process the decoded instruction.
         | otherwise = ir
@@ -346,7 +360,7 @@ decode = do
     setLines $ \c -> c {ctrlDeLoadHazard = Just pc}
 
 -- | Execute stage.
-execute :: forall f. (Access f) => CPUM f ()
+execute :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
 execute = do
   ir <- gets stateExInstr
 
@@ -430,17 +444,17 @@ execute = do
       modify $ \s -> s {stateHaltNextPc = pc + 4}
     Instruction.Nop _ -> pure ()
   where
-    getFirstArg :: RegIdx -> CPUM f (f Word)
+    getFirstArg :: RegIdx -> CPUM r f (f Word)
     getFirstArg idx = do
       rf <- gets stateRegFile
-      regWithFwd idx (lookupRF idx rf)
+      regWithFwd idx (lookupRFg idx rf)
 
-    getSecondArg :: RegIdx -> CPUM f (f Word)
+    getSecondArg :: RegIdx -> CPUM r f (f Word)
     getSecondArg idx = do
       rf <- gets stateRegFile
-      regWithFwd idx (lookupRF idx rf)
+      regWithFwd idx (lookupRFg idx rf)
 
-    regWithFwd ::  RegIdx -> f Word -> CPUM f (f Word)
+    regWithFwd ::  RegIdx -> f Word -> CPUM r f (f Word)
     regWithFwd idx def = do
       let checkForFwd line = do
             (fwdIdx, fwdVal) <- MaybeT $ gets $ line . stateCtrl
@@ -457,15 +471,48 @@ alu op lhs rhs = case op of
   XOR -> (.^.) <$> lhs <*> rhs
   OR -> (.|.) <$> lhs <*> rhs
   AND -> (.&.) <$> lhs <*> rhs
-  SLL -> shiftL <$> lhs <*> (shiftBits <$> rhs)
-  SRL -> shiftR <$> lhs <*> (shiftBits <$> rhs)
-  SRA -> pack <$> (shiftR <$> (sign <$> lhs) <*> (shiftBits <$> rhs))
+  SLL -> sllWord <$> lhs <*> (shiftBits <$> rhs)
+  SRL -> srlWord <$> lhs <*> (shiftBits <$> rhs)
+  SRA -> sraWord <$> lhs <*> (shiftBits <$> rhs)
   SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
   SLTU -> set <$> ((<) <$> lhs <*> rhs)
   where
-    shiftBits s = fromIntegral $ slice d4 d0 s
+    shiftBits s = slice d4 d0 s
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
+
+-- | The three RISC-V shifts, with the shift amount kept as a bitvector.
+--
+-- RISC-V takes the amount from the low five bits of the second operand, so no
+-- amount can reach the word width and these agree with the SMT shifts on the
+-- nose.
+--
+-- They exist as named 'OPAQUE' functions, rather than 'shiftL' applied inline,
+-- for the verifier's sake. 'Data.Bits.shiftL' takes an 'Int', so an inline
+-- amount forces @fromIntegral@ on the five-bit slice, and that is modelled
+-- through 'Integer': every shift site then emits an integer round trip
+-- (@ubv_to_int@ to @int_to_bv@) wrapped in two overflow guards. Those few terms
+-- pull integer arithmetic into a query that is otherwise pure bitvectors and
+-- arrays, and Bitwuzla and Yices have no integer theory at all -- they reject
+-- such a query outright rather than solve it slowly. Keeping the amount a
+-- 'BitVector' behind a name lets "Axioms" map each shift to its SMT
+-- counterpart; see 'ArrayRF.sllWordE'.
+--
+-- OPAQUE is essential, for the same reason as 'ArrayRF.loadRA': the axiom is
+-- keyed on the name, so an inlined wrapper would leave nothing to rewrite.
+{-# OPAQUE sllWord #-}
+sllWord :: Word -> BitVector 5 -> Word
+sllWord x n = shiftL x (fromIntegral n)
+
+-- | Logical right shift; 'BitVector' is unsigned, so 'shiftR' is @bvlshr@.
+{-# OPAQUE srlWord #-}
+srlWord :: Word -> BitVector 5 -> Word
+srlWord x n = shiftR x (fromIntegral n)
+
+-- | Arithmetic right shift, via 'Signed' as the ISA prescribes.
+{-# OPAQUE sraWord #-}
+sraWord :: Word -> BitVector 5 -> Word
+sraWord x n = pack (shiftR (unpack x :: Signed 32) (fromIntegral n))
 
 branch :: (Access f) => Comparison -> f Word -> f Word -> f Bool
 branch op lhs rhs = case op of
@@ -478,7 +525,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
-memory :: CPUM f ()
+memory :: CPUM r f ()
 memory = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
@@ -510,7 +557,7 @@ memory = do
     _ -> pure ()
 
 -- | Commit computations to the register file.
-writeback :: forall f. (Access f) => CPUM f ()
+writeback :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
 writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
@@ -545,9 +592,9 @@ writeback = do
     _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Nothing}
   where
-    writeRF :: RegIdx -> f Word -> CPUM f ()
+    writeRF :: RegIdx -> f Word -> CPUM r f ()
     writeRF idx val =
-      modify $ \s -> s {stateRegFile = modifyRF idx val (stateRegFile s)}
+      modify $ \s -> s {stateRegFile = modifyRFg idx val (stateRegFile s)}
 
 readPC :: (MonadWriter (Output f) m) => Address -> m ()
 readPC addr =

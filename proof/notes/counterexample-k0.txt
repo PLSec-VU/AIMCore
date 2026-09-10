@@ -1,0 +1,143 @@
+Counterexample for indStep0 (k = 0 inductive step), as reported by Z3.
+=====================================================================
+
+SBV cannot parse array-valued variables back out of the model
+("Data.SBV.interpretArray: Unable to process solver output"), so the plugin
+crashes before printing a counterexample. The model is still recoverable from
+the build log in two places:
+
+  1. The panic message embeds SBV's own s-expression parse of the array value.
+  2. The [RECV] lines are Z3's raw `get-value` responses for every variable.
+     (Filter them back in -- we normally grep them out as noise.)
+
+Reproduce: uncomment the ANN on 'Verify.indStep0', then
+  stack build aimcore:lib > /tmp/model.txt 2>&1
+  grep "^\[RECV\]" /tmp/model.txt
+
+DECODED MEMORY (MemArr). Everything not listed is 0.
+
+  addr         byte
+  0x00000007   0x02
+  0x00000019   0x20
+  0x0000001A   0x40
+  0x7F701B31   0xB3      <-- three consecutive words, 4 bytes apart
+  0x7F701B32   0x9B
+  0x7F701B33   0x40
+  0x7F701B35   0x70
+  0x7F701B36   0x4F
+  0x7F701B37   0xB0
+  0x7F701B39   0x80
+  0x7F701B3A   0x04
+  0x7F701B3B   0x02
+  0x7F701B3C   0x80
+  0xEFFFCFF8   0x02
+
+WORDS (little-endian, as readWord assembles them):
+
+  mem[0x7F701B31] = 0x00409BB3   opcode 0x33  -> R-type
+  mem[0x7F701B35] = 0x00B04F70   opcode 0x70  -> invalid -> Nop DecodeFail
+  mem[0x7F701B39] = 0x80020480   opcode 0x00  -> invalid -> Nop DecodeFail
+
+SCALARS identified so far (from [RECV]):
+
+  s106 : Array (BitVec 5) (BitVec 32)   the register file
+  s107 = 0x00006120
+  s108 = 0x00B04F70                     = mem[dePc], i.e. inputMem
+  s111 = 0x7F701B39                     = fePc = exPc + 8
+
+So the three words sit at exPc, dePc = exPc+4 and fePc = exPc+8, and the
+invariant's premises (inputMem == mem[dePc], fePc == exPc+8) are satisfied.
+
+LEAD: the program counter is UNALIGNED -- 0x7F701B31 mod 4 == 1. The core does
+not require alignment, so this is reachable in the symbolic state space even
+though no realistic program produces it. Worth checking whether the invariant
+needs an alignment precondition, or whether something else is at fault.
+
+NOT YET DONE: mapping the remaining ~141 sN variables to the property's
+arguments. They are positional in declaration order, so it is mechanical but
+tedious. A better route: re-run this property under the old function-schema
+encoding ('Verify.mkRFPts' / 'mkMemPts'), which has no arrays -- SBV can then
+decode the model itself and print a named counterexample.
+
+
+=====================================================================
+SECOND COUNTEREXAMPLE (after the load-use hazard conjunct was added)
+=====================================================================
+
+k = 0 still comes back sat, but faster: 73s (was 131s), so the first
+counterexample class is genuinely closed.
+
+DECODED MEMORY (all else 0):
+
+  0x00000001 = 0x02
+  0x04481002 = 0x04
+  0x804007C1 = 0x84
+  0xFED88070 = 0x23     <- the executing instruction starts here
+  0xFED88071 = 0x30
+  0xFED88072 = 0x19
+  0xFED88073 = 0x06
+  0xFED88074 = 0x67
+
+WORDS:
+
+  mem[0xFED88070] = 0x06193023   opcode 0x23 -> S-TYPE (store), rs1=18, rs2=1
+  mem[0xFED88074] = 0x00000067   opcode 0x67 -> JALR, rd=0 rs1=0 imm=0
+
+So the execute stage holds a STORE this time, with the next word decoding as
+jalr. Stores are the one instruction that writes memory in 'flushMeStage', and
+they are also what 'Driver.storeHazard' guards, so both are worth checking:
+
+  - does 'flushMeStage's store case agree with when 'Core.memory' actually
+    commits the write, the way the load case did not?
+  - is this another admitted-but-unreachable state, i.e. does the invariant
+    need a store-hazard precondition the way it now has a load-use one?
+
+Workflow that worked for the first one:
+  1. decode the array from the panic blob (script in this repo's history)
+  2. find PC anchors in the [RECV] lines
+  3. rebuild concretely with MemFn/RegFn (unbounded, work concretely too)
+     and search the unmapped fields -- see 'ProofSpec.ceHits'
+
+=====================================================================
+FIFTH COUNTEREXAMPLE: RESOLVED (address wraparound in noStoreAlias)
+=====================================================================
+
+The model had exPc = 0xFFFFFFFC, dePc = 0 (wrapping), fePc = 4, a store in
+the execute stage, and 0xFFFFFFFF among its unmapped 32-bit words. The
+failing ingredient was the no-self-modifying-store assumption itself:
+
+  clashes p = a < p + 4 && p < a + n        -- Unsigned 32, both sums wrap
+
+With a PC word at the top of the address space (p = 0xFFFFFFFC), a < p + 4
+is a < 0 -- false for EVERY store address -- so a store into that word
+passes the assumption unchecked. Dually, memWriteWord wraps its byte
+addresses, so a word store at 0xFFFFFFFE writes bytes 0xFFFFFFFE..0x01 and
+lands in a low PC word without ever satisfying p < a + n. Either way the
+store rewrites an instruction word already latched into the pipeline, and
+after the hop 'ex == decode (mem[isaPc])' is gone.
+
+Why the hand-reconstruction missed it: to satisfy the PRE-state's
+'ex == decode (mem[isaPc])' (which reads the flushed memory), the store's
+overlapping bytes must preserve the bytes they overwrite -- i.e. meRes must
+reproduce mem's contents at the overlap -- and no such word was among the
+four positional guesses tried for meRes.
+
+Why QuickCheck missed it: genArbSys laid out its three instruction words
+with the same non-wrapping comparisons (a >= base && a < base + 4), so for
+base near the top of the address space the window was empty and the premise
+unsatisfiable -- the generator could not represent any state in the region
+where the bug lives.
+
+Fixes, in proof/Invariant.hs and test/ProofSpec.hs:
+
+  * noStoreAlias now checks each written byte with wrapping arithmetic
+    (byte x is in the word at p iff x - p < 4), fold-free so Pantomime can
+    still execute it.
+  * The concrete mechanism is pinned by two tests: "wrap-around aliasing
+    store breaks the un-guarded inductive step" (the state satisfies the
+    invariant, driver == 0, and the driven step breaks the invariant) and
+    "wrap-around aliasing store is excluded by noStoreAlias".
+  * genArbSys now uses a wrapping memory layout, occasionally sits the
+    pipeline astride 0xFFFFFFFF -> 0, biases store addresses into the PC
+    window, and generates branches/loads/stores in the decode slot.
+    1e6 arbitrary-state tests pass after the fix.

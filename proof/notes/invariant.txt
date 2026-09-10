@@ -1,0 +1,214 @@
+NOTE: this file has been reconciled with proof/Proof/Functional/Invariant.hs.
+One change against the original: the 'stateCtrl == initCtrl' clause has been
+dropped from every case. It is a holdover from an earlier Core that reset the
+control lines at the END of each clock cycle, so that they were back at their
+reset values by the time the next cycle began. Core.withCtrlReset now resets
+them at the START of the cycle and the stages then set them, so the lines seen
+in any post-step state are the ones the stages left -- Core.execute alone sets
+ctrlExInstr to Just every cycle. Only Core.init still satisfies the clause, so
+keeping it would make the invariant hold of no state the driver lands on and
+every obligation vacuous. Dropping it is sound because the lines carry no
+information between cycles: withCtrlReset overwrites them before any stage
+reads them.
+
+The four running cases are collapsed into one in the Haskell. They differ only
+in the fetch conjuncts, and those track the writeback stage alone -- a memory
+instruction in writeback held the bus last cycle, so nothing was fetched. The
+memory stage's classification changes no conjunct; its only effect is to demand
+that the stage hold something isArithOrJumpInstr or isMemInstr covers, which is
+everything but ecall and ebreak. Both stages are therefore stated there as "not
+an environment instruction".
+
+Environment instructions in the memory or writeback stage need no case of their
+own: those are the intermediate cycles the driver skips, and the hop that starts
+with ecall/ebreak in execute lands on the corresponding halted case below.
+
+See proof/Proof/Functional/Invariant.hs for the executable version, and the
+"Driver and invariant" group in the test suite for the checks.
+
+-------------------------------------------------------------------
+
+isArithOrJumpInstr :: Instruction -> Bool
+isArithOrJumpInstr ir =
+  case ir of
+    RType _ _ _ _ -> True
+    IType (Arith _) _ _ _ -> True
+    IType (Load _ _) _ _ _ -> False
+    SType _ _ _ _ -> False
+    BType _ _ _ _ -> True
+    JType _ _ -> True
+    IType Jump _ _ _ -> True
+    UType _ _ _ -> True
+    IType (Env Call) _ _ _ -> False
+    IType (Env Break _) _ _ _ -> False
+    Nop _ -> True
+
+isMemInstr :: Instruction -> Bool
+isMemInstr ir =
+  case ir of
+    RType _ _ _ _ -> False
+    IType (Arith _) _ _ _ -> False
+    IType (Load _ _) _ _ _ -> True
+    SType _ _ _ _ -> True
+    BType _ _ _ _ -> False
+    JType _ _ -> False
+    IType Jump _ _ _ -> False
+    UType _ _ _ -> False
+    IType (Env Call) _ _ _ -> False
+    IType (Env Break _) _ _ _ -> False
+    Nop _ -> False
+
+flushWbStage :: Instruction -> Word -> Word -> (RAM, RegFile) -> (RAM, RegFile)
+flushWbStage stateWbInstr stateWbRes inputMem (stateMem, stateRegFile) =
+  case stateWbInstr of
+    RType _ rd _ _ ->
+      (stateMem, modifyRF rd stateWbRes stateRegFile)
+    IType (Arith _) rd _ _ ->
+      (stateMem, modifyRF rd stateWbRes stateRegFile)
+    IType (Load size sign) rd _ _ ->
+      let val = loadExtend size sign inputMem
+      (stateMem, modifyRF rd val stateRegFile)
+    SType _ _ _ _ ->
+      (stateMem, stateRegFile)
+    BType _ _ _ _ ->
+      (stateMem, stateRegFile)
+    JType rd _ ->
+      (stateMem, modifyRF rd stateWbRes stateRegFile)
+    IType Jump rd _ _ ->
+      (stateMem, modifyRF rd stateWbRes stateRegFile)
+    UType _ rd _ ->
+      (stateMem, modifyRF rd stateWbRes stateRegFile)
+    IType (Env Call) _ _ _ ->
+      (stateMem, stateRegFile)
+    IType (Env Break _) _ _ _ ->
+      (stateMem, stateRegFile)
+    Nop _ ->
+      (stateMem, stateRegFile)
+
+flushMeStage :: Instruction -> Word -> Word -> (RAM, RegFile) -> (RAM, RegFile)
+flushMeStage stateMeInstr stateMeRes stateMeAddr (stateMem, stateRegFile) =
+  case stateMeInstr of
+    RType _ rd _ _ ->
+      (stateMem, modifyRF rd stateMeRes stateRegFile)
+    IType (Arith _) rd _ _ ->
+      (stateMem, modifyRF rd stateMeRes stateRegFile)
+    IType (Load size sign) rd _ _ ->
+      let inputMem = ramRead stateMeAddr stateMem
+      let val = loadExtend size sign inputMem
+      (stateMem, modifyRF rd val stateRegFile)
+    SType size _ _ _ ->
+      (ramWrite stateMeAddr size stateMeRes stateMem, stateRegFile)
+    BType _ _ _ _ ->
+      (stateMem, stateRegFile)
+    JType rd _ ->
+      (stateMem, modifyRF rd stateMeRes stateRegFile)
+    IType Jump rd _ _ ->
+      (stateMem, modifyRF rd stateMeRes stateRegFile)
+    UType _ rd _ ->
+      (stateMem, modifyRF rd stateMeRes stateRegFile)
+    IType (Env Call) _ _ _ ->
+      (stateMem, stateRegFile)
+    IType (Env Break _) _ _ _ ->
+      (stateMem, stateRegFile)
+    Nop _ ->
+      (stateMem, stateRegFile)
+
+INVARIANT:
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      stateWbInstr == Nop FirstCycle AND
+      stateMeInstr == Nop FirstCycle AND
+      stateExInstr == Nop FirstCycle AND
+      inputIsInstr == False AND
+      fetchPc == isaPc AND
+      isaRegFile == stateRegFile AND
+      isaMem == stateMem
+
+-------------------------------------------------------------------
+-------------------------------------------------------------------
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isArithOrJumpInstr stateWbInstr == True AND
+      isArithOrJumpInstr stateMeInstr == True AND
+      stateExPc == isaPc AND
+      stateExInstr == decode (ramRead isaPc isaMem) AND
+      stateDePc == stateExPc + 4 AND
+      inputIsInstr == True AND
+      inputMem == ramRead stateDePc stateMem AND
+      stateFePc == stateExPc + 8 AND
+      loadHazard stateExInstr stateMeInstr == False AND
+      (isaMem, isaRegFile) == flushMemStage stateMeInstr stateMeRes stateMeAddr (flushWbStage stateWbInstr stateWbRes inputMem (stateMem, stateRegFile))
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isMemInstr stateWbInstr == True AND
+      isArithOrJumpInstr stateMeInstr == True AND
+      stateExPc == isaPc AND
+      stateExInstr == decode (ramRead isaPc isaMem) AND
+      stateDePc == stateExPc + 4 AND
+      inputIsInstr == False AND
+      stateFePc == stateExPc + 4 AND
+      loadHazard stateExInstr stateMeInstr == False AND
+      (isaMem, isaRegFile) == flushMemStage stateMeInstr stateMeRes stateMeAddr (flushWbStage stateWbInstr stateWbRes inputMem (stateMem, stateRegFile))
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isArithOrJumpInstr stateWbInstr == True AND
+      isMemInstr stateMeInstr == True AND
+      stateExPc == isaPc AND
+      stateExInstr == decode (ramRead isaPc isaMem) AND
+      stateDePc == stateExPc + 4 AND
+      inputIsInstr == True AND
+      inputMem == ramRead stateDePc stateMem AND
+      stateFePc == stateExPc + 8 AND
+      loadHazard stateExInstr stateMeInstr == False AND
+      (isaMem, isaRegFile) == flushMemStage stateMeInstr stateMeRes stateMeAddr (flushWbStage stateWbInstr stateWbRes inputMem (stateMem, stateRegFile))
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF stateHalt == Running AND
+      isMemInstr stateWbInstr == True AND
+      isMemInstr stateMeInstr == True AND
+      stateExPc == isaPc AND
+      stateExInstr == decode (ramRead isaPc isaMem) AND
+      stateDePc == stateExPc + 4 AND
+      inputIsInstr == False AND
+      stateFePc == stateExPc + 4 AND
+      loadHazard stateExInstr stateMeInstr == False AND
+      (isaMem, isaRegFile) == flushMemStage stateMeInstr stateMeRes stateMeAddr (flushWbStage stateWbInstr stateWbRes inputMem (stateMem, stateRegFile))
+
+-------------------------------------------------------------------
+-------------------------------------------------------------------
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF isBreak (decode (ramRead isaPc isaMem)) == True AND
+      stateHalt == EBreak (isaPc + 4) AND
+      stateWbInstr == Nop Halted AND
+      stateMeInstr == Nop Halted AND
+      stateExInstr == Nop Halted AND
+      isaRegFile == stateRegFile AND
+      isaMem == stateMem
+
+- CASE:
+  (isaPc, isaRegFile, isaMem) ~
+  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
+   IF isCall (decode (ramRead isaPc isaMem)) == True AND
+      stateHalt == Syscall (isaPc + 4) AND
+      stateWbInstr == Nop Halted AND
+      stateMeInstr == Nop Halted AND
+      stateExInstr == Nop Halted AND
+      isaRegFile == stateRegFile AND
+      isaMem == stateMem

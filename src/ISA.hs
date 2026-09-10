@@ -2,13 +2,39 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- | The ISA specification: what each instruction means, and how the
+-- architectural state evolves.
+--
+-- Two halves, both semantics. 'interp'' turns an 'Instruction.Instruction' into
+-- an @'Instr' 'Func'@ -- the effect it denotes -- and 'apply' evaluates one of
+-- those 'Func's against the two source-register values and the PC. On top of
+-- that, 'isaStep' says how the @(isaPc, isaRegFile, isaMem)@ triple moves.
+--
+-- The architectural state is parameterised over the register-file and memory
+-- representations because the @Vec@-backed ones cannot be symbolically
+-- executed; see 'RegFile.RegFileOps' and 'Memory.Types.MemOps'.
+--
+-- This is specification, not proof machinery. The refinement proof is stated
+-- against it, so it must not depend on anything the proof defines.
 module ISA
   ( Func,
+    Done (..),
+    apply,
     DepReg (..),
     Instr (..),
     PC,
+    getR1,
+    getR2,
     interp,
     interp',
+    IsaStateG (..),
+    IsaState,
+    StepG (..),
+    Step,
+    isaStep,
+    isaStepDecoded,
+    isaRun,
+    isaInstrAt,
   )
 where
 
@@ -16,8 +42,10 @@ import Access
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (Syscall)
 import Data.Functor.Identity
-import Instruction (Sign)
+import Instruction (Instruction, Sign, decode', loadExtend)
 import qualified Instruction
+import Memory.Types (MemBytes, MemOps (..))
+import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
@@ -33,6 +61,15 @@ instance Show (Func a) where
 
 instance Functor Func where
   fmap g (Func f d) = Func (\r1 r2 pc -> g $ f r1 r2 pc) d
+
+-- | The result of evaluating a 'Func'. 'isaStepDecoded' is the only consumer:
+-- it evaluates each 'Func' against its two dependency registers and the PC to
+-- get the architectural transition.
+newtype Done a = Done {unDone :: a}
+  deriving (Show, Eq)
+
+apply :: Func a -> Word -> Word -> PC -> Done a
+apply (Func f _) r1 r2 pc = Done $ f r1 r2 pc
 
 data Instr f
   = Reg RegIdx (f Word)
@@ -57,6 +94,14 @@ deriving instance
     Eq (f Bool)
   ) =>
   Eq (Instr f)
+
+-- | The two source registers a decoded instruction depends on. Consumed by
+-- 'isaStepDecoded' to supply the operands 'apply' evaluates a 'Func' against.
+getR1 :: Instr Func -> Maybe RegIdx
+getR1 = fst . deps
+
+getR2 :: Instr Func -> Maybe RegIdx
+getR2 = snd . deps
 
 class DepReg a where
   deps :: a -> (Maybe RegIdx, Maybe RegIdx)
@@ -147,3 +192,87 @@ interp' instr
         { isaFunc = const $ const f,
           isaDeps = (empty, empty)
         }
+
+-- | Architectural state: the ISA-visible triple.
+data IsaStateG r m = IsaState
+  { isaPc :: PC,
+    isaRegFile :: r Identity,
+    isaMem :: m
+  }
+
+-- | The concrete architectural state the QuickCheck harness uses.
+type IsaState = IsaStateG RegFile MemBytes
+
+deriving instance (Show (r Identity), Show m) => Show (IsaStateG r m)
+
+deriving instance (Eq (r Identity), Eq m) => Eq (IsaStateG r m)
+
+-- | The result of one architectural step. 'IsaHalted' covers @ebreak@ and
+-- @ecall@, which is where 'Core' parks in a 'Core.HaltState'.
+data StepG r m
+  = Next (IsaStateG r m)
+  | IsaHalted
+
+type Step = StepG RegFile MemBytes
+
+deriving instance (Show (r Identity), Show m) => Show (StepG r m)
+
+deriving instance (Eq (r Identity), Eq m) => Eq (StepG r m)
+
+-- | The instruction the ISA would execute next.
+isaInstrAt :: (MemOps m) => IsaStateG r m -> Instruction
+isaInstrAt (IsaState pc _ mem) = decode' (memReadWord pc mem)
+
+isaStep :: (RegFileOps r, MemOps m) => IsaStateG r m -> StepG r m
+isaStep st = isaStepDecoded (isaInstrAt st) st
+
+-- | Step the ISA using an instruction that has already been decoded.
+--
+-- This is definitionally the same transition as 'isaStep' when @ir@ is
+-- @isaInstrAt st@.  Keeping the decoded instruction explicit is useful in the
+-- refinement proof: the invariant already states that the core's execute-stage
+-- instruction equals @isaInstrAt st@, so the transition can execute that
+-- instruction directly instead of nesting one decoder inside another.
+isaStepDecoded ::
+  (RegFileOps r, MemOps m) =>
+  Instruction ->
+  IsaStateG r m ->
+  StepG r m
+isaStepDecoded ir st@(IsaState pc rf mem) =
+  case instr of
+    Reg rd f ->
+      Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (pure (ap f)) rf}
+    Load size sign rd f ->
+      let val = loadExtend size sign (memReadWord (ap f) mem)
+       in Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (pure val) rf}
+    Jump rd link target ->
+      Next
+        st
+          { isaPc = ap target,
+            isaRegFile = modifyRFg rd (pure (bitCoerce (ap link))) rf
+          }
+    Store size addr rs2 ->
+      Next st {isaPc = pc + 4, isaMem = memWriteWord size (ap addr) (reg (Just rs2)) mem}
+    Branch cond target ->
+      Next st {isaPc = if ap cond then ap target else pc + 4}
+    Nop -> Next st {isaPc = pc + 4}
+    Break -> IsaHalted
+    Syscall -> IsaHalted
+  where
+    instr = interp' ir
+
+    reg = maybe 0 (\idx -> runIdentity (lookupRFg idx rf))
+
+    -- 'Func' is evaluated against the values of its two dependency
+    -- registers and the PC, exactly as 'apply' prescribes.
+    ap :: Func a -> a
+    ap f = unDone (apply f (reg (getR1 instr)) (reg (getR2 instr)) pc)
+
+-- | Run at most @n@ architectural steps, stopping early on halt. Returns the
+-- states visited, starting with the initial one.
+isaRun :: (RegFileOps r, MemOps m) => Int -> IsaStateG r m -> [IsaStateG r m]
+isaRun n st
+  | n <= 0 = [st]
+  | otherwise = case isaStep st of
+      IsaHalted -> [st]
+      Next st' -> st : isaRun (n - 1) st'
