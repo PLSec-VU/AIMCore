@@ -20,10 +20,14 @@ jobs:
         enable-stack: true
         stack-version: 'latest'
 
-    - name: Install dependencies
+    - name: Install Bitwuzla
       run: |
-        sudo apt-get update
-        sudo apt-get install -y z3
+        BITWUZLA_VERSION="0.9.1"
+        curl -sL "https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VERSION}/Bitwuzla-Linux-x86_64-static.zip" -o /tmp/bitwuzla.zip
+        unzip -q /tmp/bitwuzla.zip -d /tmp
+        sudo install -m 755 /tmp/Bitwuzla-Linux-x86_64-static/bin/bitwuzla /usr/local/bin/bitwuzla
+        rm -rf /tmp/Bitwuzla-Linux-x86_64-static /tmp/bitwuzla.zip
+        bitwuzla --version
 
     - name: Cache Stack
       uses: actions/cache@v4
