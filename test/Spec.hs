@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -21,9 +22,13 @@ import RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
+#ifdef SMT_PROOF
 import qualified Proof.SMT.Sanity as Sanity
+#endif
 import qualified Prelude
+#ifdef SMT_PROOF
 import qualified Proof.Functional.Induction
+#endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -63,6 +68,7 @@ mkSecretPCLeakTest s prog =
     assertBool "" $
       Leak.SecretPC.pcsEqual prog
 
+#ifdef SMT_PROOF
 -- | The compile-time symbolic checks, read back out.
 --
 -- The first three establish that the Pantomime plugin is wired in and actually
@@ -100,12 +106,16 @@ sanityTests =
     verdict name = case lookup name Sanity.results of
       Just v -> v
       Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
+#endif
 
 tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [ sanityTests,
+    [
+#ifdef SMT_PROOF
+      sanityTests,
+#endif
       proofTests,
       isaConformanceTests,
       instructionTests,

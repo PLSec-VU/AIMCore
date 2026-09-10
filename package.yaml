@@ -19,6 +19,27 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/aimcore#readme>
 
+# The modules under proof-smt/ discharge their properties through an SMT solver
+# while GHC compiles them, so building them needs a solver on PATH and takes as
+# long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
+# pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
+# useful time, while bitwuzla takes seconds each:
+#
+#   SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack test
+#
+# Do not add --fast: at -O0 GHC creates no unfoldings and the plugin fails with
+# "Unbound variable in symbolise" rather than reporting a failed proof.
+#
+# Turn the flag off to build and test everything else without a solver, which is
+# what CI does:
+#
+#   stack test --flag aimcore:-smt-proof
+flags:
+  smt-proof:
+    description: Discharge the symbolic proof obligations at compile time.
+    manual: true
+    default: true
+
 default-extensions:
 - BinaryLiterals
 - DataKinds
@@ -82,12 +103,18 @@ library:
   source-dirs:
     - src
     - proof
+  when:
+    - condition: flag(smt-proof)
+      source-dirs: proof-smt
+      exposed-modules:
+        - Proof.Functional.Induction
+        - Proof.SMT.Sanity
+      cpp-options: -DSMT_PROOF
   exposed-modules:
     - Proof.Machine
     - Proof.Driver
     - Proof.Functional.Invariant
     - Proof.Functional.Obligation
-    - Proof.Functional.Induction
     - Proof.Leakage.Model
     - Proof.Leakage.Simulator
     - Proof.Leakage.Obligation
@@ -99,7 +126,6 @@ library:
     - Proof.SMT.Array
     - Proof.SMT.Axioms
     - Proof.SMT.Logged
-    - Proof.SMT.Sanity
     - Access
     - Core
     - Elf.ElfLoader
@@ -148,6 +174,9 @@ tests:
   aimcore-test:
     main:                Spec.hs
     source-dirs:         test
+    when:
+      - condition: flag(smt-proof)
+        cpp-options: -DSMT_PROOF
     ghc-options:
     - -threaded
     - -rtsopts
