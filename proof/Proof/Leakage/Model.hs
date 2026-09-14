@@ -40,7 +40,7 @@ import Data.Monoid (getFirst)
 import Instruction
 import qualified Instruction as I
 import Proof.Driver (exArg)
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))
 import Proof.Machine
 import RegFile

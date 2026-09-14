@@ -23,7 +23,7 @@ import qualified Data.ByteString as BS
 import Data.Functor.Identity (Identity (..))
 import qualified Data.Map.Strict as M
 import Elf.ElfLoader (baseAddr, getElfSegments, readElf, startAddr)
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), StepG (..), isaStep)
 import Memory.Types (MemOps (..))
 import RegFile
 import Test.Tasty (TestTree, testGroup)

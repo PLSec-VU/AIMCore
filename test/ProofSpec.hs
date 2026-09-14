@@ -7,7 +7,7 @@ import Clash.Sized.Vector (unsafeFromList)
 import Core
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Proof.Driver
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Instruction
 import Proof.Functional.Invariant
 import Proof.Machine

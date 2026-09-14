@@ -48,7 +48,7 @@ import Data.Monoid (getFirst)
 import Instruction
 import Proof.Driver (driver)
 import Proof.Functional.Obligation (hopPc, isStartupShape, isaAt)
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), StepG (..), isaStep)
 import Proof.Leakage.Model
 import Memory.Types (MemOps (..))
 import Proof.Machine

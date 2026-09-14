@@ -20,7 +20,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
 import Proof.Driver (driver)
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), StepG (..), isaStep)
 import Instruction
 import Proof.Functional.Invariant
 import Memory.Types (MemOps (..))

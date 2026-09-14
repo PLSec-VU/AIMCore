@@ -47,7 +47,7 @@ import Data.Functor.Identity
 import Instruction
 import Memory.Types
 import Proof.Driver (isEnvInstr, isMemInstr)
-import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
+import ISA (IsaStateG (..), IsaState)
 import Proof.Machine
 import RegFile
 import Types
