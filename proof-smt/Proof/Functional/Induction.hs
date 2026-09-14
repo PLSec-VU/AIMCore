@@ -20,7 +20,13 @@
 -- argument, a record containing a function cannot, and the Clash @Vec@ API is
 -- opaque to the plugin (see "Proof.SMT.Array").
 module Proof.Functional.Induction
-  ( arrRoundTrip,
+  ( -- | Exported because nothing in Haskell ever applies the constructor: the
+    -- plugin synthesises a 'KState' as a fresh symbolic input to each property,
+    -- and 'sysOf' only reads it back through the field accessors. Without this
+    -- the constructor looks dead to @-Wunused-top-binds@. It is also what a new
+    -- property in this module would take as its pipeline-state argument.
+    KState (..),
+    arrRoundTrip,
     shiftsSane,
     baseCase,
     indStep0,
