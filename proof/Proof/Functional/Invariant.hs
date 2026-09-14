@@ -198,7 +198,7 @@ invCasesGen ::
 invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
   [ runningCase,
     haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
-    haltedCase "halted/ecall" isCall (Core.Syscall (ipc + 4))
+    haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
   ]
   where
     inputWord = runIdentity (inputMem inp)
@@ -342,4 +342,4 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
       HaltCall -> isCall
     expected = case kind of
       HaltBreak -> EBreak (ipc + 4)
-      HaltCall -> Core.Syscall (ipc + 4)
+      HaltCall -> Syscall (ipc + 4)
