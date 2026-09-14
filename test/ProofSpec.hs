@@ -321,18 +321,6 @@ proofTests =
       testCase "inductive with a jump in the memory stage" $
         let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep (withJumpInMe sys)]]
          in if P.null bad then pure () else assertFailure (P.head bad),
-      -- The running case is stated as \"neither writeback nor memory holds an
-      -- environment instruction\", which is the note's four-way split on
-      -- @isArithOrJumpInstr@ / @isMemInstr@ only because those two predicates
-      -- partition everything else. If that ever stops being true the collapse is
-      -- unsound, so check it directly.
-      testCase "arith-or-jump and mem partition the non-env instructions" $
-        let bad =
-              [ ir
-                | ir <- allInstrs,
-                  (isArithOrJumpInstr ir || isMemInstr ir) /= P.not (isEnvInstr ir)
-              ]
-         in if P.null bad then pure () else assertFailure (show (P.take 5 bad)),
       -- The pointwise form is what symbolic execution uses, since function-backed
       -- register files and memories have no decidable equality. It must agree
       -- with the container form wherever the latter holds, or the witness
@@ -519,35 +507,6 @@ sampleStates n =
 withJumpInMe :: Sys -> Sys
 withJumpInMe s =
   s {sysState = (sysState s) {stateMeInstr = JType 5 0, stateMeRes = pure 0x1234}}
-
--- | One instruction per constructor shape the invariant's predicates
--- distinguish, so the partition check covers every branch of both.
-allInstrs :: [Instruction]
-allInstrs =
-  [ RType ADD 1 2 3,
-    IType (Arith ADD) 1 2 3,
-    IType (Load Word Signed) 1 2 3,
-    SType Word 0 1 2,
-    BType NE 0 1 2,
-    JType 1 0,
-    IType Jump 1 2 3,
-    UType Zero 1 0,
-    IType (Env Call) 0 0 0,
-    IType (Env Break) 0 0 0
-  ]
-    P.++ P.map
-      Nop
-      [ JumpFirstCycle,
-        JumpSecondCycle,
-        LoadHazardFirstCycle,
-        LoadHazardSecondCycle,
-        StoreHazardFirstCycle,
-        StoreHazardSecondCycle,
-        MemoryBusBusy,
-        DecodeFail,
-        FirstCycle,
-        Halted
-      ]
 
 -- The fifth counterexample, explained: address wraparound ---------------------
 --

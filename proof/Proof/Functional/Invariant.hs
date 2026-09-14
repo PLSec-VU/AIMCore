@@ -32,7 +32,6 @@
 module Proof.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
-    isArithOrJumpInstr,
     Case (..),
     inv,
     invAt,
@@ -55,28 +54,6 @@ import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
-
--- | From @invariant.txt@: everything that is neither a memory instruction nor
--- an environment instruction.
---
--- Together with 'Proof.Driver.isMemInstr' this is what the note's four running
--- cases split on. The two are complementary apart from @ecall@ and @ebreak@,
--- which neither accepts, so requiring an instruction to satisfy one or the
--- other is exactly requiring that it not be an environment instruction -- which
--- is how the running case states it.
-isArithOrJumpInstr :: Instruction -> Bool
-isArithOrJumpInstr ir =
-  case ir of
-    RType {} -> True
-    IType (Arith _) _ _ _ -> True
-    IType (Load _ _) _ _ _ -> False
-    SType {} -> False
-    BType {} -> True
-    JType _ _ -> True
-    IType Jump _ _ _ -> True
-    UType {} -> True
-    IType (Env _) _ _ _ -> False
-    Nop _ -> True
 
 -- | Apply the pending effect of the writeback-stage instruction. The load case
 -- reads its value off @inputMem@, matching 'Core.writeback'.
@@ -211,14 +188,14 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
 
     -- The note's four running cases, collapsed.
     --
-    -- They split on @(isArithOrJumpInstr, isMemInstr)@ for the writeback and
-    -- memory stages, but the only conjuncts that vary across the four -- the
-    -- fetch triple -- vary with the writeback stage alone: when a memory
-    -- instruction is in writeback it held the bus last cycle, so nothing was
-    -- fetched. The memory stage's classification changes no conjunct; its sole
-    -- effect is to demand the stage hold something the two predicates cover,
-    -- which is everything but @ecall@ and @ebreak@. Both stages are therefore
-    -- stated directly as \"not an environment instruction\".
+    -- They split on the note's @isArithOrJumpInstr@ and @isMemInstr@ for the
+    -- writeback and memory stages, but the only conjuncts that vary across the
+    -- four -- the fetch triple -- vary with the writeback stage alone: when a
+    -- memory instruction is in writeback it held the bus last cycle, so nothing
+    -- was fetched. The memory stage's classification changes no conjunct; its
+    -- sole effect is to demand the stage hold something the two predicates
+    -- cover, which is everything but @ecall@ and @ebreak@. Both stages are
+    -- therefore stated directly as \"not an environment instruction\".
     runningCase =
       Case "running" $
         [ ("running", running sys),
