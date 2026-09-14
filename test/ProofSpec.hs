@@ -11,7 +11,7 @@ import ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Instruction
 import Proof.Functional.Invariant
 import Proof.Machine
-import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, hopPc, isStartupShape, isaAt)
+import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, hopPc, isaAt)
 import Memory.Types
 import RegFile
 import Test.Tasty (TestTree, testGroup)
@@ -66,13 +66,35 @@ walkReport k prog =
 initIsa :: Vec PROG_SIZE Word -> IsaState
 initIsa prog = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
 
--- | The driver and the ISA walked in lockstep.
+-- | The base case on a concrete program: the driver gives the reset state a
+-- two-cycle hop, stepping operationally agrees, and after it the core relates
+-- to the ISA's initial state.
+baseHolds :: Vec PROG_SIZE Word -> Bool
+baseHolds prog =
+  driver sys0 P.== 1
+    P.&& driverRef 12 sys0 P.== Just 2
+    P.&& inv (initIsa prog) (stepSysN 2 sys0)
+  where
+    sys0 = initSys prog
+
+baseReport :: Vec PROG_SIZE Word -> String
+baseReport prog =
+  "driver=" P.++ show (driver sys0)
+    P.++ " driverRef=" P.++ show (driverRef 12 sys0)
+    P.++ "\n" P.++ explain (initIsa prog) (stepSysN 2 sys0)
+  where
+    sys0 = initSys prog
+
+-- | The driver and the ISA walked in lockstep, at every state the invariant is
+-- meant to hold.
 --
--- The first hop (out of the startup state) brings the first instruction into
+-- The reset state is not one of them. Its hop brings the first instruction into
 -- the execute stage without the ISA having executed anything, so the ISA state
--- is unchanged across it. Every later hop advances the ISA by one step.
+-- is unchanged across it and the trace starts after it, at the state
+-- 'Proof.Functional.Induction.baseCase' is about. Every later hop advances the
+-- ISA by one step.
 invTrace :: Int -> Vec PROG_SIZE Word -> [(Int, IsaState, Sys)]
-invTrace k prog = (0, isa0, sys0) : go k 0 isa0 sys0 True
+invTrace k prog = go k 0 isa0 sys0 True
   where
     isa0 = initIsa prog
     sys0 = initSys prog
@@ -221,21 +243,22 @@ proofTests =
       -- file (Clash's 'repeat' is opaque to the symbolic executor), so the
       -- concrete check is what pins that the state it describes is the one
       -- 'Proof.Machine.initSys' actually produces -- including 'Core.init''s reset
-      -- register file and the loaded program.
-      testCase "invariant holds at reset" $
+      -- register file and the loaded program. It also checks the reset hop's
+      -- length against the operational reading, since 'invTrace' does not
+      -- sample the reset state.
+      testCase "invariant holds after the reset hop" $
         let bad =
               [ name
                 | (name, prog) <- progs,
-                  P.not (inv (initIsa prog) (initSys prog))
+                  P.not (baseHolds prog)
               ]
          in if P.null bad
               then pure ()
-              else assertFailure (P.unlines [n P.++ ":\n" P.++ explain (initIsa prog) (initSys prog) | (n, prog) <- progs, P.elem n bad]),
-      testProperty "invariant holds at reset for any program" $
+              else assertFailure (P.unlines [n P.++ ":\n" P.++ baseReport prog | (n, prog) <- progs, P.elem n bad]),
+      testProperty "invariant holds after the reset hop for any program" $
         withMaxSuccess 2000 $
           forAll genProg $ \prog ->
-            counterexample (explain (initIsa prog) (initSys prog)) $
-              inv (initIsa prog) (initSys prog),
+            counterexample (baseReport prog) (baseHolds prog),
       testGroup
         "driver lands on aligned states"
         [ testCase name $
@@ -379,9 +402,9 @@ proofTests =
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' sys'))))
                   )
                   (indStepObligation wr wa (hopPc sys) sys),
-      -- k = 1: the two-cycle hop. Both shapes that reach it are generated;
-      -- 'coverage1' asserts each is actually sampled, since a premise this
-      -- specific is easy to miss entirely and still see a green property.
+      -- k = 1: the two-cycle hop, a memory instruction in writeback. The test
+      -- below asserts generated states actually satisfy the premise, since one
+      -- this specific is easy to miss entirely and still see a green property.
       testProperty "k=1 inductive step on arbitrary pipeline states" $
         -- 1e6 run by hand: 23s, no counterexample. 20k keeps the suite fast.
         withMaxSuccess 20000 $
@@ -390,8 +413,7 @@ proofTests =
                 s2 = stepSysN 2 sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
-                  ( "startupShape=" P.++ show (isStartupShape sys)
-                      P.++ "\nme=" P.++ show (stateMeInstr (sysState sys))
+                  ( "me=" P.++ show (stateMeInstr (sysState sys))
                       P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
                       P.++ "\nex=" P.++ show (exInstr sys)
                       P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
@@ -400,36 +422,15 @@ proofTests =
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' s2))))
                   )
                   (indStepObligation1 wr wa (hopPc sys) sys),
-      testCase "k=1 generator reaches both hop shapes" $
+      testCase "k=1 generator satisfies the premise" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 4000 genArbSys1) (mkQCGen 7) 30]
-            admitted p =
+            admitted =
               [ ()
                 | s <- sample,
-                  p s,
                   driver s P.== 1,
                   invAtFree 1 0 (isaAt (hopPc s) s) s
               ]
-            startups = admitted isStartupShape
-            steadies = admitted (P.not . isStartupShape)
-         in do
-              assertBool "no startup state satisfied the k=1 premise" (P.not (P.null startups))
-              assertBool "no steady state satisfied the k=1 premise" (P.not (P.null steadies)),
-      -- Why the obligations quantify @isaPc@ rather than deriving it: the
-      -- conjunct that pins it differs per case. A startup state is admitted at
-      -- the fetch-stage PC and at no other, so deriving it from the execute
-      -- stage would leave every startup state satisfying no case of the
-      -- invariant, and the k=1 obligation vacuous there.
-      testCase "startup states are admitted at the fetch PC and not the execute PC" $
-        let sample = [s | (s, _, _) <- unGen (vectorOf 2000 genArbSys1) (mkQCGen 11) 30, isStartupShape s]
-            admits pc s = invAtFree 1 0 (isaAt (pc s) s) s
-         in do
-              assertBool "generator produced no startup states" (P.not (P.null sample))
-              assertBool
-                "the fetch PC should admit some startup state"
-                (P.any (admits (stateFePc . sysState)) sample)
-              assertBool
-                "the execute PC should admit no startup state"
-                (P.not (P.any (admits (stateExPc . sysState)) sample)),
+         in assertBool "no generated state satisfied the k=1 premise" (P.not (P.null admitted)),
       -- k = 2: jumps and the all-memory steady shape return to a running
       -- invariant case after three core cycles; ecall/ebreak return to one of
       -- the two halted cases.
@@ -495,14 +496,9 @@ inductiveStep sys
   where
     isa = isaFromSys sys
     sys' = stepSysN (driver sys + 1) sys
-    -- A startup hop brings the first instruction into the execute stage without
-    -- executing anything, so the architectural state does not advance across it.
-    -- 'Proof.Functional.Obligation.indStepObligation1' carves out the same case.
-    isa'
-      | isStartupShape sys = isa
-      | otherwise = case isaStep isa of
-          Next i -> i
-          IsaHalted -> isa
+    isa' = case isaStep isa of
+      Next i -> i
+      IsaHalted -> isa
     inv' a s = P.any holdsCase (invCases a s)
     holdsCase c = P.all P.snd (caseConjuncts c)
 
@@ -817,15 +813,13 @@ genArbSys = do
           (MemFn memf)
   P.pure (sys, wr, wa)
 
--- | States the driver sends on a two-cycle hop, i.e. @driver == 1@. Two shapes
--- reach it, and they are generated separately because their invariant cases
--- constrain the fetch path differently:
---
---   * startup -- every stage holds @Nop FirstCycle@ and nothing is on the bus;
---   * steady with a memory instruction in writeback -- it occupied the bus
---     last cycle, so no instruction was fetched and @fePc == exPc + 4@.
+-- | States the driver sends on a two-cycle hop, i.e. @driver == 1@, that the
+-- invariant admits: a memory instruction in writeback, which occupied the bus
+-- last cycle, so no instruction was fetched and @fePc == exPc + 4@. The reset
+-- state also gets a two-cycle hop, but it is not in the invariant; see
+-- 'Proof.Functional.Induction.baseCase'.
 genArbSys1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
-genArbSys1 = oneof [genStartup1, genSteady1]
+genArbSys1 = genSteady1
 
 -- | Arbitrary running states sent on a three-cycle hop. The three satisfiable
 -- driver branches are generated separately:
@@ -962,44 +956,6 @@ genSteady2 = do
           (Input False (pure loaded))
           (MemFn memf)
   P.pure ("steady", sys, wr, wa)
-
--- | The startup shape. @fePc@ is where the ISA's PC sits, and the pipeline is
--- empty, so no memory word is pinned to any stage.
-genStartup1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
-genStartup1 = do
-  fePc <- genBase
-  firstI <- genNonMem
-  nextI <- genDeInstr
-  let w0 = P.maybe 0 P.id (encode' (roundTrips firstI))
-      w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
-  w2 <- genW
-  (memf, _) <- genMemWindow fePc w0 w1 w2
-  rfF <- genFn (chooseBoundedIntegral (0, 3)) genW genW
-  wr <- genWitnessReg
-  wa <- unpack <$> genW
-  let sys =
-        Sys
-          ( (sysState (initSys (mkProg prog1)))
-              { stateFePc = fePc,
-                -- The other PCs are unconstrained by the startup case; give
-                -- them junk so nothing accidentally relies on them.
-                stateDePc = 0,
-                stateExPc = 0,
-                stateExInstr = Nop FirstCycle,
-                stateMeInstr = Nop FirstCycle,
-                stateWbInstr = Nop FirstCycle,
-                stateMeRes = pure 0,
-                stateWbRes = pure 0,
-                stateMeAddr = 0,
-                stateRegFile = RegFn (P.fmap Identity rfF),
-                stateCtrl = initCtrl,
-                stateHalt = Nothing,
-                stateHaltNextPc = 0
-              }
-          )
-          (Input False (pure 0))
-          (MemFn memf)
-  P.pure (sys, wr, wa)
 
 -- | The steady two-cycle shape: a load or store in writeback, a non-memory
 -- instruction in the memory stage. Nothing is on the bus this cycle, so
@@ -1151,8 +1107,7 @@ shape = \case
 -- never hit, the passing property above says less than it appears to.
 interesting :: [String]
 interesting =
-  [ "driver:firstCycle",
-    "driver:env",
+  [ "driver:env",
     "driver:jump",
     "driver:storeHazard/mem",
     "driver:storeHazard/nomem",

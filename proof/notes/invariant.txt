@@ -1,6 +1,6 @@
 NOTE: this file has been reconciled with proof/Proof/Functional/Invariant.hs.
-One change against the original: the 'stateCtrl == initCtrl' clause has been
-dropped from every case. It is a holdover from an earlier Core that reset the
+Two changes against the original. First, the 'stateCtrl == initCtrl' clause has
+been dropped from every case. It is a holdover from an earlier Core that reset the
 control lines at the END of each clock cycle, so that they were back at their
 reset values by the time the next cycle began. Core.withCtrlReset now resets
 them at the START of the cycle and the stages then set them, so the lines seen
@@ -10,6 +10,13 @@ keeping it would make the invariant hold of no state the driver lands on and
 every obligation vacuous. Dropping it is sound because the lines carry no
 information between cycles: withCtrlReset overwrites them before any stage
 reads them.
+
+Second, the startup case has been removed. The invariant does not relate the
+reset state to the ISA at all. Instead the base case steps the core two cycles
+from reset -- the hop the driver assigns it, which fetches and decodes the first
+instruction without executing anything -- and requires the running case to
+relate the result to the ISA's initial state, after zero ISA steps. Every
+inductive step then retires exactly one instruction.
 
 The four running cases are collapsed into one in the Haskell. They differ only
 in the fetch conjuncts, and those track the writeback stage alone -- a memory
@@ -114,21 +121,6 @@ flushMeStage stateMeInstr stateMeRes stateMeAddr (stateMem, stateRegFile) =
       (stateMem, stateRegFile)
 
 INVARIANT:
-
-- CASE:
-  (isaPc, isaRegFile, isaMem) ~
-  ((stateFePc, stateDePc, stateExPc, stateExInstr, stateMeInstr, stateMeRes, stateMeAddr, stateWbInstr, stateWbRes, stateRegFile, stateCtrl, stateHalt), (inputIsInstr, inputMem), stateMem),
-   IF stateHalt == Running AND
-      stateWbInstr == Nop FirstCycle AND
-      stateMeInstr == Nop FirstCycle AND
-      stateExInstr == Nop FirstCycle AND
-      inputIsInstr == False AND
-      fetchPc == isaPc AND
-      isaRegFile == stateRegFile AND
-      isaMem == stateMem
-
--------------------------------------------------------------------
--------------------------------------------------------------------
 
 - CASE:
   (isaPc, isaRegFile, isaMem) ~

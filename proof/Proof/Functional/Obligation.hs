@@ -63,12 +63,12 @@ isaAt ipc (Sys st inp mem) =
             (mem, Core.stateRegFile st)
         )
 
--- | Does the pipeline have the shape the invariant's startup case describes?
+-- | Does the pipeline have the reset shape: nothing in flight, nothing on the bus?
 --
--- The distinction matters from @k = 1@ onwards: a startup hop brings the first
--- instruction into the execute stage without executing anything, so the
--- architectural state does not advance across it. Every other hop retires one
--- instruction.
+-- Not a case of the invariant -- 'Proof.Functional.Induction.baseCase' takes the
+-- reset state two cycles into the running case -- so no obligation needs it. It
+-- is kept for 'hopPc' and the leakage projection, which still assign an
+-- architectural state to the reset shape.
 isStartupShape :: SysG r m -> Bool
 isStartupShape (Sys st inp _) =
   Core.stateWbInstr st == Nop FirstCycle
@@ -83,8 +83,9 @@ isStartupShape (Sys st inp _) =
 -- deriving. It exists for the callers that need a concrete architectural state
 -- rather than a quantified one: the QuickCheck harness and the leakage
 -- projection. It reproduces, per case, the conjunct that pins @isaPc@ in the
--- invariant: the fetch stage at startup, the trapping instruction once halted,
--- the execute stage otherwise.
+-- invariant -- the trapping instruction once halted, the execute stage
+-- otherwise -- plus the fetch stage for the reset shape, which the invariant does
+-- not admit but the leakage projection still assigns a PC.
 hopPc :: SysG r m -> Address
 hopPc sys@(Sys st _ _)
   | isStartupShape sys = Core.stateFePc st
@@ -127,8 +128,9 @@ indStepObligation wr wa ipc sys =
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
 --
--- One thing differs from @k = 0@ beyond the extra cycle: a startup hop does not
--- retire an instruction, so the architectural state is carried across unchanged.
+-- The driver also gives the reset state a two-cycle hop, but no obligation
+-- covers it: the invariant does not admit the reset state, and
+-- 'Proof.Functional.Induction.baseCase' states that hop directly.
 indStepObligation1 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
 indStepObligation1 wr wa ipc sys =
@@ -142,11 +144,9 @@ indStepObligation1 wr wa ipc sys =
       invAtFree wr wa isa sys
         && driver sys == 1
 
-    isa'
-      | isStartupShape sys = isa
-      | otherwise = case isaStep isa of
-          Next next -> next
-          IsaHalted -> isa
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
 
     conclusion = invAtFree wr wa isa' s2
 

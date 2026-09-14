@@ -1,6 +1,7 @@
 -- | The inductive steps of the refinement proof, checked symbolically.
 --
--- 'baseCase' says the invariant holds at reset. Then one property per driver
+-- 'baseCase' says the invariant holds once the reset state has taken its first
+-- hop. Then one property per driver
 -- delay: if the invariant relates @(isa, sys)@ and the driver says the hop takes
 -- @k + 1@ cycles, then after those cycles (and one ISA step, where the hop
 -- retires an instruction) the invariant relates them again. Base case plus the
@@ -48,6 +49,7 @@ import Proof.Functional.Invariant (invAtFree)
 import Proof.SMT.Logged (pantomime)
 import Proof.Machine
 import Memory.Types (initPc)
+import Proof.Driver (driver)
 import Proof.Functional.Obligation
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
@@ -124,35 +126,37 @@ shiftsSane x =
 
 -- The base case ----------------------------------------------------------------
 
--- | The invariant holds of the pipeline's initial state.
+-- | The invariant holds once the reset state has taken its first hop.
 --
 -- Without this the four steps below say only that the invariant is /preserved/,
 -- which is vacuous if it never holds anywhere. Together they give the theorem:
--- the invariant relates the core to the ISA at every state the driver lands on,
--- starting from reset.
+-- the invariant relates the core to the ISA at every state the driver lands on
+-- after reset.
 --
--- 'Core.init' has nothing in flight and its fetch PC at 'initPc', which is
--- exactly the invariant's startup case, so this holds for any loaded program --
--- hence the arbitrary memory rather than a particular one. What it therefore
--- checks is the reset state's /shape/: three stages holding @Nop FirstCycle@,
--- nothing on the bus, no halt raised or pending, and @stateFePc@ equal to the
--- address the ISA starts at.
+-- The reset state itself is not a case of the invariant. 'Core.init' has nothing
+-- in the pipeline, so the driver gives it a two-cycle hop that fetches and
+-- decodes the first instruction without executing anything. This property
+-- states that hop directly: the driver does assign it two cycles, and after
+-- them the running case relates the core to the ISA's /initial/ state -- zero
+-- ISA steps. Handling it here rather than as a case of the invariant is what
+-- lets every inductive step retire exactly one instruction.
 --
--- Every field except the register file comes from 'Core.init' itself, so the
--- shape cannot drift from the real reset state. The register file has to be
--- substituted because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque
--- 'repeat'.
+-- It holds for any loaded program, hence the arbitrary memory. Every field
+-- except the register file comes from 'Core.init' itself, so the reset shape
+-- cannot drift from the real one. The register file has to be substituted
+-- because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque 'repeat'.
 --
 -- Note what that substitution costs: memory and the register file are the same
--- symbolic values on both sides, so the invariant's two container equalities
--- hold by construction here and this property alone would not notice if the
--- core's reset register file and the ISA's ('RegFile.initRF') disagreed. The
--- concrete test in "ProofSpec" closes that gap -- it runs on the real
--- 'Vec'-backed state, where both files are built independently.
+-- symbolic values on both sides, and the reset hop writes neither, so the
+-- invariant's two container equalities hold by construction here and this
+-- property alone would not notice if the core's reset register file and the
+-- ISA's ('RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes
+-- that gap -- it runs on the real 'Vec'-backed state, where both files are built
+-- independently.
 {-# ANN baseCase (Theory arrayAxioms) #-}
 baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
 baseCase ra ma wr wa =
-  Pantomime.boolean $ invAtFree wr wa isa sys
+  Pantomime.boolean $ driver sys == 1 && invAtFree wr wa isa (stepSys (stepSys sys))
   where
     st = (Core.init :: Core.StateG RegArrF Identity) {Core.stateRegFile = RegArrF ra}
     sys = Sys st Core.initInput ma
@@ -166,7 +170,7 @@ indStep0 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Addre
 indStep0 ss i ra ma wr wa ipc =
   Pantomime.boolean $ indStepObligation wr wa ipc (sysOf ss i ra ma)
 
--- | @k = 1@: the two-cycle hop (startup, or a memory instruction in writeback).
+-- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
 {-# ANN indStep1 (Theory arrayAxioms) #-}
 indStep1 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
 indStep1 ss i ra ma wr wa ipc =

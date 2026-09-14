@@ -88,7 +88,7 @@ sanityTests =
         lookup "arrRoundTrip" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
         lookup "shiftsSane" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "base case: invariant holds at reset" $
+      testCase "base case: invariant holds after the reset hop" $
         lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
         lookup "indStep0" Proof.Functional.Induction.results @?= Just Nothing,

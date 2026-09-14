@@ -2,7 +2,9 @@
 --
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
--- one for startup, four for the running core, and two for the halted core.
+-- four for the running core, and two for the halted core. The reset state is
+-- not among them: 'Proof.Functional.Induction.baseCase' steps it two cycles,
+-- into the running case, instead.
 --
 -- Two forms of the same predicate live here:
 --
@@ -195,17 +197,6 @@ invCasesGen ::
   [Case]
 invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
   [ runningCase,
-    Case
-      "startup"
-      [ ("running", running sys),
-        ("wb == Nop FirstCycle", stateWbInstr st == Nop FirstCycle),
-        ("me == Nop FirstCycle", stateMeInstr st == Nop FirstCycle),
-        ("ex == Nop FirstCycle", stateExInstr st == Nop FirstCycle),
-        ("not inputIsInstr", P.not (inputIsInstr inp)),
-        ("fePc == isaPc", stateFePc st == ipc),
-        ("isaRegFile == stateRegFile", eqRF irf (stateRegFile st)),
-        ("isaMem == stateMem", eqMem imem mem)
-      ],
     haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
     haltedCase "halted/ecall" isCall (Core.Syscall (ipc + 4))
   ]
@@ -288,7 +279,6 @@ invAtFree ::
   Bool
 invAtFree wr wa isa sys =
   runningCaseAt wr wa isa sys
-    || startupCaseAt wr wa isa sys
     || haltedCaseAt HaltBreak wr wa isa sys
     || haltedCaseAt HaltCall wr wa isa sys
 
@@ -333,20 +323,6 @@ runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
             (runIdentity (inputMem inp))
             (mem, stateRegFile st)
         )
-
--- | The startup case.
-startupCaseAt ::
-  (RegFileOps r, MemOps m) =>
-  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-startupCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
-  running sys
-    && stateWbInstr st == Nop FirstCycle
-    && stateMeInstr st == Nop FirstCycle
-    && stateExInstr st == Nop FirstCycle
-    && not (inputIsInstr inp)
-    && stateFePc st == ipc
-    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr (stateRegFile st))
-    && memReadByte wa imem == memReadByte wa mem
 
 -- | One halted case.
 haltedCaseAt ::
