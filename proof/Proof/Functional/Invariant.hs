@@ -51,7 +51,6 @@ import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded,
 import Proof.Machine
 import RegFile
 import Types
-import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 
@@ -315,8 +314,25 @@ runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
                && runIdentity (inputMem inp) == memReadWord (stateDePc st) mem
                && stateFePc st == stateExPc st + 8
        )
-    && memReadByte wa imem == flushMemByteAt wa sys
-    && runIdentity (lookupRFg wr irf) == flushRfWordAt wr sys
+    && memReadByte wa imem == memReadByte wa fm
+    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr frf)
+  where
+    -- The same flush the container form applies, read at the witness. Writing
+    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWriteWord'
+    -- for no gain: 'Proof.Functional.Obligation.isaAt' already puts this flush
+    -- into every query, and the solver rewrites @select@ over a @store@ chain
+    -- natively.
+    (fm, frf) =
+      flushMeStage
+        (stateMeInstr st)
+        (runIdentity (stateMeRes st))
+        (stateMeAddr st)
+        ( flushWbStage
+            (stateWbInstr st)
+            (runIdentity (stateWbRes st))
+            (runIdentity (inputMem inp))
+            (mem, stateRegFile st)
+        )
 
 -- | The startup case.
 startupCaseAt ::
@@ -351,82 +367,3 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
     expected = case kind of
       HaltBreak -> EBreak (ipc + 4)
       HaltCall -> Core.Syscall (ipc + 4)
-
--- | Read one byte from the memory produced by the invariant's pipeline flush,
--- without constructing that whole memory first.
---
--- 'flushWbStage' never changes memory; 'flushMeStage' changes it only for a
--- store, by writing up to four consecutive bytes. So this mux is exactly
--- @memReadByte wa@ of the flushed memory, but it sends the solver a pointwise
--- read-over-write formula instead of a @select@ over a nested @store@ chain.
-flushMemByteAt :: (MemOps m) => Address -> SysG r m -> Byte
-flushMemByteAt wa (Sys st _ mem) =
-  case stateMeInstr st of
-    SType size _ _ _ ->
-      let a = stateMeAddr st
-          w = runIdentity (stateMeRes st)
-          b0 = slice d7 d0 w
-          b1 = slice d15 d8 w
-          b2 = slice d23 d16 w
-          b3 = slice d31 d24 w
-          old = memReadByte wa mem
-       in case size of
-            Types.Byte ->
-              if wa == a then b0 else old
-            Types.Half ->
-              if wa == a
-                then b0
-                else if wa == a + 1 then b1 else old
-            Types.Word ->
-              if wa == a
-                then b0
-                else
-                  if wa == a + 1
-                    then b1
-                    else
-                      if wa == a + 2
-                        then b2
-                        else if wa == a + 3 then b3 else old
-    _ -> memReadByte wa mem
-
--- | Read one register from the register file produced by the invariant's
--- pipeline flush, without constructing the two nested updates first.
---
--- Writeback is applied before memory, so a memory-stage write to the witness
--- register wins. Register zero is immutable.
-flushRfWordAt ::
-  (RegFileOps r, MemOps m) =>
-  RegIdx -> SysG r m -> Word
-flushRfWordAt wr (Sys st inp mem)
-  | wr == 0 = 0
-  | otherwise = applyMe (applyWb old)
-  where
-    old = runIdentity (lookupRFg wr (stateRegFile st))
-    inputWord = runIdentity (inputMem inp)
-
-    put rd value prior = if wr == rd then value else prior
-
-    applyWb prior =
-      case stateWbInstr st of
-        RType _ rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
-        IType (Arith _) rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
-        IType (Load size sign) rd _ _ ->
-          put rd (loadExtend size sign inputWord) prior
-        JType rd _ -> put rd (runIdentity (stateWbRes st)) prior
-        IType Jump rd _ _ -> put rd (runIdentity (stateWbRes st)) prior
-        UType _ rd _ -> put rd (runIdentity (stateWbRes st)) prior
-        _ -> prior
-
-    applyMe prior =
-      case stateMeInstr st of
-        RType _ rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
-        IType (Arith _) rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
-        IType (Load size sign) rd _ _ ->
-          put
-            rd
-            (loadExtend size sign (memReadWord (stateMeAddr st) mem))
-            prior
-        JType rd _ -> put rd (runIdentity (stateMeRes st)) prior
-        IType Jump rd _ _ -> put rd (runIdentity (stateMeRes st)) prior
-        UType _ rd _ -> put rd (runIdentity (stateMeRes st)) prior
-        _ -> prior
