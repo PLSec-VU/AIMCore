@@ -19,6 +19,29 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/aimcore#readme>
 
+# The modules under proof-smt/ discharge their properties through an SMT solver
+# while GHC compiles them, so building them needs a solver on PATH and takes as
+# long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
+# pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
+# useful time, while bitwuzla discharges each in under a minute:
+#
+#   SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack test
+#
+# CI does exactly this: it installs bitwuzla and sets SBV_Z3 to it (see
+# .github/workflows/stack-test.yml).
+#
+# Do not add --fast: at -O0 GHC creates no unfoldings and the plugin fails with
+# "Unbound variable in symbolise" rather than reporting a failed proof.
+#
+# Turn the flag off for a quicker local build and test without a solver:
+#
+#   stack test --flag aimcore:-smt-proof
+flags:
+  smt-proof:
+    description: Discharge the symbolic proof obligations at compile time.
+    manual: true
+    default: true
+
 default-extensions:
 - BinaryLiterals
 - DataKinds
@@ -62,6 +85,7 @@ dependencies:
 - pantomime
 - pantomime-clash
 - pantomime-base
+- template-haskell
 
 ghc-options:
 - -Wall
@@ -78,8 +102,32 @@ ghc-options:
 - -fplugin Pantomime
 
 library:
-  source-dirs: src
+  source-dirs:
+    - src
+    - proof
+  when:
+    - condition: flag(smt-proof)
+      source-dirs: proof-smt
+      exposed-modules:
+        - Proof.Functional.Induction
+        - Proof.SMT.Sanity
+      cpp-options: -DSMT_PROOF
   exposed-modules:
+    - Proof.Machine
+    - Proof.Driver
+    - Proof.Functional.Invariant
+    - Proof.Functional.Obligation
+    - Proof.Leakage.Model
+    - Proof.Leakage.Simulator
+    - Proof.Leakage.Obligation
+    # Proof.Leakage.Induction: temporarily out of the build. Its four properties
+    # are invalid since the aliasing-store assumption was dropped, and the
+    # counterexample-extraction path trips a Pantomime/effectful unlifting bug
+    # ("version (2356) /= storageVersion (0)") that fails the build outright.
+    # Restore once the leakage model can express the store-hazard stall.
+    - Proof.SMT.Array
+    - Proof.SMT.Axioms
+    - Proof.SMT.Logged
     - Access
     - Core
     - Elf.ElfLoader
@@ -128,6 +176,9 @@ tests:
   aimcore-test:
     main:                Spec.hs
     source-dirs:         test
+    when:
+      - condition: flag(smt-proof)
+        cpp-options: -DSMT_PROOF
     ghc-options:
     - -threaded
     - -rtsopts
@@ -137,4 +188,4 @@ tests:
     - melf
     - bytestring
     - exceptions
-
+    - QuickCheck
