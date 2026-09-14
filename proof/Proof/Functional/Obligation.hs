@@ -119,10 +119,11 @@ indStepObligation wr wa ipc sys =
       invAtFree wr wa isa sys
         && driver sys == 0
 
-    conclusion =
-      case isaStep isa of
-        Next isa' -> invAtFree wr wa isa' sys'
-        IsaHalted -> invAtFree wr wa isa sys'
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    conclusion = invAtFree wr wa isa' sys'
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
 --
@@ -141,12 +142,13 @@ indStepObligation1 wr wa ipc sys =
       invAtFree wr wa isa sys
         && driver sys == 1
 
-    conclusion
-      | isStartupShape sys = invAtFree wr wa isa s2
-      | otherwise =
-          case isaStep isa of
-            Next isa' -> invAtFree wr wa isa' s2
-            IsaHalted -> invAtFree wr wa isa s2
+    isa'
+      | isStartupShape sys = isa
+      | otherwise = case isaStep isa of
+          Next next -> next
+          IsaHalted -> isa
+
+    conclusion = invAtFree wr wa isa' s2
 
 -- | The @k = 2@ inductive step: the driver's three-cycle hop.
 --
@@ -167,10 +169,11 @@ indStepObligation2 wr wa ipc sys =
       invAtFree wr wa isa sys
         && driver sys == 2
 
-    conclusion =
-      case isaStep isa of
-        Next isa' -> invAtFree wr wa isa' s3
-        IsaHalted -> invAtFree wr wa isa s3
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    conclusion = invAtFree wr wa isa' s3
 
 -- | The @k = 3@ inductive step: the driver's four-cycle hop, the longest.
 --
@@ -194,7 +197,8 @@ indStepObligation3 wr wa ipc sys =
       invAtFree wr wa isa sys
         && driver sys == 3
 
-    conclusion =
-      case isaStep isa of
-        Next isa' -> invAtFree wr wa isa' s4
-        IsaHalted -> invAtFree wr wa isa s4
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    conclusion = invAtFree wr wa isa' s4
