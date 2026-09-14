@@ -156,30 +156,30 @@ baseCase ra ma wr wa =
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
 {-# ANN indStep0 (Theory arrayAxioms) #-}
-indStep0 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-indStep0 ss i ra ma wr wa =
-  Pantomime.boolean $ indStepObligation wr wa (sysOf ss i ra ma)
+indStep0 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+indStep0 ss i ra ma wr wa ipc =
+  Pantomime.boolean $ indStepObligation wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 1@: the two-cycle hop (startup, or a memory instruction in writeback).
 {-# ANN indStep1 (Theory arrayAxioms) #-}
-indStep1 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-indStep1 ss i ra ma wr wa =
-  Pantomime.boolean $ indStepObligation1 wr wa (sysOf ss i ra ma)
+indStep1 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+indStep1 ss i ra ma wr wa ipc =
+  Pantomime.boolean $ indStepObligation1 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 2@: the three-cycle hop (environment, taken jump, store hazard with a
 -- non-memory execute instruction, or memory instructions in both older stages).
--- The only hop on which the ISA can halt.
+-- The hop on which the ISA enters a halt; a halted state then sits at k = 0.
 {-# ANN indStep2 (Theory arrayAxioms) #-}
-indStep2 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-indStep2 ss i ra ma wr wa =
-  Pantomime.boolean $ indStepObligation2 wr wa (sysOf ss i ra ma)
+indStep2 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+indStep2 ss i ra ma wr wa ipc =
+  Pantomime.boolean $ indStepObligation2 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 3@: the four-cycle hop (store hazard with a memory execute
 -- instruction, load hazard, or all three stages holding memory instructions).
 {-# ANN indStep3 (Theory arrayAxioms) #-}
-indStep3 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-indStep3 ss i ra ma wr wa =
-  Pantomime.boolean $ indStepObligation3 wr wa (sysOf ss i ra ma)
+indStep3 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+indStep3 ss i ra ma wr wa ipc =
+  Pantomime.boolean $ indStepObligation3 wr wa ipc (sysOf ss i ra ma)
 
 results :: [(String, Maybe String)]
 results =

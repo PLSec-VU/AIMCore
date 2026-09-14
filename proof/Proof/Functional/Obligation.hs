@@ -6,8 +6,8 @@
 -- built: symbolic scalars on one side, a generator on the other. That is the
 -- input space, not the property.
 module Proof.Functional.Obligation
-  ( isaOfG,
-    isaOfHop,
+  ( isaAt,
+    hopPc,
     isStartupShape,
     indStepObligation,
     indStepObligation1,
@@ -29,15 +29,27 @@ import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
--- | The architectural state the invariant claims @sys@ corresponds to.
+-- | The architectural register file and memory that the invariant claims @sys@
+-- corresponds to, at an architectural PC supplied by the caller.
 --
--- Derived from @sys@ by the flush rather than taken as a further input: the
--- invariant's container equalities then hold by construction, so assuming the
--- invariant at one witness reduces to assuming its scalar conjuncts -- which is
--- the full container invariant, not a weakening of it.
-isaOfG :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
-isaOfG (Sys st inp mem) =
-  IsaState {isaPc = Core.stateExPc st, isaRegFile = frf, isaMem = fm}
+-- The containers are /derived/ from @sys@ by the flush rather than taken as
+-- further inputs. They have to be: the invariant compares them pointwise, at one
+-- witness register and one witness byte, so a freely quantified register file
+-- and memory would be tied to @sys@ only at those two points. 'ISA.isaStep'
+-- reads memory at @isaPc@ and registers at @rs1@/@rs2@, which are elsewhere, so
+-- the solver could pick an architectural state whose instruction at @isaPc@
+-- bears no relation to the one the core is executing. Deriving them makes the
+-- container equalities hold by construction, and what is left in the premise is
+-- the scalar conjuncts, assumed in full.
+--
+-- @isaPc@ is different, and is quantified rather than derived. It is a scalar,
+-- so the invariant pins it exactly -- but via a different conjunct in each case:
+-- @stateExPc@ when running, @stateFePc@ at startup, and @stateHalt@ once halted.
+-- Deriving it from any one of those would make the other two cases
+-- unsatisfiable as premises.
+isaAt :: (RegFileOps r, MemOps m) => Address -> SysG r m -> IsaStateG r m
+isaAt ipc (Sys st inp mem) =
+  IsaState {isaPc = ipc, isaRegFile = frf, isaMem = fm}
   where
     (fm, frf) =
       flushMeStage
@@ -64,21 +76,22 @@ isStartupShape (Sys st inp _) =
     && Core.stateExInstr st == Nop FirstCycle
     && not (Core.inputIsInstr inp)
 
--- | The architectural state for a hop, startup included.
+-- | The architectural PC a hop-aligned state corresponds to.
 --
--- 'isaOfG' reads the architectural PC off the /execute/ stage, which is right
--- for a running state. A startup state has nothing in the pipe yet, and the
--- invariant's startup case correspondingly pins @isaPc@ to the /fetch/ stage;
--- deriving it from @exPc@ there would produce an architectural state that no
--- case of the invariant admits, and the obligation would hold vacuously on
--- every startup state instead of saying anything about it.
---
--- The register file and memory need no special case: on a startup-shaped state
--- both flushes are the identity, since every stage holds @Nop FirstCycle@.
-isaOfHop :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
-isaOfHop sys
-  | isStartupShape sys = (isaOfG sys) {isaPc = Core.stateFePc (sysState sys)}
-  | otherwise = isaOfG sys
+-- The symbolic obligations do not use this -- they quantify @isaPc@ and let the
+-- invariant pin it, which is the whole point of quantifying rather than
+-- deriving. It exists for the callers that need a concrete architectural state
+-- rather than a quantified one: the QuickCheck harness and the leakage
+-- projection. It reproduces, per case, the conjunct that pins @isaPc@ in the
+-- invariant: the fetch stage at startup, the trapping instruction once halted,
+-- the execute stage otherwise.
+hopPc :: SysG r m -> Address
+hopPc sys@(Sys st _ _)
+  | isStartupShape sys = Core.stateFePc st
+  | otherwise = case Core.stateHalt st of
+      Just (Core.EBreak a) -> a - 4
+      Just (Core.Syscall a) -> a - 4
+      _ -> Core.stateExPc st
 
 -- | The @k = 0@ inductive step: the driver's one-cycle hop.
 --
@@ -89,15 +102,17 @@ isaOfHop sys
 -- that rewrites an instruction in flight is handled by the core rather than
 -- assumed away here.
 --
--- @driver == 0@ excludes environment instructions, so the ISA cannot halt on
--- this hop and the @IsaHalted@ branch is vacuous. Startup states all have
--- @driver == 1@, so 'isaOfG' (rather than 'isaOfHop') is exact here.
+-- @driver == 0@ covers two shapes: a running state whose hop retires one
+-- instruction, and a halted one. The @IsaHalted@ branch is what says the halted
+-- core stands still -- the halted cases of the invariant require the
+-- architectural register file and memory to equal the core's, so carrying the
+-- same @isa@ across the step asserts that neither changed.
 indStepObligation ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
-indStepObligation wr wa sys =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
+indStepObligation wr wa ipc sys =
   not premises || conclusion
   where
-    isa = isaOfG sys
+    isa = isaAt ipc sys
     sys' = stepSys sys
 
     premises =
@@ -107,18 +122,18 @@ indStepObligation wr wa sys =
     conclusion =
       case isaStep isa of
         Next isa' -> invAtFree wr wa isa' sys'
-        IsaHalted -> True
+        IsaHalted -> invAtFree wr wa isa sys'
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
 --
 -- One thing differs from @k = 0@ beyond the extra cycle: a startup hop does not
 -- retire an instruction, so the architectural state is carried across unchanged.
 indStepObligation1 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
-indStepObligation1 wr wa sys =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
+indStepObligation1 wr wa ipc sys =
   not premises || conclusion
   where
-    isa = isaOfHop sys
+    isa = isaAt ipc sys
     s1 = stepSys sys
     s2 = stepSys s1
 
@@ -131,9 +146,7 @@ indStepObligation1 wr wa sys =
       | otherwise =
           case isaStep isa of
             Next isa' -> invAtFree wr wa isa' s2
-            -- driver == 1 excludes environment instructions (they route to a
-            -- three-cycle hop), so the ISA cannot halt here either.
-            IsaHalted -> True
+            IsaHalted -> invAtFree wr wa isa s2
 
 -- | The @k = 2@ inductive step: the driver's three-cycle hop.
 --
@@ -141,11 +154,11 @@ indStepObligation1 wr wa sys =
 -- The architectural state then stays at the trapping instruction while the
 -- core reaches one of the two halted invariant cases.
 indStepObligation2 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
-indStepObligation2 wr wa sys =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
+indStepObligation2 wr wa ipc sys =
   not premises || conclusion
   where
-    isa = isaOfG sys
+    isa = isaAt ipc sys
     s1 = stepSys sys
     s2 = stepSys s1
     s3 = stepSys s2
@@ -167,11 +180,11 @@ indStepObligation2 wr wa sys =
 -- covering it costs nothing and assuming it away would be an unchecked side
 -- argument.
 indStepObligation3 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
-indStepObligation3 wr wa sys =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
+indStepObligation3 wr wa ipc sys =
   not premises || conclusion
   where
-    isa = isaOfG sys
+    isa = isaAt ipc sys
     s1 = stepSys sys
     s2 = stepSys s1
     s3 = stepSys s2

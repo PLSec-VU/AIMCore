@@ -11,7 +11,7 @@ import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded,
 import Instruction
 import Proof.Functional.Invariant
 import Proof.Machine
-import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isStartupShape, isaOfG, isaOfHop)
+import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, hopPc, isStartupShape, isaAt)
 import Memory.Types
 import RegFile
 import Test.Tasty (TestTree, testGroup)
@@ -378,7 +378,7 @@ proofTests =
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' sys'))))
                   )
-                  (indStepObligation wr wa sys),
+                  (indStepObligation wr wa (hopPc sys) sys),
       -- k = 1: the two-cycle hop. Both shapes that reach it are generated;
       -- 'coverage1' asserts each is actually sampled, since a premise this
       -- specific is easy to miss entirely and still see a green property.
@@ -386,7 +386,7 @@ proofTests =
         -- 1e6 run by hand: 23s, no counterexample. 20k keeps the suite fast.
         withMaxSuccess 20000 $
           forAllShow genArbSys1 (\_ -> "<state; see counterexample below>") $ \(sys, wr, wa) ->
-            let isa = isaOfHop sys
+            let isa = isaFromSys sys
                 s2 = stepSysN 2 sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
@@ -399,7 +399,7 @@ proofTests =
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' s2))))
                   )
-                  (indStepObligation1 wr wa sys),
+                  (indStepObligation1 wr wa (hopPc sys) sys),
       testCase "k=1 generator reaches both hop shapes" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 4000 genArbSys1) (mkQCGen 7) 30]
             admitted p =
@@ -407,28 +407,29 @@ proofTests =
                 | s <- sample,
                   p s,
                   driver s P.== 1,
-                  invAtFree 1 0 (isaOfHop s) s
+                  invAtFree 1 0 (isaAt (hopPc s) s) s
               ]
             startups = admitted isStartupShape
             steadies = admitted (P.not . isStartupShape)
          in do
               assertBool "no startup state satisfied the k=1 premise" (P.not (P.null startups))
               assertBool "no steady state satisfied the k=1 premise" (P.not (P.null steadies)),
-      -- Why 'isaOfHop' exists: deriving the architectural PC from the execute
-      -- stage, as 'isaOfG' does, leaves a startup state satisfying no case of
-      -- the invariant at all -- so the k=1 obligation would hold vacuously
-      -- there rather than saying anything.
-      testCase "startup states need the fetch-stage PC to be admitted" $
+      -- Why the obligations quantify @isaPc@ rather than deriving it: the
+      -- conjunct that pins it differs per case. A startup state is admitted at
+      -- the fetch-stage PC and at no other, so deriving it from the execute
+      -- stage would leave every startup state satisfying no case of the
+      -- invariant, and the k=1 obligation vacuous there.
+      testCase "startup states are admitted at the fetch PC and not the execute PC" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 2000 genArbSys1) (mkQCGen 11) 30, isStartupShape s]
-            admits f s = invAtFree 1 0 (f s) s
+            admits pc s = invAtFree 1 0 (isaAt (pc s) s) s
          in do
               assertBool "generator produced no startup states" (P.not (P.null sample))
               assertBool
-                "isaOfHop should admit some startup state"
-                (P.any (admits isaOfHop) sample)
+                "the fetch PC should admit some startup state"
+                (P.any (admits (stateFePc . sysState)) sample)
               assertBool
-                "isaOfG should admit no startup state (that is why isaOfHop exists)"
-                (P.not (P.any (admits isaOfG) sample)),
+                "the execute PC should admit no startup state"
+                (P.not (P.any (admits (stateExPc . sysState)) sample)),
       -- k = 2: jumps and the all-memory steady shape return to a running
       -- invariant case after three core cycles; ecall/ebreak return to one of
       -- the two halted cases.
@@ -444,14 +445,14 @@ proofTests =
                   P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
                   P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
               )
-              (indStepObligation2 wr wa sys),
+              (indStepObligation2 wr wa (hopPc sys) sys),
       testCase "k=2 generator reaches env, jump, and steady cases" $
         let sample =
               [ (label, driverCaseName s)
                 | (label, s, wr, wa) <-
                     unGen (vectorOf 4000 genArbSys2) (mkQCGen 29) 30,
                   driver s P.== 2,
-                  invAtFree wr wa (isaOfG s) s
+                  invAtFree wr wa (isaAt (hopPc s) s) s
               ]
             has label = P.any ((P.== label) . P.fst) sample
          in do
@@ -481,7 +482,7 @@ proofTests =
 -- invariant claims it corresponds to.
 -- Shared with 'Proof.Functional.Induction.indStep0' via "Proof.Functional.Obligation", so the two cannot drift.
 isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
-isaFromSys = isaOfG
+isaFromSys sys = isaAt (hopPc sys) sys
 
 -- | Take one driven step and report whether the invariant survived. Returns
 -- 'Nothing' when @sys@ does not satisfy the invariant to begin with (such a
@@ -494,9 +495,14 @@ inductiveStep sys
   where
     isa = isaFromSys sys
     sys' = stepSysN (driver sys + 1) sys
-    isa' = case isaStep isa of
-      Next i -> i
-      IsaHalted -> isa
+    -- A startup hop brings the first instruction into the execute stage without
+    -- executing anything, so the architectural state does not advance across it.
+    -- 'Proof.Functional.Obligation.indStepObligation1' carves out the same case.
+    isa'
+      | isStartupShape sys = isa
+      | otherwise = case isaStep isa of
+          Next i -> i
+          IsaHalted -> isa
     inv' a s = P.any holdsCase (invCases a s)
     holdsCase c = P.all P.snd (caseConjuncts c)
 

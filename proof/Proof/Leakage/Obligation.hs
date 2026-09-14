@@ -12,9 +12,9 @@
 --
 -- Only the simulator half of the projection is checked here. The architectural
 -- half commutes by construction: 'Proof.Leakage.Simulator.archOfLeak' is
--- 'Proof.Functional.Obligation.isaOfHop' composed with
+-- 'Proof.Functional.Obligation.isaAt' at 'Proof.Functional.Obligation.hopPc', composed with
 -- 'Proof.Leakage.Simulator.isaNext', and the functional obligations already
--- establish that @isaOfHop@ advances by one 'isaStep' per hop.
+-- establish that it advances by one 'isaStep' per hop.
 --
 -- == What is assumed
 --
@@ -34,7 +34,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Proof.Functional.Invariant (invAtFree)
-import Proof.Functional.Obligation (isaOfHop)
+import Proof.Functional.Obligation (hopPc, isaAt)
 import Proof.Leakage.Model
 import Proof.Leakage.Simulator
 import Memory.Types (MemOps (..))
@@ -46,7 +46,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- | The premises of 'leakObligation': the functional invariant.
 leakPremises ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
-leakPremises wr wa sys = invAtFree wr wa (isaOfHop sys) sys
+leakPremises wr wa sys = invAtFree wr wa (isaAt (hopPc sys) sys) sys
 
 -- | @proj@ commutes with a driver hop, and the observations agree.
 leakObligation ::

@@ -47,7 +47,7 @@ import Data.Functor.Identity
 import Data.Monoid (getFirst)
 import Instruction
 import Proof.Driver (driver)
-import Proof.Functional.Obligation (isStartupShape, isaOfHop)
+import Proof.Functional.Obligation (hopPc, isStartupShape, isaAt)
 import ISA (IsaStateG (..), IsaState, StepG (..), Step, isaStep, isaStepDecoded, isaRun, isaInstrAt)
 import Proof.Leakage.Model
 import Memory.Types (MemOps (..))
@@ -244,7 +244,7 @@ isaNext a = case isaStep a of
 -- | The architectural state a core state corresponds to, for the leakage proof.
 --
 -- Fetch-aligned: the instruction at its PC is the one the pipeline is /taking
--- in/, not the one in the execute stage. 'Proof.Functional.Obligation.isaOfHop'
+-- in/, not the one in the execute stage. 'Proof.Functional.Obligation.hopPc'
 -- is execute-aligned, one instruction behind, so a single
 -- 'isaStep' converts between them.
 --
@@ -254,11 +254,11 @@ isaNext a = case isaStep a of
 -- the leakage a hop consumes must describe that one.
 --
 -- At reset nothing is in flight and the PC comes off the fetch stage, exactly as
--- 'Proof.Functional.Obligation.isaOfHop' already does there.
+-- 'Proof.Functional.Obligation.hopPc' already does there.
 archOfLeak :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
 archOfLeak sys
-  | isStartupShape sys = isaOfHop sys
-  | otherwise = isaNext (isaOfHop sys)
+  | isStartupShape sys = isaAt (hopPc sys) sys
+  | otherwise = isaNext (isaAt (hopPc sys) sys)
 
 -- | The refinement relation: an architectural state paired with a censored core.
 proj :: (RegFileOps r, MemOps m) => SysG r m -> (IsaStateG r m, SimSys r)
