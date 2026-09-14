@@ -23,15 +23,17 @@ description:         Please see the README on GitHub at <https://github.com/gith
 # while GHC compiles them, so building them needs a solver on PATH and takes as
 # long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
 # pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
-# useful time, while bitwuzla takes seconds each:
+# useful time, while bitwuzla discharges each in under a minute:
 #
 #   SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack test
+#
+# CI does exactly this: it installs bitwuzla and sets SBV_Z3 to it (see
+# .github/workflows/stack-test.yml).
 #
 # Do not add --fast: at -O0 GHC creates no unfoldings and the plugin fails with
 # "Unbound variable in symbolise" rather than reporting a failed proof.
 #
-# Turn the flag off to build and test everything else without a solver, which is
-# what CI does:
+# Turn the flag off for a quicker local build and test without a solver:
 #
 #   stack test --flag aimcore:-smt-proof
 flags:
