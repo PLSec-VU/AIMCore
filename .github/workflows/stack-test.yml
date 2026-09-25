@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
     - name: Checkout code
@@ -26,6 +27,7 @@ jobs:
         curl -sL "https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VERSION}/Bitwuzla-Linux-x86_64-static.zip" -o /tmp/bitwuzla.zip
         unzip -q /tmp/bitwuzla.zip -d /tmp
         sudo install -m 755 /tmp/Bitwuzla-Linux-x86_64-static/bin/bitwuzla /usr/local/bin/bitwuzla
+        sudo ln -sf /usr/local/bin/bitwuzla /usr/local/bin/z3
         rm -rf /tmp/Bitwuzla-Linux-x86_64-static /tmp/bitwuzla.zip
         bitwuzla --version
 
@@ -43,4 +45,7 @@ jobs:
       run: stack test --only-dependencies --no-nix
 
     - name: Build and run tests
+      env:
+        SBV_Z3: /usr/local/bin/bitwuzla
+        SBV_Z3_OPTIONS: "--produce-models"
       run: stack test --no-nix

@@ -25,6 +25,7 @@ module Instruction
     isNopStoreHazardFirstCycle,
     isNopHalted,
     break,
+    storeHazard,
     loadHazard,
     isLoad,
     isStore,
@@ -37,7 +38,8 @@ import Control.Monad
 import Data.Binary (Binary)
 import Data.Maybe (fromMaybe, isJust)
 import Types
-import Prelude hiding (Ordering (..), Word, break, undefined)
+import Prelude hiding (Ordering (..), Word, break, undefined, (&&), (||))
+import Pantomime.Expr (Literal(Bool))
 
 -- | All arithmetic and logic operations.
 data Arith
@@ -466,6 +468,24 @@ isNopHalted _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0
+
+storeHazard :: Address -> (Address, Size) -> Bool
+storeHazard read_pc (write_pc, size) =
+  let read_size = 4
+      write_size = sizeBytes size
+  in if read_pc <= write_pc
+        then storeHazardLeq read_pc read_size write_pc write_size
+        else storeHazardLeq write_pc write_size read_pc read_size
+  where
+    sizeBytes :: Size -> Address
+    sizeBytes Byte = 1
+    sizeBytes Half = 2
+    sizeBytes Word = 4
+
+    storeHazardLeq :: Address -> Address -> Address -> Address -> Bool
+    storeHazardLeq addr1 size1 addr2 size2 =
+      let diff = addr2 - addr1 in
+      diff < size1 || - diff < size2
 
 loadHazard :: Instruction -> Instruction -> Bool
 loadHazard de_ir ex_ir@(IType Load {} _ _ _) = isJust $ do

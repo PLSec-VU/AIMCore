@@ -2,6 +2,9 @@
 
 module Memory.Types
   ( MonadMemory (..),
+    MemOps (..),
+    MemBytes,
+    MemFn (..),
     readWord,
     write,
     RAM_SIZE,
@@ -30,6 +33,46 @@ class Monad m => MonadMemory m where
   markMemoryRegion :: Address -> Address -> Bool -> m ()
   -- | Check if a memory address is marked as secret
   isMemorySecret :: Address -> m Bool
+
+-- | The byte-addressed memory the ISA model and the proof harness use. Same
+-- size as the one the simulation tests use.
+type MemBytes = Vec MEM_SIZE_BYTES Byte
+
+-- | The operations a memory representation has to provide.
+--
+-- Parameterised for the same reason as 'RegFile.RegFileOps': the @Vec@-backed
+-- 'MemBytes' cannot be symbolically executed, while the function-backed 'MemFn'
+-- can.
+class MemOps m where
+  memReadWord :: Address -> m -> Word
+  memWriteWord :: Size -> Address -> Word -> m -> m
+
+  -- | Single byte, which is what the pointwise form of the invariant compares.
+  memReadByte :: Address -> m -> Byte
+
+instance (KnownNat n) => MemOps (Vec n Byte) where
+  memReadWord = readWord
+  memWriteWord = write
+  memReadByte a m = m !! a
+
+-- | Verification-only memory: a function rather than a container.
+newtype MemFn = MemFn {memByte :: Address -> Byte}
+
+instance MemOps MemFn where
+  memReadWord a (MemFn m) = m (a + 3) ++# m (a + 2) ++# m (a + 1) ++# m a
+  memWriteWord size a w m =
+    case size of
+      Byte -> put a b0 m
+      Half -> put (a + 1) b1 (put a b0 m)
+      Word -> put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
+    where
+      b0 = slice d7 d0 w
+      b1 = slice d15 d8 w
+      b2 = slice d23 d16 w
+      b3 = slice d31 d24 w
+      put i v (MemFn f) = MemFn (\j -> if j == i then v else f j)
+
+  memReadByte a (MemFn m) = m a
 
 readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =

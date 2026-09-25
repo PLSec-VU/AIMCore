@@ -24,8 +24,8 @@ topEntity ::
   Signal System (Output Identity)
 topEntity = exposeClockResetEnable $ system prog3
 
-cpu :: (Access f, Generic (f Word), NFDataX (f Word), HiddenClockResetEnable dom) => Signal dom (Input f) -> Signal dom (Output f)
-cpu = mealy circuit init
+cpu :: forall f dom. (Access f, Generic (f Word), NFDataX (f Word), HiddenClockResetEnable dom) => Signal dom (Input f) -> Signal dom (Output f)
+cpu = mealy (circuit @f @RegFile) (init @f @RegFile)
 
 system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom (Output Identity)
 system prog = cpuOut
