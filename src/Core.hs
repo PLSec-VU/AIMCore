@@ -61,7 +61,9 @@ data Input f = Input
   { -- | Is this an instruction read?
     inputIsInstr :: Bool,
     -- | Reads from memory.
-    inputMem :: f Word
+    inputMem :: f Word,
+    -- | Is the memory answer ready this cycle?
+    inputMemReady :: Bool
   }
 
 deriving instance (Show (f Word)) => Show (Input f)
@@ -143,7 +145,9 @@ data StateG r f = State
     -- | CPU halt state.
     stateHalt :: Maybe HaltState,
     -- | In case of a halt, the address of the next instruction.
-    stateHaltNextPc :: Address
+    stateHaltNextPc :: Address,
+    -- | True when a load is in flight.
+    stateLoadInFlight :: Bool
   }
 
 -- | The synthesisable state: the register file is a 'Vec'.
@@ -186,7 +190,9 @@ data Control f = Control
     ctrlMeRegFwd :: Maybe (RegIdx, f Word),
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
-    ctrlWbRegFwd :: Maybe (RegIdx, f Word)
+    ctrlWbRegFwd :: Maybe (RegIdx, f Word),
+    -- | True when a load was in flight at the start of the cycle.
+    ctrlMeHadInFlight :: Bool
   }
 
 deriving instance (Show (f Word)) => Show (Control f)
@@ -224,7 +230,8 @@ initInput :: (Access f) => Input f
 initInput =
   Input
     { inputIsInstr = False,
-      inputMem = pure 0
+      inputMem = pure 0,
+      inputMemReady = True
     }
 
 init :: forall f r. (Access f, RegFileOps r) => StateG r f
@@ -242,7 +249,8 @@ init =
       stateRegFile = initRFg,
       stateCtrl = initCtrl,
       stateHalt = Nothing,
-      stateHaltNextPc = 0
+      stateHaltNextPc = 0,
+      stateLoadInFlight = False
     }
 
 -- | Initial control lines.
@@ -257,7 +265,8 @@ initCtrl =
       ctrlMeMemInstr = False,
       ctrlMeStoreAddrSize = Nothing,
       ctrlMeRegFwd = Nothing,
-      ctrlWbRegFwd = Nothing
+      ctrlWbRegFwd = Nothing,
+      ctrlMeHadInFlight = False
     }
 
 -- | The control lines need to be reset every tick.
@@ -281,7 +290,7 @@ fetch = do
   -- Always try to read unless the instruction in the `memory` stage is a load or a store.
   unless (ctrlMeMemInstr ctrl) $
     readPC pc
-  
+
   -- We stall if the instruction in the `memory` stage is a load or a store.
   let stall = ctrlMeMemInstr ctrl
 
@@ -304,10 +313,15 @@ fetch = do
 -- | Decode stage.
 decode :: (Access f) => CPUM r f ()
 decode = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight decodeFresh
+
+decodeFresh :: (Access f) => CPUM r f ()
+decodeFresh = do
   input <- ask
   pc <- gets stateDePc
   ctrl <- gets stateCtrl
-  
+
   ir <-
     if inputIsInstr input
       then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
@@ -362,6 +376,11 @@ decode = do
 -- | Execute stage.
 execute :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
 execute = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight execute'
+
+execute' :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
+execute' = do
   ir <- gets stateExInstr
 
   -- Default values.
@@ -525,8 +544,18 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
+-- | Memory stage.
 memory :: CPUM r f ()
 memory = do
+  wasInFlight <- gets stateLoadInFlight
+  setLines $ \c -> c {ctrlMeHadInFlight = wasInFlight}
+  if wasInFlight
+    then setLines $ \c -> c {ctrlMeMemInstr = True}
+    else memoryFresh
+
+-- | Process a fresh memory instruction.
+memoryFresh :: CPUM r f ()
+memoryFresh = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
   addr <- gets stateMeAddr
@@ -544,6 +573,7 @@ memory = do
     Instruction.IType (Load size _) _ _ _ -> do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readRAM addr size
+      modify $ \s -> s {stateLoadInFlight = True}
     Instruction.SType size _ _ _ -> do
       setLines $ \c ->
         c {ctrlMeMemInstr = True, ctrlMeStoreAddrSize = Just (addr, size)}
@@ -559,9 +589,8 @@ memory = do
 -- | Commit computations to the register file.
 writeback :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
 writeback = do
-  input <- asks inputMem
   ir <- gets stateWbInstr
-  res <- gets stateWbRes  
+  res <- gets stateWbRes
 
   case ir of
     Instruction.RType _ rd _ _ -> do
@@ -571,9 +600,13 @@ writeback = do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
     Instruction.IType (Load size sign) rd _ _ -> do
-      let val = loadExtend size sign <$> input
-      setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
-      writeRF rd val
+      ready <- asks inputMemReady
+      when ready $ do
+        input <- asks inputMem
+        let val = loadExtend size sign <$> input
+        setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
+        writeRF rd val
+        modify $ \s -> s {stateLoadInFlight = False}
     Instruction.JType rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res

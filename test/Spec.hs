@@ -8,6 +8,7 @@ module Main (main) where
 
 import Access
 import BenchmarkSpec (benchmarkTests)
+import CacheSpec (cacheTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -119,6 +120,7 @@ tests =
       proofTests,
       isaConformanceTests,
       instructionTests,
+      cacheTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup
@@ -350,6 +352,7 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
+      <*> pure False
     where
       genAccessWord = do
         isSecret <- arbitrary
@@ -395,6 +398,7 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> pure False
 
 instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
   arbitrary = do
@@ -408,3 +412,4 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
       Input
         isInstr
         (conditionalSecret isSecretMem mem)
+        True

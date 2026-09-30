@@ -40,6 +40,7 @@ system prog = cpuOut
             ( fromMaybe False $ memIsInstr <$> getFirst (outMem o)
             )
             (Identity mread)
+            True
       )
         <$> cpuOut
         <*> ram

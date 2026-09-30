@@ -49,7 +49,8 @@ simulator =
           Just $
             Input
               { inputIsInstr = mem_instr,
-                inputMem = mem_in
+                inputMem = mem_in,
+                inputMemReady = True
               }
       where
         doMemory :: m (f Word, Bool)

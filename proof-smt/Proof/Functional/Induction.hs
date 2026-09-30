@@ -69,7 +69,8 @@ data KState = KState
     kWbRes :: Word,
     kCtrl :: Core.Control Identity,
     kHalt :: Maybe Core.HaltState,
-    kHaltNextPc :: Address
+    kHaltNextPc :: Address,
+    kLoadInFlight :: Bool
   }
 
 -- | Assemble a system state from the symbolic pieces.
@@ -90,7 +91,8 @@ sysOf ss i ra ma =
             Core.stateRegFile = RegArrF ra,
             Core.stateCtrl = kCtrl ss,
             Core.stateHalt = kHalt ss,
-            Core.stateHaltNextPc = kHaltNextPc ss
+            Core.stateHaltNextPc = kHaltNextPc ss,
+            Core.stateLoadInFlight = kLoadInFlight ss
           },
       sysInput = i,
       sysMem = ma
