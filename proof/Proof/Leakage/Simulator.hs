@@ -94,9 +94,10 @@ censor sys@(Sys st inp _) =
               stateRegFile = initRFg,
               stateCtrl = initCtrl,
               stateHalt = stateHalt st,
-              stateHaltNextPc = stateHaltNextPc st
+              stateHaltNextPc = stateHaltNextPc st,
+              stateLoadInFlight = stateLoadInFlight st
             },
-        sysInput = Input (inputIsInstr inp) (Identity 0),
+        sysInput = Input (inputIsInstr inp) (Identity 0) True,
         sysMem = ()
       }
 
@@ -196,7 +197,7 @@ scrub l (Sys st inp _) =
               stateRegFile = initRFg,
               stateCtrl = initCtrl
             },
-        sysInput = Input (inputIsInstr inp) (Identity 0),
+        sysInput = Input (inputIsInstr inp) (Identity 0) True,
         sysMem = ()
       }
   where
@@ -276,9 +277,9 @@ stepSimOut w (Sys s i _) =
   let (s', o) = Core.circuit s i
       i' = case getFirst (outMem o) of
         Just (MemAccess isInstr _ _ Nothing) ->
-          Input isInstr (Identity (if isInstr then w else 0))
-        Just (MemAccess isInstr _ _ (Just _)) -> Input isInstr (Identity 0)
-        Nothing -> Input False (Identity 0)
+          Input isInstr (Identity (if isInstr then w else 0)) True
+        Just (MemAccess isInstr _ _ (Just _)) -> Input isInstr (Identity 0) True
+        Nothing -> Input False (Identity 0) True
    in (Sys s' i' (), o)
 
 -- | Put the leaked instruction word on the simulator's bus.
@@ -290,7 +291,7 @@ stepSimOut w (Sys s i _) =
 -- later through 'stepSimOut'.
 installLeak :: Word -> SimSys r -> SimSys r
 installLeak word (Sys s i m)
-  | inputIsInstr i = Sys s (Input True (Identity word)) m
+  | inputIsInstr i = Sys s (Input True (Identity word) True) m
   | otherwise = Sys s i m
 
 -- | The implementation, run for one driver hop, with the observation of each

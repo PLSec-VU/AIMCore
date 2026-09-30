@@ -140,6 +140,7 @@ library:
     - Memory.Vec
     - Memory.ST
     - Memory.IO
+    - Memory.Cache
     - Leak.Arch.Arch
     - Leak.PC.ISA
     - Leak.PC.Leak

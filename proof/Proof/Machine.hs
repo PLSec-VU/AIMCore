@@ -24,6 +24,11 @@ module Proof.Machine
     isNopInstr,
     isBubble,
     readMemWord,
+    CacheSys (..),
+    initCacheSys,
+    stepCached,
+    stepCachedOut,
+    stepCachedN,
   )
 where
 
@@ -33,6 +38,7 @@ import Data.Functor.Identity
 import Data.Maybe (isNothing)
 import Data.Monoid (getFirst)
 import Instruction
+import Memory.Cache (CacheOps (..))
 import Memory.Types
 import RegFile
 import Types
@@ -83,10 +89,10 @@ stepSysOut (Sys s i m) =
         -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
         -- word; the size-dependent narrowing happens in 'Core.writeback' via
         -- 'loadExtend'. We reproduce that here.
-        Nothing -> (Input isInstr (pure (memReadWord addr mem)), mem)
+        Nothing -> (Input isInstr (pure (memReadWord addr mem)) True, mem)
         -- A write.
-        Just val -> (Input isInstr (pure 0), memWriteWord size addr (runIdentity val) mem)
-    service Nothing mem = (Input False (pure 0), mem)
+        Just val -> (Input isInstr (pure 0) True, memWriteWord size addr (runIdentity val) mem)
+    service Nothing mem = (Input False (pure 0) True, mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
 stepSysN n s
@@ -126,3 +132,49 @@ isBubble _ = False
 
 readMemWord :: Address -> MemBytes -> Word
 readMemWord = readWord
+
+-- | System state paired with a cache model.
+data CacheSys r m c = CacheSys
+  { cacheSysCore :: SysG r m,
+    cacheSysCache :: c,
+    -- | Address and remaining cycles for a pending load miss.
+    cacheSysPending :: Maybe (Address, Int)
+  }
+
+deriving instance (Show (r Identity), Show m, Show c) => Show (CacheSys r m c)
+
+initCacheSys :: SysG r m -> c -> CacheSys r m c
+initCacheSys sys cache = CacheSys sys cache Nothing
+
+-- | Step a system with memory serviced through a cache.
+stepCached :: (RegFileOps r, MemOps m, CacheOps c) => Int -> CacheSys r m c -> CacheSys r m c
+stepCached missPenalty = fst . stepCachedOut missPenalty
+
+stepCachedOut ::
+  (RegFileOps r, MemOps m, CacheOps c) =>
+  Int ->
+  CacheSys r m c ->
+  (CacheSys r m c, Output Identity)
+stepCachedOut missPenalty (CacheSys (Sys s i m) cache pending) =
+  let (s', o) = Core.circuit s i
+      (i', m', cache', pending') = respond (getFirst (outMem o)) m cache pending
+   in (CacheSys (Sys s' i' m') cache' pending', o)
+  where
+    respond mAccess mem c (Just (addr, n))
+      | n > 0 = (Input False (pure 0) False, mem, c, Just (addr, n - 1))
+      | otherwise =
+          let w = memReadWord addr mem
+           in (Input False (pure w) True, mem, cacheInsert addr w c, Nothing)
+    respond Nothing mem c Nothing = (Input False (pure 0) True, mem, c, Nothing)
+    respond (Just (MemAccess isInstr addr size mval)) mem c Nothing = case mval of
+      Just val ->
+        (Input isInstr (pure 0) True, memWriteWord size addr (runIdentity val) mem, cacheInvalidate addr c, Nothing)
+      Nothing | isInstr -> (Input isInstr (pure (memReadWord addr mem)) True, mem, c, Nothing)
+      Nothing -> case cacheLookup addr c of
+        Just w -> (Input isInstr (pure w) True, mem, c, Nothing)
+        Nothing -> (Input isInstr (pure 0) False, mem, c, Just (addr, missPenalty - 1))
+
+stepCachedN :: (RegFileOps r, MemOps m, CacheOps c) => Int -> Int -> CacheSys r m c -> CacheSys r m c
+stepCachedN missPenalty n s
+  | n <= 0 = s
+  | otherwise = stepCachedN missPenalty (n - 1) (stepCached missPenalty s)
