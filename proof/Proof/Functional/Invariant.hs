@@ -25,6 +25,13 @@
 -- /end/ of each clock cycle; 'Core.withCtrlReset' now resets them at the start,
 -- so no state reached by stepping the core satisfies it.
 --
+-- The invariant describes the core attached to memory that answers every
+-- request in the next cycle ('Proof.Machine.stepSys'), so the bus is always
+-- ready ('Core.inputMemReady'), and the load-in-flight flag
+-- ('Core.stateLoadInFlight') is pinned to the writeback stage: a load is in
+-- flight exactly while it sits there. A flag set with anything else in
+-- writeback would freeze the pipeline, since only a load's writeback clears it.
+--
 -- The note's four running cases are collapsed into one here. They differ only
 -- in the fetch conjuncts, and those track the writeback stage alone; the memory
 -- stage's classification does no work beyond excluding an environment
@@ -199,6 +206,8 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
     runningCase =
       Case "running" $
         [ ("running", running sys),
+          ("load in flight iff a load is in wb", stateLoadInFlight st == isLoad (stateWbInstr st)),
+          ("memory answered", inputMemReady inp),
           ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
           ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
           ("exPc == isaPc", stateExPc st == ipc),
@@ -236,6 +245,8 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
         [ ("isa instruction is of this kind", isKind isaInstr),
           ("halt state matches", stateHalt st == Just expected),
           ("wb == Nop Halted", stateWbInstr st == Nop Halted),
+          ("no load in flight", P.not (stateLoadInFlight st)),
+          ("memory answered", inputMemReady inp),
           ("me == Nop Halted", stateMeInstr st == Nop Halted),
           ("ex == Nop Halted", stateExInstr st == Nop Halted),
           ("isaRegFile == stateRegFile", eqRF irf (stateRegFile st)),
@@ -268,6 +279,8 @@ runningCaseAt ::
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
 runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
   running sys
+    && stateLoadInFlight st == isLoad (stateWbInstr st)
+    && inputMemReady inp
     && not (isEnvInstr (stateWbInstr st))
     && not (isEnvInstr (stateMeInstr st))
     && stateExPc st == ipc
@@ -305,10 +318,12 @@ runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
 haltedCaseAt ::
   (RegFileOps r, MemOps m) =>
   HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
+haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st inp mem) =
   isKind (decode' (memReadWord ipc imem))
     && stateHalt st == Just expected
     && stateWbInstr st == Nop Halted
+    && not (stateLoadInFlight st)
+    && inputMemReady inp
     && stateMeInstr st == Nop Halted
     && stateExInstr st == Nop Halted
     && memReadByte wa imem == memReadByte wa mem

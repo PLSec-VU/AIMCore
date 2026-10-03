@@ -1,5 +1,5 @@
 NOTE: this file has been reconciled with proof/Proof/Functional/Invariant.hs.
-Two changes against the original. First, the 'stateCtrl == initCtrl' clause has
+Three changes against the original. First, the 'stateCtrl == initCtrl' clause has
 been dropped from every case. It is a holdover from an earlier Core that reset the
 control lines at the END of each clock cycle, so that they were back at their
 reset values by the time the next cycle began. Core.withCtrlReset now resets
@@ -29,6 +29,14 @@ an environment instruction".
 Environment instructions in the memory or writeback stage need no case of their
 own: those are the intermediate cycles the driver skips, and the hop that starts
 with ecall/ebreak in execute lands on the corresponding halted case below.
+
+Third, every case has two conjuncts for the core's memory interface. The
+invariant describes the core attached to memory that answers every request in
+the next cycle (Proof.Machine.stepSys), so the bus is always ready
+(inputMemReady), and the load-in-flight flag is set exactly while a load sits
+in writeback (stateLoadInFlight == isLoad stateWbInstr; never, when halted). A
+flag set with anything else in writeback would freeze the pipeline, since only
+a load's writeback clears it.
 
 See proof/Proof/Functional/Invariant.hs for the executable version, and the
 "Driver and invariant" group in the test suite for the checks.

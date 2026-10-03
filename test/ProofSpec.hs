@@ -768,7 +768,7 @@ genArbSys = do
                stateCtrl = initCtrl,
                stateHalt = Nothing,
                stateHaltNextPc = 0,
-               stateLoadInFlight = False
+               stateLoadInFlight = isLoad wbI
              })
           (Input True (pure w1) True)
           (MemFn memf)
@@ -852,7 +852,7 @@ genRunning2 label genEx = do
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0,
-                stateLoadInFlight = False
+                stateLoadInFlight = isLoad wbI
               }
           )
           inp
@@ -913,7 +913,7 @@ genSteady2 = do
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0,
-                stateLoadInFlight = False
+                stateLoadInFlight = isLoad wbI
               }
           )
           (Input False (pure loaded) True)
@@ -958,7 +958,7 @@ genSteady1 = do
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0,
-                stateLoadInFlight = False
+                stateLoadInFlight = isLoad wbI
               }
           )
           (Input False (pure loaded) True)
@@ -1178,7 +1178,7 @@ genTakenTransfer useJalr = do
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0,
-                stateLoadInFlight = False
+                stateLoadInFlight = isLoad wbI
               }
           )
           inp
@@ -1293,7 +1293,7 @@ mk3 base exI meI wbI nextI wbMem = do
               stateCtrl = initCtrl,
               stateHalt = Nothing,
               stateHaltNextPc = 0,
-              stateLoadInFlight = False
+              stateLoadInFlight = isLoad wbI
             }
         )
         (if wbMem then Input False (pure loaded) True else Input True (pure w1) True)
