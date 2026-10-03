@@ -9,6 +9,7 @@ module Main (main) where
 import Access
 import BenchmarkSpec (benchmarkTests)
 import CacheSpec (cacheTests)
+import CompositionSpec (compositionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -127,6 +128,7 @@ tests =
       isaConformanceTests,
       instructionTests,
       cacheTests,
+      compositionTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup
