@@ -1,9 +1,17 @@
 -- | What the core leaks, what an attacker sees, and how to invert one into the
 -- other.
 --
--- The leakage proof ("Proof.Leakage.Obligation") establishes that an attacker
--- watching the memory bus learns nothing beyond 'L'. This module defines the
--- three functions that statement is about:
+-- The leakage is the constant-time one: an instruction reveals its control flow
+-- (whether a branch is taken, where a jump goes) and, if it accesses memory, the
+-- address it accesses -- plus its class and source registers, which are
+-- functions of the code and so public under the constant-time discipline. The
+-- attacker sees every request the core puts on its memory interface, cycle by
+-- cycle: the sequence of accesses a cache in front of the core would receive,
+-- and their timing.
+--
+-- The leakage proof ("Proof.Leakage.Obligation") establishes that this attacker
+-- learns nothing beyond 'L'. This module defines the three functions that
+-- statement is about:
 --
 --   * 'obsOf' -- what the attacker sees in one cycle.
 --   * 'leakOf' -- what one architectural instruction leaks. A function of the
@@ -28,7 +36,7 @@ module Proof.Leakage.Model
     -- * Inversion
     inv,
     invWord,
-    jumpSource,
+    parkSource,
   )
 where
 
@@ -49,22 +57,17 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 -- Observation -----------------------------------------------------------------
 
--- | What the attacker sees on the memory bus in one cycle.
+-- | What the attacker sees on the memory interface in one cycle: the request,
+-- if any, without the data.
 --
 -- An instruction fetch shows its address -- this is the program-counter trace.
--- A data access shows only its kind and width: neither the address nor the
--- value.
---
--- Data addresses are excluded because the simulator could not reproduce them.
--- A load or store computes its address as @register + immediate@, and 'inv'
--- emits instructions that read a censored register file; a jump target escapes
--- that limit only because 'jumpSource' parks it in a register first, which
--- works for at most one instruction per hop.
+-- A data access shows its kind, address and width, but neither the value read
+-- nor the value written.
 data Obs
   = NoAccess
   | Fetch Address
-  | DataRead Size
-  | DataWrite Size
+  | DataRead Address Size
+  | DataWrite Address Size
   deriving (Eq, Show, Generic, NFDataX)
 
 -- | The observations of one driver hop, one slot per cycle.
@@ -80,8 +83,8 @@ obsOf :: Output Identity -> Obs
 obsOf o = case getFirst (outMem o) of
   Nothing -> NoAccess
   Just (MemAccess True addr _ _) -> Fetch addr
-  Just (MemAccess False _ size Nothing) -> DataRead size
-  Just (MemAccess False _ size (Just _)) -> DataWrite size
+  Just (MemAccess False addr size Nothing) -> DataRead addr size
+  Just (MemAccess False addr size (Just _)) -> DataWrite addr size
 
 -- Leakage ---------------------------------------------------------------------
 
@@ -94,11 +97,12 @@ obsOf o = case getFirst (outMem o) of
 --     of the instruction word rather than a function of register contents.
 --     'CBranchNotTaken' carries nothing, since an untaken branch's target is
 --     not observable.
---   * 'CJalr' carries a computed address. This one is genuinely data
---     dependent -- it is the leak.
---   * 'CLoad' carries its destination register, because a load-use hazard
+--   * 'CJalr' carries its computed target, and 'CLoad' and 'CStore' their
+--     computed data address. These are the data-dependent parts: the
+--     constant-time discipline is that they must not depend on secrets.
+--   * 'CLoad' also carries its destination register, because a load-use hazard
 --     against the next instruction depends on it and that decides how many
---     cycles the next hop takes. It carries no address.
+--     cycles the next hop takes.
 --   * Sizes are carried because 'Obs' shows the access width.
 data Class
   = CPlain
@@ -106,8 +110,8 @@ data Class
   | CBranchNotTaken
   | CJal JImm
   | CJalr Address
-  | CLoad Size RegIdx
-  | CStore Size
+  | CLoad Size RegIdx Address
+  | CStore Size Address
   | CCall
   | CBreak
   deriving (Eq, Show, Generic, NFDataX)
@@ -144,10 +148,10 @@ leakOf isa = L (isaClass isa ir) (mkDeps ir)
 
 -- | Classify an instruction against the architectural state it runs in.
 --
--- Three decisions are data dependent -- whether a branch is taken, and the two
--- computed jump targets -- and are resolved here against the architectural
--- register file. 'coreClass' resolves the same three against forwarded pipeline
--- values, and the proof shows they agree.
+-- Four things are data dependent -- whether a branch is taken, the computed
+-- @jalr@ target, and the load and store addresses -- and are resolved here
+-- against the architectural register file. 'coreClass' resolves the same four
+-- against forwarded pipeline values, and the proof shows they agree.
 isaClass :: (RegFileOps r, MemOps m) => IsaStateG r m -> Instruction -> Class
 isaClass (IsaState _ rf _) ir = case ir of
   BType cmp imm rs1 rs2 ->
@@ -156,8 +160,8 @@ isaClass (IsaState _ rf _) ir = case ir of
       else CBranchNotTaken
   JType _ imm -> CJal imm
   IType Jump _ rs1 imm -> CJalr (unpack (regv rs1 + signExtend imm))
-  IType (Load size _) rd _ _ -> CLoad size rd
-  SType size _ _ _ -> CStore size
+  IType (Load size _) rd rs1 imm -> CLoad size rd (unpack (regv rs1 + signExtend imm))
+  SType size imm rs1 _ -> CStore size (unpack (regv rs1 + signExtend imm))
   IType (Env Call) _ _ _ -> CCall
   IType (Env Break) _ _ _ -> CBreak
   _ -> CPlain
@@ -176,8 +180,8 @@ coreClass sys ir = case ir of
       else CBranchNotTaken
   JType _ imm -> CJal imm
   IType Jump _ rs1 imm -> CJalr (unpack (exArg sys rs1 + signExtend imm))
-  IType (Load size _) rd _ _ -> CLoad size rd
-  SType size _ _ _ -> CStore size
+  IType (Load size _) rd rs1 imm -> CLoad size rd (unpack (exArg sys rs1 + signExtend imm))
+  SType size imm rs1 _ -> CStore size (unpack (exArg sys rs1 + signExtend imm))
   IType (Env Call) _ _ _ -> CCall
   IType (Env Break) _ _ _ -> CBreak
   _ -> CPlain
@@ -187,7 +191,7 @@ coreClass sys ir = case ir of
 -- | A representative instruction with the same leakage as the real one.
 --
 -- The simulator's register file holds zero everywhere except the one slot
--- 'jumpSource' reserves, so every instruction here is chosen to behave
+-- 'parkSource' reserves, so every instruction here is chosen to behave
 -- independently of register contents:
 --
 --   * @'CBranchTaken' imm@ becomes @beq d1, d2, imm@. Both operands read zero,
@@ -195,17 +199,16 @@ coreClass sys ir = case ir of
 --     original target. @'CBranchNotTaken'@ becomes @bne d1, d2, 0@, never taken
 --     for the same reason.
 --   * @'CJal'@ keeps its immediate, which is PC-relative and needs no register.
---   * @'CJalr'@ addresses @0(src)@ and reads its target out of @src@; see
---     'jumpSource'. When the real @jalr@ read @x0@ there is no register to use,
---     but then the target is @0 + signExtend imm@ and fits the immediate
---     exactly.
---   * @'CLoad'@ and @'CStore'@ address @0(rs1)@, i.e. address zero. The address
---     is not observable; the width and the fact that it is a memory instruction
---     are, and both survive.
+--   * @'CJalr'@, @'CLoad'@ and @'CStore'@ address @0(src)@, where @src@ is the
+--     real instruction's base register and holds the leaked address; see
+--     'parkSource'. When the real instruction's base was @x0@ there is no
+--     register to use, but then the address is @0 + signExtend imm@ and fits the
+--     immediate exactly.
 --
 -- Destination registers are @x0@ except for a load, whose destination is
 -- leaked because it drives the next hop's hazard. A load into a real register
--- writes @loadExtend size sign 0 == 0@, so the register file stays zero.
+-- writes @loadExtend size sign 0 == 0@, since the simulator answers every data
+-- read with zero.
 --
 -- Source registers are threaded through everywhere so that a load-use hazard
 -- against this instruction fires in the simulator exactly when it fires in the
@@ -216,11 +219,9 @@ inv (L cls (d1, d2)) = case cls of
   CBranchTaken imm -> BType EQ imm (r d1) (r d2)
   CBranchNotTaken -> BType NE 0 (r d1) (r d2)
   CJal imm -> JType 0 imm
-  CJalr t -> case d1 of
-    Just src | src /= 0 -> IType Jump 0 src 0
-    _ -> IType Jump 0 0 (slice d11 d0 (pack t))
-  CLoad size rd -> IType (Load size I.Signed) rd (r d1) 0
-  CStore size -> SType size 0 (r d1) (r d2)
+  CJalr t -> based t $ \base imm -> IType Jump 0 base imm
+  CLoad size rd a -> based a $ \base imm -> IType (Load size I.Signed) rd base imm
+  CStore size a -> based a $ \base imm -> SType size imm base (r d2)
   CCall -> IType (Env Call) 0 0 0
   -- The immediate is the opcode rather than a value: 'Instruction.decode' reads
   -- @ecall@ off @immI == 0@ and @ebreak@ off @immI == 1@ and re-emits it, so a
@@ -233,6 +234,13 @@ inv (L cls (d1, d2)) = case cls of
   where
     r = fromMaybe 0
 
+    -- Address @a@ as @imm(base)@: from the parked source register, or, with no
+    -- source register, from the immediate alone.
+    based :: Address -> (RegIdx -> Imm -> Instruction) -> Instruction
+    based a mk = case d1 of
+      Just src | src /= 0 -> mk src 0
+      _ -> mk 0 (slice d11 d0 (pack a))
+
 -- | The word the simulator puts on the bus for 'Core.decode' to read.
 --
 -- @'Instruction.decode'' . 'invWord'@ is 'inv': every instruction 'inv' emits
@@ -242,17 +250,22 @@ invWord l = case encode' (inv l) of
   Just w -> w
   Nothing -> 0
 
--- | The register a leaked @jalr@ target has to be parked in, and the target.
+-- | The register a leaked address has to be parked in, and the address.
 --
--- No RISC-V instruction word can hold a 32-bit jump target: every target the
--- core computes is @PC + immediate@ (13 bits for a branch, 21 for @jal@) or
--- @register + immediate@ (12 bits for @jalr@). The register file is therefore
--- the only place an arbitrary target fits, and @jalr@ is the one instruction
--- that reads it from there. Writing it costs nothing in leakage: the value is
--- the target, which 'L' already carries.
+-- No RISC-V instruction word can hold a 32-bit address: the core computes a
+-- @jalr@ target and a data address as @register + immediate@, with a 12-bit
+-- immediate. The register file is therefore the only place an arbitrary address
+-- fits, and the representative 'inv' builds reads it from the real
+-- instruction's base register. Writing it costs nothing in leakage: the value is
+-- the address, which 'L' already carries.
 --
--- 'Nothing' for everything else, including a @jalr@ off @x0@, where the target
--- fits the immediate and nothing needs parking.
-jumpSource :: L -> Maybe (RegIdx, Address)
-jumpSource (L (CJalr t) (Just src, _)) | src /= 0 = Just (src, t)
-jumpSource _ = Nothing
+-- 'Nothing' for instructions without an address, and for one based on @x0@,
+-- whose address fits the immediate and needs no parking.
+parkSource :: L -> Maybe (RegIdx, Address)
+parkSource (L cls (Just src, _))
+  | src /= 0 = case cls of
+      CJalr t -> Just (src, t)
+      CLoad _ _ a -> Just (src, a)
+      CStore _ a -> Just (src, a)
+      _ -> Nothing
+parkSource _ = Nothing

@@ -1,30 +1,41 @@
-Leakage proof: how to run it, and how to chase a failure.
-=========================================================
+Leakage proof: what it says, how to run it, and how to chase a failure.
+=======================================================================
+
+WHAT IS PROVED
+--------------
+The attacker sees every request the core puts on its memory interface, cycle
+by cycle: the address of each instruction fetch and the kind, address and width
+of each data access, but no data (Proof.Leakage.Model.Obs). These are the
+accesses a cache in front of the core receives, with their timing.
+
+The leakage is the constant-time one (Proof.Leakage.Model.L): per instruction,
+its class and source registers (functions of the code), its control flow
+(branch taken or not, jump target) and its data address. Proof.Leakage.Induction
+holds leakStep0..3, one per driver hop length, each in its own module
+(Proof.Leakage.Induction.Step0..3). Together with
+Proof.Functional.Induction.baseCase they give: two runs whose ISA-level
+constant-time leakage traces agree make the same memory requests, cycle by
+cycle.
+
+There is no assumption beyond the functional invariant, which describes the
+core attached to memory that answers every request in the next cycle
+(Proof.Machine.stepSys). In particular there is no assumption on addresses or
+on self-modifying code: a store that overlaps the instruction in decode stalls
+the core, and the stall depends only on the store's address, which the leakage
+carries.
 
 RUNNING
 -------
-Use Bitwuzla, not Z3. Z3 does not finish these queries in useful time; under
-Bitwuzla each solve is seconds and symbolisation dominates.
+Use Bitwuzla, not Z3. Z3 does not finish these queries in useful time.
 
   SBV_Z3=/opt/homebrew/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" \
-    stack build aimcore:lib > /tmp/model.txt 2>&1
+    stack test --no-run-tests > /tmp/model.txt 2>&1
   grep "^\[RECV\]" /tmp/model.txt
 
 Build at -O1 or above. Under `stack build --fast` GHC creates no unfoldings,
 the plugin cannot see through cross-module calls, and it aborts with
 `Unbound variable in symbolise: <name>` -- a BUILD failure, easily misread as a
 failed proof.
-
-WHAT IS PROVED
---------------
-Proof.Leakage.Induction holds leakStep0..3, one per driver hop length. All four
-are valid. Together with Proof.Functional.Induction.baseCase they give:
-an attacker watching the memory bus learns nothing beyond Proof.Leakage.Model.L.
-
-The only assumption beyond the functional invariant is
-Proof.Functional.Invariant.noStoreAlias -- no store writes a word the fetch path
-is using -- required at every state of a hop rather than only at its ends. There
-is no assumption on jump targets.
 
 CHASING A `sat`
 ---------------
@@ -36,10 +47,9 @@ RegIdx and Address.
 
 Decoding that by hand is a last resort. Two cheaper moves, in order:
 
-  1. Split the PREMISE to find which shape fails. leakStep3a / leakStep3b in
-     Proof.Leakage.Induction do this on `loadHazardD`, separating the two
-     shapes that reach a four-cycle hop. Their annotations are commented out;
-     enable them to reproduce.
+  1. Split the PREMISE to find which shape fails: copy the failing step module
+     and add a premise on the driver case, e.g. `loadHazardD sys` or its
+     negation, separating the shapes that reach the same hop length.
 
   2. Split the CONCLUSION to find which conjunct fails -- the state equality or
      one of the four observation slots. Assume the full premises and assert one

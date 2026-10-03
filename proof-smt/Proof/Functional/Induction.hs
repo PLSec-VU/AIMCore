@@ -27,6 +27,7 @@ module Proof.Functional.Induction
     -- the constructor looks dead to @-Wunused-top-binds@. It is also what a new
     -- property in this module would take as its pipeline-state argument.
     KState (..),
+    sysOf,
     arrRoundTrip,
     shiftsSane,
     baseCase,
@@ -73,7 +74,8 @@ data KState = KState
     kLoadInFlight :: Bool
   }
 
--- | Assemble a system state from the symbolic pieces.
+-- | Assemble a system state from the symbolic pieces. Shared with
+-- "Proof.Leakage.Induction", so both proofs quantify over the same states.
 sysOf :: KState -> Core.Input Identity -> RegArr -> MemArr -> SysG RegArrF MemArr
 sysOf ss i ra ma =
   Sys

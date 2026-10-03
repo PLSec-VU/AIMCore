@@ -29,8 +29,10 @@ import qualified Proof.SMT.Sanity as Sanity
 import qualified Prelude
 #ifdef SMT_PROOF
 import qualified Proof.Functional.Induction
+import qualified Proof.Leakage.Induction
 #endif
 import IsaSpec (isaConformanceTests)
+import LeakageSpec (leakageTests)
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -98,9 +100,12 @@ sanityTests =
       testCase "k = 2 inductive step is valid" $
         lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing
-      -- The four leakage steps are omitted while Proof.Leakage.Induction is out
-      -- of the build; see the note in package.yaml.
+        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+      testGroup
+        "constant-time leakage steps"
+        [ testCase name $ lookup name Proof.Leakage.Induction.results @?= Just Nothing
+          | name <- ["leakStep0", "leakStep1", "leakStep2", "leakStep3"]
+        ]
     ]
   where
     verdict :: String -> Maybe String
@@ -118,6 +123,7 @@ tests =
       sanityTests,
 #endif
       proofTests,
+      leakageTests,
       isaConformanceTests,
       instructionTests,
       cacheTests,

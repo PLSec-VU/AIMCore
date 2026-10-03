@@ -23,7 +23,7 @@ module Proof.Leakage.Simulator
     censorEx,
     censorPast,
     exLeak,
-    installJump,
+    parkAddress,
     scrub,
     simEq,
 
@@ -69,16 +69,17 @@ type SimSys r = SysG r ()
 -- | Remove the secrets from a core state.
 --
 -- Kept: the three program counters (they are the observable fetch addresses),
--- the halt state, the 'Core.inputIsInstr' flag, and the /class/ of each
--- pipeline instruction.
+-- the memory-stage address (the next observable data address), the halt state,
+-- the load-in-flight flag, the 'Core.inputIsInstr' flag, and the /class/ of
+-- each pipeline instruction.
 --
--- Removed: the register file, both result registers, the memory-stage address,
--- and the instruction word on the bus. The control lines are reset rather than
--- copied, because 'Core.withCtrlReset' rewrites them before any stage reads
--- them and they carry nothing between cycles.
+-- Removed: the register file, both result registers, and the instruction word
+-- on the bus. The control lines are reset rather than copied, because
+-- 'Core.withCtrlReset' rewrites them before any stage reads them and they carry
+-- nothing between cycles.
 censor :: (RegFileOps r) => SysG r m -> SimSys r
 censor sys@(Sys st inp _) =
-  installJump (jumpSource =<< exLeak sys) $
+  parkAddress (parkSource =<< exLeak sys) $
     Sys
       { sysState =
           State
@@ -88,7 +89,7 @@ censor sys@(Sys st inp _) =
               stateExInstr = censorEx sys,
               stateMeInstr = censorPast (stateMeInstr st),
               stateMeRes = Identity 0,
-              stateMeAddr = 0,
+              stateMeAddr = stateMeAddr st,
               stateWbInstr = censorPast (stateWbInstr st),
               stateWbRes = Identity 0,
               stateRegFile = initRFg,
@@ -136,9 +137,11 @@ censorEx sys = case exLeak sys of
 -- The destination register is dropped, unlike in 'censorEx'. No hazard check
 -- reads it here -- 'Core.decode', 'Proof.Driver.loadHazardD' and the
 -- invariant's @me->ex@ conjunct all look at the execute stage -- and dropping
--- it keeps a censored writeback from clobbering the value 'installJump' parks
+-- it keeps a censored writeback from clobbering the value 'parkAddress' parks
 -- in the register file. With @rd == 0@ the write is a no-op and
--- 'Core.regWithFwd' ignores the forwarding line.
+-- 'Core.regWithFwd' ignores the forwarding line. The address of a load or store
+-- does not matter here either: the memory stage reads it from
+-- 'Core.stateMeAddr', which 'censor' keeps.
 --
 -- Idempotent on its own image, which is what lets 'scrub' apply it to
 -- instructions the simulator produced itself.
@@ -146,12 +149,12 @@ censorPast :: Instruction -> Instruction
 censorPast ir = case ir of
   Nop DecodeFail -> inv (L CPlain (Nothing, Nothing))
   Nop reason -> Nop reason
-  IType (Load size _) _ _ _ -> inv (L (CLoad size 0) (mkDeps ir))
-  SType size _ _ _ -> inv (L (CStore size) (mkDeps ir))
+  IType (Load size _) _ _ _ -> inv (L (CLoad size 0 0) (mkDeps ir))
+  SType size _ _ _ -> inv (L (CStore size 0) (mkDeps ir))
   _ -> inv (L CPlain (mkDeps ir))
 
--- | Park a leaked jump target in the register file, where 'Core.execute' will
--- read it back.
+-- | Park a leaked address in the register file, where 'Core.execute' will read
+-- it back: a @jalr@ target, or the address of a load or store.
 --
 -- The register file is what 'Core.execute' reads, because in a censored state
 -- neither forwarding line can fire: 'censorPast' gives every memory- and
@@ -159,23 +162,22 @@ censorPast ir = case ir of
 --
 -- The value lives for exactly one hop -- the next 'censor' or 'scrub' rebuilds
 -- the register file -- and during that hop the only register-reading
--- instruction in the execute stage is the @jalr@ that needs it.
-installJump :: (RegFileOps r) => Maybe (RegIdx, Address) -> SimSys r -> SimSys r
-installJump Nothing ss = ss
-installJump (Just (src, target)) (Sys st inp m) =
+-- instruction in the execute stage is the one that needs it.
+parkAddress :: (RegFileOps r) => Maybe (RegIdx, Address) -> SimSys r -> SimSys r
+parkAddress Nothing ss = ss
+parkAddress (Just (src, a)) (Sys st inp m) =
   Sys
-    st {stateRegFile = modifyRFg src (Identity (pack target)) (stateRegFile st)}
+    st {stateRegFile = modifyRFg src (Identity (pack a)) (stateRegFile st)}
     inp
     m
 
 -- | Normalise the simulator's state at a hop boundary.
 --
 -- Two jobs. First, discard dead state: the register file, both result
--- registers, the memory-stage address and the parked bus word. Every
--- instruction 'inv' emits reads only registers held at zero, writes either
--- @x0@ or a load result that is zero, and never lets a result value reach an
--- observation, so 'censor' can zero them on the implementation side and the
--- two still agree.
+-- registers and the parked bus word. Every instruction 'inv' emits reads only
+-- registers held at zero or the parked address, writes either @x0@ or a load
+-- result that is zero, and never lets a result value reach an observation, so
+-- 'censor' can zero them on the implementation side and the two still agree.
 --
 -- Second, re-censor the memory- and writeback-stage instructions. 'censorEx'
 -- resolves an execute-stage branch to a taken or untaken representative, and
@@ -185,7 +187,7 @@ installJump (Just (src, target)) (Sys st inp m) =
 -- 'censorPast' on both sides reconciles them.
 scrub :: (RegFileOps r) => L -> SimSys r -> SimSys r
 scrub l (Sys st inp _) =
-  installJump parked $
+  parkAddress parked $
     Sys
       { sysState =
           st
@@ -193,7 +195,6 @@ scrub l (Sys st inp _) =
               stateWbInstr = censorPast (stateWbInstr st),
               stateMeRes = Identity 0,
               stateWbRes = Identity 0,
-              stateMeAddr = 0,
               stateRegFile = initRFg,
               stateCtrl = initCtrl
             },
@@ -205,7 +206,7 @@ scrub l (Sys st inp _) =
     -- injected, so its leakage is @l@ -- unless it was squashed or the core
     -- halted, in which case that stage holds a @Nop@ and nothing is parked.
     parked
-      | stateExInstr st == inv l = jumpSource l
+      | stateExInstr st == inv l = parkSource l
       | otherwise = Nothing
 
 -- | Structural equality on simulator states, at one witness register.
@@ -272,6 +273,7 @@ proj sys = (archOfLeak sys, censor sys)
 -- The shape of 'Proof.Machine.stepSysOut', except that there is no memory to
 -- service: an instruction fetch is answered with the leaked word, a data read
 -- with zero, and a write with zero exactly as 'Proof.Machine.stepSys' does.
+-- Like 'Proof.Machine.stepSysOut', it answers every request in the next cycle.
 stepSimOut :: (RegFileOps r) => Word -> SimSys r -> (SimSys r, Output Identity)
 stepSimOut w (Sys s i _) =
   let (s', o) = Core.circuit s i

@@ -110,6 +110,11 @@ library:
       source-dirs: proof-smt
       exposed-modules:
         - Proof.Functional.Induction
+        - Proof.Leakage.Induction
+        - Proof.Leakage.Induction.Step0
+        - Proof.Leakage.Induction.Step1
+        - Proof.Leakage.Induction.Step2
+        - Proof.Leakage.Induction.Step3
         - Proof.SMT.Sanity
       cpp-options: -DSMT_PROOF
   exposed-modules:
@@ -120,11 +125,6 @@ library:
     - Proof.Leakage.Model
     - Proof.Leakage.Simulator
     - Proof.Leakage.Obligation
-    # Proof.Leakage.Induction: temporarily out of the build. Its four properties
-    # are invalid since the aliasing-store assumption was dropped, and the
-    # counterexample-extraction path trips a Pantomime/effectful unlifting bug
-    # ("version (2356) /= storageVersion (0)") that fails the build outright.
-    # Restore once the leakage model can express the store-hazard stall.
     - Proof.SMT.Array
     - Proof.SMT.Axioms
     - Proof.SMT.Logged
