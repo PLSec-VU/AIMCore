@@ -1,19 +1,28 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | A small, swappable cache model.
+--
+-- A cache holds, per four-byte block, the word that starts at the block's first
+-- byte. Lookups, inserts and invalidations are keyed by any address in the
+-- block. A read is answered from the block's word by 'fromBlock', which is only
+-- correct for a read that stays inside one block ('inBlock').
 module Memory.Cache
   ( CacheOps (..),
     CacheOutcome (..),
     cacheAccess,
+    blockStart,
+    inBlock,
+    fromBlock,
     CacheLine (..),
     DirectMapped (..),
     mkDirectMapped,
+    coherent,
   )
 where
 
 import Clash.Prelude hiding (Word, init)
 import Data.Proxy (Proxy (..))
-import Types (Address, Word)
+import Types (Address, Size (..), Word)
 import Prelude hiding (Word, repeat, (!!), (&&))
 
 -- | Whether a lookup was a hit or a miss.
@@ -31,7 +40,8 @@ class CacheOps c where
   -- | Invalidate the line for an address.
   cacheInvalidate :: Address -> c -> c
 
--- | Access memory through a cache, reading backing memory on a miss.
+-- | Read the word of an address's block through a cache, from backing memory on
+-- a miss. 'fromBlock' cuts the bytes at the address out of it.
 cacheAccess ::
   (CacheOps c) =>
   (Address -> Word) ->
@@ -41,8 +51,27 @@ cacheAccess ::
 cacheAccess readBacking addr c = case cacheLookup addr c of
   Just w -> (c, w, Hit)
   Nothing ->
-    let w = readBacking addr
+    let w = readBacking (blockStart addr)
      in (cacheInsert addr w c, w, Miss)
+
+-- | The address of the first byte of the block an address lies in.
+blockStart :: Address -> Address
+blockStart addr = addr .&. complement 3
+
+-- | Does an access of this size at this address stay inside one block?
+inBlock :: Address -> Size -> Bool
+inBlock addr size = (addr .&. 3) + bytes size <= 4
+  where
+    bytes Byte = 1
+    bytes Half = 2
+    bytes Word = 4
+
+-- | What a read at an address returns, cut from the word of its block: the byte
+-- at the address moved to the bottom, the bytes before it dropped. The bytes the
+-- read's width covers are exactly memory's when the read stays inside the
+-- block; the core uses no others ('Instruction.loadExtend').
+fromBlock :: Address -> Word -> Word
+fromBlock addr w = w `shiftR` (8 * fromIntegral (addr .&. 3))
 
 -- | One line of a direct-mapped cache.
 data CacheLine = CacheLine
@@ -61,6 +90,16 @@ newtype DirectMapped n = DirectMapped (Vec n CacheLine)
 
 mkDirectMapped :: (KnownNat n) => DirectMapped n
 mkDirectMapped = DirectMapped (repeat invalidLine)
+
+-- | Does every valid line hold the word its block starts with in this memory?
+-- The invariant that makes the cache answer reads as memory would.
+coherent :: forall n. (KnownNat n) => (Address -> Word) -> DirectMapped n -> Bool
+coherent readWordAt (DirectMapped ls) = and (imap ok ls)
+  where
+    ok :: Index n -> CacheLine -> Bool
+    ok i l
+      | clValid l = clWord l == readWordAt (4 * (clTag l * fromIntegral (natVal (Proxy @n)) + fromIntegral i))
+      | otherwise = True
 
 blockOf :: Address -> Address
 blockOf addr = addr `div` 4

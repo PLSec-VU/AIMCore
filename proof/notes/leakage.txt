@@ -24,6 +24,19 @@ on self-modifying code: a store that overlaps the instruction in decode stalls
 the core, and the stall depends only on the store's address, which the leakage
 carries.
 
+BEHIND A CACHE
+--------------
+Proof.Machine.stepCachedOut puts a data cache between the core and memory
+(Memory.Cache): a read that misses is answered only after the miss penalty, and
+the core stalls meanwhile. Proof.Cache.Induction holds stallStep: a stall cycle
+is a stutter step -- no request, and nothing in the core changes but the
+control lines (Proof.Cache.Obligation). test/CompositionSpec.hs checks the rest
+concretely: the cache stays coherent with memory, the cached run is the ideal
+run with stall cycles inserted, and a program whose control flow and addresses
+do not depend on loaded data makes the same requests at the same times behind
+the cache whatever the data. The cache's own leakage, and the theorem composing
+it with the core's, are not stated yet.
+
 RUNNING
 -------
 Use Bitwuzla, not Z3. Z3 does not finish these queries in useful time.

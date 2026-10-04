@@ -8,10 +8,10 @@
 -- after the miss penalty, and in the meantime the core stalls. The tests here
 -- check the two facts that let the ideal-memory result carry over:
 --
---   * a stall cycle makes no request and changes nothing in the core but the
---     decode-stage PC, and every other cycle is a cycle of the ideal run -- so
---     the cached run makes the ideal run's requests, with stall cycles
---     inserted;
+--   * a stall cycle is a stutter step ('Proof.Cache.Obligation.stallObligation'),
+--     the cache stays coherent with memory, and every other cycle is a cycle of
+--     the ideal run -- so the cached run is the ideal run with stall cycles
+--     inserted, and makes the same requests;
 --   * end to end, a program whose control flow and addresses do not depend on
 --     the data it loads makes the same requests at the same times behind a
 --     cache, whatever the data.
@@ -29,9 +29,11 @@ import Instruction
 import LeakageSpec (genCTProg)
 import Memory.Cache
 import Memory.Types
+import Proof.Cache.Obligation (stallObligation)
 import Proof.Leakage.Model
 import Proof.Leakage.Simulator (archOfLeak)
 import Proof.Machine
+import ProofSpec (genArbSys1)
 import RegFile (RegFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.QuickCheck
@@ -42,32 +44,22 @@ import qualified Prelude as P
 -- | The cache the tests use: four one-word lines, so lines collide often.
 type TestCache = DirectMapped 4
 
--- | Two systems equal up to what a stall may change and nobody observes.
---
--- The control lines never matter: 'Core.withCtrlReset' overwrites them before
--- any stage reads them. The decode-stage PC and the PC of a bubble in execute
--- may differ too. A stall freezes decode and execute but not fetch, which keeps
--- copying the fetch PC into the decode PC; when the cycle that issued the load
--- also redirected fetch (a taken jump, a hazard's refetch), that changes the
--- decode PC. The cycle after the stall is then the second cycle of the
--- redirect, whose decode emits a bubble regardless, so the only trace left is
--- the PC of that bubble, overwritten one cycle later.
-sameUpToStall :: Sys -> Sys -> Bool
-sameUpToStall (Sys a ia ma) (Sys b ib mb) =
-  norm a == norm b
+-- | Two systems equal in everything but the control lines, which
+-- 'Core.withCtrlReset' overwrites before any stage reads them, and the bytes of a
+-- data read the core does not use. A cache answers a read from its block's word
+-- ('Memory.Cache.fromBlock'), so only the bytes the load's width covers have to
+-- agree with memory; 'Core.writeback' extends exactly those.
+sameModuloCtrl :: Sys -> Sys -> Bool
+sameModuloCtrl (Sys a ia ma) (Sys b ib mb) =
+  a {stateCtrl = initCtrl} == b {stateCtrl = initCtrl}
     P.&& inputIsInstr ia == inputIsInstr ib
-    P.&& runIdentity (inputMem ia) == runIdentity (inputMem ib)
+    P.&& usedBytes (runIdentity (inputMem ia)) == usedBytes (runIdentity (inputMem ib))
     P.&& inputMemReady ia == inputMemReady ib
     P.&& ma == mb
   where
-    norm st =
-      st
-        { stateCtrl = initCtrl,
-          stateDePc = 0,
-          stateExPc = case stateExInstr st of
-            Nop _ -> 0
-            _ -> stateExPc st
-        }
+    usedBytes w = case stateWbInstr a of
+      IType (Load size sign) _ _ _ | P.not (inputIsInstr ia) -> loadExtend size sign w
+      _ -> w
 
 -- | The fields, other than the control lines, on which two systems differ, as
 -- @field(first | second)@.
@@ -105,27 +97,31 @@ coreDiff (Sys a ia ma) (Sys b ib mb) =
 -- | Walk the cached system and the ideal one together for @n@ cycles of the
 -- cached one, skipping the cached run's stall cycles -- those whose bus input is
 -- not ready -- in the ideal one. Returns @\"\"@ if every stall cycle makes no
--- request and leaves the core alone up to 'sameUpToStall', and every other
--- cycle makes the ideal run's request from the ideal run's state, up to
--- 'sameUpToStall'.
+-- request and leaves the core alone, the cache stays coherent with memory, and
+-- every other cycle makes the ideal run's request from the ideal run's state, up
+-- to 'sameModuloCtrl'.
 stutterReport :: Int -> Int -> Vec PROG_SIZE Word -> String
-stutterReport penalty n prog = go n (0 :: Int) (initCacheSys sys0 (mkDirectMapped :: TestCache)) sys0
+stutterReport penalty n prog = stutterReport' penalty n (initSys prog)
+
+-- | 'stutterReport' from a given initial system.
+stutterReport' :: Int -> Int -> Sys -> String
+stutterReport' penalty n sys0 = go n (0 :: Int) (initCacheSys sys0 (mkDirectMapped :: TestCache)) sys0
   where
-    sys0 = initSys prog
 
     go :: Int -> Int -> CacheSys RegFile MemBytes TestCache -> Sys -> String
     go 0 _ _ _ = ""
     go j c cs ideal
       | P.not (running core) = ""
+      | P.not (coherent (`readWord` sysMem core) (cacheSysCache cs)) = failAt "the cache is not coherent with memory" ""
       | P.not ready =
           if obsOf oC /= NoAccess
             then failAt "a stall cycle made a request: " (show (obsOf oC))
             else
               -- The bus input is the memory's answer, which may arrive now.
-              if P.not (sameUpToStall (withInput (cacheSysCore cs')) core)
+              if P.not (sameModuloCtrl (withInput (cacheSysCore cs')) core)
                 then failAt "a stall cycle changed the core: " (P.unwords (coreDiff core (cacheSysCore cs')))
                 else go (j - 1) (c + 1) cs' ideal
-      | P.not (sameUpToStall core ideal) = failAt "the cached core left the ideal run: " (P.unwords (coreDiff ideal core))
+      | P.not (sameModuloCtrl core ideal) = failAt "the cached core left the ideal run: " (P.unwords (coreDiff ideal core))
       | obsOf oC /= obsOf oI = failAt "different requests: " (show (obsOf oC, obsOf oI))
       | otherwise = go (j - 1) (c + 1) cs' ideal'
       where
@@ -212,6 +208,50 @@ genSecretFreeProg = do
           (\t -> fromIntegral initPc + 4 * t) <$> choose (0, n)
         ]
 
+-- | Programs whose loads and stores have every width and alignment, including
+-- reads and writes that straddle two blocks.
+--
+-- Base registers @x5@ and @x6@ are set only from constants, to data addresses,
+-- so no access reaches the program; offsets are any byte offset up to 11.
+-- Stores store data registers, loads write them, and branches compare them, so
+-- loaded values flow back into memory and into control flow.
+genByteProg :: Gen (Vec PROG_SIZE Word)
+genByteProg = do
+  n <- choose (2, 14)
+  body <- P.mapM (genOne n) [0 .. n - 1]
+  let instrs = P.map roundTrips body P.++ P.replicate (50 - n) Instruction.break
+  pure (map encode (unsafeFromList instrs))
+  where
+    roundTrips i = case encode' i of
+      Just w | decode' w == i -> i
+      _ -> IType (Arith ADD) 0 0 0
+
+    genOne n i =
+      frequency
+        [ (2, RType <$> elements [ADD, SUB, XOR, OR, AND] <*> genDst <*> genDst <*> genDst),
+          (3, (\b k -> IType (Arith ADD) b 0 (fromIntegral (4 * k :: Int))) <$> genBase <*> choose (0, 40)),
+          ( 4,
+            (\size sign rd b off -> IType (Load size sign) rd b off)
+              <$> elements [Byte, Half, Types.Word]
+              <*> elements [Signed, Unsigned]
+              <*> genDst
+              <*> genBase
+              <*> genOff
+          ),
+          (3, (\size off b rs2 -> SType size off b rs2) <$> elements [Byte, Half, Types.Word] <*> genOff <*> genBase <*> genDst),
+          ( 1,
+            (\cmp t rs1 rs2 -> BType cmp (fromIntegral ((t - i) * 4)) rs1 rs2)
+              <$> elements [EQ, NE, LT, GE, LTU, GEU]
+              <*> choose (i + 1, n)
+              <*> genDst
+              <*> genDst
+          )
+        ]
+
+    genBase = elements [5, 6]
+    genDst = elements [1, 2, 3, 4]
+    genOff = fromIntegral <$> choose (0 :: Int, 11)
+
 compositionTests :: TestTree
 compositionTests =
   testGroup
@@ -222,6 +262,18 @@ compositionTests =
             forAll (choose (1, 4)) $ \penalty ->
               let r = stutterReport penalty 300 prog
                in counterexample r (P.null r),
+      testProperty "... also with reads and writes of every width and alignment" $
+        withMaxSuccess 2000 $
+          forAll genByteProg $ \prog ->
+            forAll genData $ \ds ->
+              forAll (choose (1, 4)) $ \penalty ->
+                let r = stutterReport' penalty 300 (withData ds (initSys prog))
+                 in counterexample r (P.null r),
+      testProperty "a stall cycle is a stutter step, on arbitrary stalled states" $
+        withMaxSuccess 5000 $
+          forAllShow genArbSys1 (const "<state>") $ \(Sys st inp _, wr, _) ->
+            isLoad (stateWbInstr st) ==>
+              stallObligation wr st {stateLoadInFlight = True} inp {inputMemReady = False},
       testProperty "a secret-free program leaks nothing about its data, behind a cache" $
         withMaxSuccess 1000 $
           forAll genSecretFreeProg $ \prog ->

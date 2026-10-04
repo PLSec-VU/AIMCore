@@ -38,7 +38,7 @@ import Data.Functor.Identity
 import Data.Maybe (isNothing)
 import Data.Monoid (getFirst)
 import Instruction
-import Memory.Cache (CacheOps (..))
+import Memory.Cache (CacheOps (..), blockStart, fromBlock, inBlock)
 import Memory.Types
 import RegFile
 import Types
@@ -137,8 +137,8 @@ readMemWord = readWord
 data CacheSys r m c = CacheSys
   { cacheSysCore :: SysG r m,
     cacheSysCache :: c,
-    -- | Address and remaining cycles for a pending load miss.
-    cacheSysPending :: Maybe (Address, Int)
+    -- | A read waiting for memory: its address and width, and the cycles left.
+    cacheSysPending :: Maybe (Address, Size, Int)
   }
 
 deriving instance (Show (r Identity), Show m, Show c) => Show (CacheSys r m c)
@@ -147,6 +147,14 @@ initCacheSys :: SysG r m -> c -> CacheSys r m c
 initCacheSys sys cache = CacheSys sys cache Nothing
 
 -- | Step a system with memory serviced through a cache.
+--
+-- Instruction fetches bypass the cache and are answered in the next cycle. A
+-- data read that hits is answered in the next cycle from its block's word; one
+-- that misses is answered after @missPenalty@ cycles, during which the bus is
+-- not ready, and its block is then installed. A read that straddles two blocks
+-- is not cached: it always takes the miss penalty and installs nothing. A write
+-- goes straight to memory, is answered in the next cycle, and invalidates every
+-- block it touches.
 stepCached :: (RegFileOps r, MemOps m, CacheOps c) => Int -> CacheSys r m c -> CacheSys r m c
 stepCached missPenalty = fst . stepCachedOut missPenalty
 
@@ -160,19 +168,30 @@ stepCachedOut missPenalty (CacheSys (Sys s i m) cache pending) =
       (i', m', cache', pending') = respond (getFirst (outMem o)) m cache pending
    in (CacheSys (Sys s' i' m') cache' pending', o)
   where
-    respond mAccess mem c (Just (addr, n))
-      | n > 0 = (Input False (pure 0) False, mem, c, Just (addr, n - 1))
-      | otherwise =
-          let w = memReadWord addr mem
-           in (Input False (pure w) True, mem, cacheInsert addr w c, Nothing)
+    respond _ mem c (Just (addr, size, n))
+      | n > 0 = (Input False (pure 0) False, mem, c, Just (addr, size, n - 1))
+      | inBlock addr size =
+          let w = memReadWord (blockStart addr) mem
+           in (Input False (pure (fromBlock addr w)) True, mem, cacheInsert addr w c, Nothing)
+      | otherwise = (Input False (pure (memReadWord addr mem)) True, mem, c, Nothing)
     respond Nothing mem c Nothing = (Input False (pure 0) True, mem, c, Nothing)
     respond (Just (MemAccess isInstr addr size mval)) mem c Nothing = case mval of
       Just val ->
-        (Input isInstr (pure 0) True, memWriteWord size addr (runIdentity val) mem, cacheInvalidate addr c, Nothing)
-      Nothing | isInstr -> (Input isInstr (pure (memReadWord addr mem)) True, mem, c, Nothing)
-      Nothing -> case cacheLookup addr c of
-        Just w -> (Input isInstr (pure w) True, mem, c, Nothing)
-        Nothing -> (Input isInstr (pure 0) False, mem, c, Just (addr, missPenalty - 1))
+        ( Input isInstr (pure 0) True,
+          memWriteWord size addr (runIdentity val) mem,
+          cacheInvalidate (lastByte addr size) (cacheInvalidate addr c),
+          Nothing
+        )
+      Nothing
+        | isInstr -> (Input isInstr (pure (memReadWord addr mem)) True, mem, c, Nothing)
+        | inBlock addr size, Just w <- cacheLookup addr c ->
+            (Input isInstr (pure (fromBlock addr w)) True, mem, c, Nothing)
+        | otherwise -> (Input isInstr (pure 0) False, mem, c, Just (addr, size, missPenalty - 1))
+
+    lastByte addr size = addr + case size of
+      Types.Byte -> 0
+      Types.Half -> 1
+      Types.Word -> 3
 
 stepCachedN :: (RegFileOps r, MemOps m, CacheOps c) => Int -> Int -> CacheSys r m c -> CacheSys r m c
 stepCachedN missPenalty n s
