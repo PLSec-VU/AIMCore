@@ -32,6 +32,7 @@ module Proof.Leakage.Obligation
   ( leakObligation,
     leakObligationAt,
     leakPremises,
+    leakBaseObligation,
   )
 where
 
@@ -69,3 +70,23 @@ leakObligation wr wa sys =
 leakObligationAt ::
   (RegFileOps r, MemOps m) => Int -> RegIdx -> Address -> SysG r m -> Bool
 leakObligationAt k wr wa sys = driver sys /= k || leakObligation wr wa sys
+
+-- | The base case: the first hop out of reset.
+--
+-- 'leakObligation' does not cover it. Its premise is the invariant, which the
+-- reset state does not satisfy: nothing is in the pipeline yet.
+-- 'Proof.Functional.Induction.baseCase' states the functional side of the same
+-- hop. For the reset states @sys@ and @other@ of any two programs, this says
+-- that the simulator starts in the same state for both -- everything it learns
+-- about the program reaches it through the leakage -- and that the reset hop of
+-- @sys@ commutes with the projection, with equal observations.
+leakBaseObligation ::
+  (RegFileOps r, MemOps m) => RegIdx -> SysG r m -> SysG r m -> Bool
+leakBaseObligation wr sys other =
+  simEq wr (censor sys) (censor other)
+    && driver sys == 1
+    && simEq wr (censor sysI) ss'
+    && obsI == obsL
+  where
+    (sysI, obsI) = implHop sys
+    ((_, ss'), obsL) = leakSimHop (proj sys)

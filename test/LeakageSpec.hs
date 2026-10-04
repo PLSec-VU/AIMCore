@@ -219,12 +219,12 @@ leakageTests :: TestTree
 leakageTests =
   testGroup
     "Constant-time leakage refinement"
-    [ testProperty "proj holds at reset for any program" $
+    [ testProperty "base case: the reset hop commutes, from the same simulator state for any two programs" $
         withMaxSuccess 2000 $
-          forAll genProg $ \prog ->
-            let sys0 = initSys prog
-                (a0, ss0) = proj sys0
-             in isaPc a0 == initPc P.&& simEqAll ss0 (censor sys0),
+          forAll (oneof [genProg, genCTProg]) $ \p ->
+            forAll (oneof [genProg, genCTProg]) $ \q ->
+              P.all (\wr -> leakBaseObligation wr (initSys p) (initSys q)) [0 .. 31]
+                P.&& isaPc (archOfLeak (initSys p)) == initPc,
       testGroup
         "lockstep walk on fixed programs"
         [ testCase name $ expectEmpty (leakWalkReport 60 prog)

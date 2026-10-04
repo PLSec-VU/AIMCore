@@ -112,6 +112,7 @@ library:
         - Proof.Cache.Induction
         - Proof.Functional.Induction
         - Proof.Leakage.Induction
+        - Proof.Leakage.Induction.Base
         - Proof.Leakage.Induction.Step0
         - Proof.Leakage.Induction.Step1
         - Proof.Leakage.Induction.Step2

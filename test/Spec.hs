@@ -106,7 +106,7 @@ sanityTests =
       testGroup
         "constant-time leakage steps"
         [ testCase name $ lookup name Proof.Leakage.Induction.results @?= Just Nothing
-          | name <- ["leakStep0", "leakStep1", "leakStep2", "leakStep3"]
+          | name <- ["leakBase", "leakStep0", "leakStep1", "leakStep2", "leakStep3"]
         ],
       testCase "a stall cycle behind a cache is a stutter step" $
         lookup "stallStep" Proof.Cache.Induction.results @?= Just Nothing

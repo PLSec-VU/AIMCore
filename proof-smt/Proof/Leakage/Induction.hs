@@ -2,13 +2,15 @@
 --
 -- One property per driver delay: on a hop of that length,
 -- 'Proof.Leakage.Obligation.leakObligation' holds -- the projection commutes
--- with the hop and the two machines make the same observations. Each property
--- lives in its own module ("Proof.Leakage.Induction.Step0" to
+-- with the hop and the two machines make the same observations. The base case
+-- ('Proof.Leakage.Obligation.leakBaseObligation') covers the first hop out of
+-- reset, where the invariant does not hold yet. Each property lives in its own
+-- module ("Proof.Leakage.Induction.Base", "Proof.Leakage.Induction.Step0" to
 -- "Proof.Leakage.Induction.Step3"); this one collects their verdicts.
 --
--- These four plus 'Proof.Functional.Induction.baseCase' are the leakage
--- theorem: the functional half establishes that the invariant holds wherever
--- the driver lands, which is what each property here assumes. They quantify
+-- These five plus the functional proof ("Proof.Functional.Induction") are the
+-- leakage theorem: the functional half establishes that the invariant holds
+-- wherever the driver lands, which is what each step here assumes. They quantify
 -- over the same symbolic states as the functional steps
 -- ('Proof.Functional.Induction.sysOf').
 --
@@ -25,11 +27,12 @@ module Proof.Leakage.Induction
   )
 where
 
+import qualified Proof.Leakage.Induction.Base as Base
 import qualified Proof.Leakage.Induction.Step0 as Step0
 import qualified Proof.Leakage.Induction.Step1 as Step1
 import qualified Proof.Leakage.Induction.Step2 as Step2
 import qualified Proof.Leakage.Induction.Step3 as Step3
 
--- | The verdicts of the four steps: 'Nothing' when valid.
+-- | The verdicts of the base case and the four steps: 'Nothing' when valid.
 results :: [(String, Maybe String)]
-results = Step0.results <> Step1.results <> Step2.results <> Step3.results
+results = Base.results <> Step0.results <> Step1.results <> Step2.results <> Step3.results

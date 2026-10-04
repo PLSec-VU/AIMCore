@@ -28,6 +28,7 @@ module Proof.Functional.Induction
     -- property in this module would take as its pipeline-state argument.
     KState (..),
     sysOf,
+    resetSys,
     arrRoundTrip,
     shiftsSane,
     baseCase,
@@ -130,6 +131,18 @@ shiftsSane x =
 
 -- The base case ----------------------------------------------------------------
 
+-- | The reset state, with a given register file and memory -- any loaded
+-- program. Shared with the leakage base case.
+--
+-- Every field except the register file comes from 'Core.init' itself, so the
+-- reset shape cannot drift from the real one. The register file has to be
+-- substituted because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque
+-- 'repeat'.
+resetSys :: RegArr -> MemArr -> SysG RegArrF MemArr
+resetSys ra ma = Sys st Core.initInput ma
+  where
+    st = (Core.init :: Core.StateG RegArrF Identity) {Core.stateRegFile = RegArrF ra}
+
 -- | The invariant holds once the reset state has taken its first hop.
 --
 -- Without this the four steps below say only that the invariant is /preserved/,
@@ -145,12 +158,9 @@ shiftsSane x =
 -- ISA steps. Handling it here rather than as a case of the invariant is what
 -- lets every inductive step retire exactly one instruction.
 --
--- It holds for any loaded program, hence the arbitrary memory. Every field
--- except the register file comes from 'Core.init' itself, so the reset shape
--- cannot drift from the real one. The register file has to be substituted
--- because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque 'repeat'.
+-- It holds for any loaded program, hence the arbitrary memory ('resetSys').
 --
--- Note what that substitution costs: memory and the register file are the same
+-- Note what substituting the register file costs: memory and the register file are the same
 -- symbolic values on both sides, and the reset hop writes neither, so the
 -- invariant's two container equalities hold by construction here and this
 -- property alone would not notice if the core's reset register file and the
@@ -162,8 +172,7 @@ baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
 baseCase ra ma wr wa =
   Pantomime.boolean $ driver sys == 1 && invAtFree wr wa isa (stepSys (stepSys sys))
   where
-    st = (Core.init :: Core.StateG RegArrF Identity) {Core.stateRegFile = RegArrF ra}
-    sys = Sys st Core.initInput ma
+    sys = resetSys ra ma
     isa = IsaState {isaPc = initPc, isaRegFile = RegArrF ra, isaMem = ma}
 
 -- The inductive steps ----------------------------------------------------------

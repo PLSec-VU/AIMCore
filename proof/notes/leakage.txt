@@ -11,11 +11,14 @@ accesses a cache in front of the core receives, with their timing.
 The leakage is the constant-time one (Proof.Leakage.Model.L): per instruction,
 its class and source registers (functions of the code), its control flow
 (branch taken or not, jump target) and its data address. Proof.Leakage.Induction
-holds leakStep0..3, one per driver hop length, each in its own module
-(Proof.Leakage.Induction.Step0..3). Together with
-Proof.Functional.Induction.baseCase they give: two runs whose ISA-level
-constant-time leakage traces agree make the same memory requests, cycle by
-cycle.
+holds leakBase and leakStep0..3, each in its own module
+(Proof.Leakage.Induction.Base, Step0..3). leakBase is the first hop out of
+reset, which the steps do not cover because the reset state does not satisfy
+the invariant; it also says the simulator starts in the same state for every
+program. leakStep0..3 are the hops that start in the invariant, one per hop
+length. Together with the functional proof (Proof.Functional.Induction) they
+give: two runs whose ISA-level constant-time leakage traces agree make the same
+memory requests, cycle by cycle.
 
 There is no assumption beyond the functional invariant, which describes the
 core attached to memory that answers every request in the next cycle
