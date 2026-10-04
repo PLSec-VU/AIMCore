@@ -281,9 +281,15 @@ setSecurityViolation :: CPUM r f ()
 setSecurityViolation =
   modify $ \s -> s {stateHalt = Just SecurityViolation}
 
--- | The fetch stage.
+-- | The fetch stage. Frozen, like decode and execute, while a load is in
+-- flight: a stall then leaves every pipeline register as it was.
 fetch :: CPUM r f ()
 fetch = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight fetchFresh
+
+fetchFresh :: CPUM r f ()
+fetchFresh = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
 

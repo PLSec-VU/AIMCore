@@ -109,6 +109,7 @@ library:
     - condition: flag(smt-proof)
       source-dirs: proof-smt
       exposed-modules:
+        - Proof.Cache.Induction
         - Proof.Functional.Induction
         - Proof.Leakage.Induction
         - Proof.Leakage.Induction.Step0
@@ -118,6 +119,7 @@ library:
         - Proof.SMT.Sanity
       cpp-options: -DSMT_PROOF
   exposed-modules:
+    - Proof.Cache.Obligation
     - Proof.Machine
     - Proof.Driver
     - Proof.Functional.Invariant
