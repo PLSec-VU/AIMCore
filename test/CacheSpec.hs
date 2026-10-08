@@ -74,7 +74,7 @@ cyclesToHalt = go 0
   where
     go !n cs
       | not (running (cacheSysCore cs)) = n
-      | otherwise = go (n + 1) (stepCached missPenalty cs)
+      | otherwise = go (n + 1) (stepCached (fromIntegral missPenalty) cs)
 
 timingLeakTests :: TestTree
 timingLeakTests =

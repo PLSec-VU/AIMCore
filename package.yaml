@@ -121,6 +121,7 @@ library:
       cpp-options: -DSMT_PROOF
   exposed-modules:
     - Proof.Cache.Obligation
+    - Proof.Cache.Server
     - Proof.Machine
     - Proof.Driver
     - Proof.Functional.Invariant

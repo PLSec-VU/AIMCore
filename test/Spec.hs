@@ -108,8 +108,11 @@ sanityTests =
         [ testCase name $ lookup name Proof.Leakage.Induction.results @?= Just Nothing
           | name <- ["leakBase", "leakStep0", "leakStep1", "leakStep2", "leakStep3"]
         ],
-      testCase "a stall cycle behind a cache is a stutter step" $
-        lookup "stallStep" Proof.Cache.Induction.results @?= Just Nothing
+      testGroup
+        "the core is patient, and the cache has a server proof"
+        [ testCase name $ lookup name Proof.Cache.Induction.results @?= Just Nothing
+          | name <- ["stallStep", "waitStep", "srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
+        ]
     ]
   where
     verdict :: String -> Maybe String

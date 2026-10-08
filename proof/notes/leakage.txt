@@ -29,16 +29,40 @@ carries.
 
 BEHIND A CACHE
 --------------
-Proof.Machine.stepCachedOut puts a data cache between the core and memory
-(Memory.Cache): a read that misses is answered only after the miss penalty, and
-the core stalls meanwhile. Proof.Cache.Induction holds stallStep: a stall cycle
-is a stutter step -- no request, and nothing in the core changes but the
-control lines (Proof.Cache.Obligation). test/CompositionSpec.hs checks the rest
-concretely: the cache stays coherent with memory, the cached run is the ideal
-run with stall cycles inserted, and a program whose control flow and addresses
-do not depend on loaded data makes the same requests at the same times behind
-the cache whatever the data. The cache's own leakage, and the theorem composing
-it with the core's, are not stated yet.
+Proof.Machine.stepCachedOut is the core in a loop with a server, the cache in
+front of memory (Proof.Machine.cacheServe), as stepSysOut is the core in a loop
+with ideal memory (Proof.Machine.idealServe). Both answer a read with exactly the
+bytes it asks for (Proof.Machine.readResp), so the cache can give the same answer
+as memory although it holds only the read's block.
+
+The composition theorem of the paper turns the core's leakage proof behind
+ideal memory into one behind the cache, given three more things, all proved in
+Proof.Cache.Induction:
+
+  * a server proof for the cache (Proof.Cache.Server), for the four-line cache
+    Memory.Cache.Cache4 and a miss penalty of three. Its driver is the hop of a
+    request: the request, then no request until the response is ready. Invariant:
+    no miss pending, cache coherent with memory (Memory.Cache.coherent4, which
+    also bounds tags to the 28 bits an address has: a valid line with a wider
+    tag is never invalidated by a write to its block). Flush: the memory.
+    Censor: the cache without its data. Simulator: the cache's own hop on the
+    censored cache in front of a memory of zeros. srvInitP: the empty cache
+    starts in the invariant. srvRefineP: the hop of a request ends with ideal
+    memory's response and memory. srvLeakP: the ready bits of the hop and the
+    next tags follow from the tags and the observation of the request
+    (Proof.Leakage.Model.obsReq, which is also the core's attacker; it takes
+    every request carrying a value as a write, as both memories do, though the
+    core never fetches with one);
+  * patience of the core: stallStep (a stall cycle changes nothing but the
+    control lines, which Core.withCtrlReset resets before any stage reads them),
+    and waitStep (after a data read the core waits);
+  * stallsOnReadsP: the cache answers late only to a data read.
+
+test/CompositionSpec.hs checks the same statements concretely, and the
+theorem's conclusion end to end: the cached core's bus trace equals the one
+computed from the leakage alone, by the core's simulator followed by the
+cache's. Cache4 is DirectMapped 4 written without Vec, which the verifier cannot
+execute; the tests check that the two agree.
 
 RUNNING
 -------
@@ -73,7 +97,9 @@ Decoding that by hand is a last resort. Two cheaper moves, in order:
 
 Then reproduce concretely with test/LeakageSpec.hs, whose arbitrary-state
 generators range over the same space the symbolic properties quantify over
-(unreachable states included) and give a shrunk, printable counterexample. If
+(unreachable states included) and give a shrunk, printable counterexample. For
+the cache's obligations the generators of test/CompositionSpec.hs play that
+role (genSrv, genReq: tags no address has, fetches carrying a value). If
 the search cannot find it, the generator is missing a shape: check that the
 instruction forms involved are actually generated before concluding the state
 is unreachable.

@@ -26,40 +26,37 @@ import Core
 import Data.Functor.Identity (Identity (..))
 import ISA (IsaState, StepG (..), isaStep)
 import Instruction
+import Data.Maybe (catMaybes)
+import Data.Monoid (getFirst)
 import LeakageSpec (genCTProg)
 import Memory.Cache
 import Memory.Types
-import Proof.Cache.Obligation (stallObligation)
+import Proof.Cache.Obligation (stallObligation, waitObligation)
+import Proof.Cache.Server
 import Proof.Leakage.Model
-import Proof.Leakage.Simulator (archOfLeak)
+import Proof.Leakage.Simulator (archOfLeak, censor, leakSimHop)
 import Proof.Machine
 import ProofSpec (genArbSys1)
-import RegFile (RegFile)
+import RegFile (RegFile, RegFileOps)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.QuickCheck
 import "aimcore" Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 
--- | The cache the tests use: four one-word lines, so lines collide often.
-type TestCache = DirectMapped 4
+-- | The cache the tests use: the four-line cache the server proof is about
+-- ("Proof.Cache.Server"), so lines collide often.
+type TestCache = Cache4
 
 -- | Two systems equal in everything but the control lines, which
--- 'Core.withCtrlReset' overwrites before any stage reads them, and the bytes of a
--- data read the core does not use. A cache answers a read from its block's word
--- ('Memory.Cache.fromBlock'), so only the bytes the load's width covers have to
--- agree with memory; 'Core.writeback' extends exactly those.
+-- 'Core.withCtrlReset' overwrites before any stage reads them.
 sameModuloCtrl :: Sys -> Sys -> Bool
 sameModuloCtrl (Sys a ia ma) (Sys b ib mb) =
   a {stateCtrl = initCtrl} == b {stateCtrl = initCtrl}
     P.&& inputIsInstr ia == inputIsInstr ib
-    P.&& usedBytes (runIdentity (inputMem ia)) == usedBytes (runIdentity (inputMem ib))
+    P.&& runIdentity (inputMem ia) == runIdentity (inputMem ib)
     P.&& inputMemReady ia == inputMemReady ib
     P.&& ma == mb
-  where
-    usedBytes w = case stateWbInstr a of
-      IType (Load size sign) _ _ _ | P.not (inputIsInstr ia) -> loadExtend size sign w
-      _ -> w
 
 -- | The fields, other than the control lines, on which two systems differ, as
 -- @field(first | second)@.
@@ -105,14 +102,14 @@ stutterReport penalty n prog = stutterReport' penalty n (initSys prog)
 
 -- | 'stutterReport' from a given initial system.
 stutterReport' :: Int -> Int -> Sys -> String
-stutterReport' penalty n sys0 = go n (0 :: Int) (initCacheSys sys0 (mkDirectMapped :: TestCache)) sys0
+stutterReport' penalty n sys0 = go n (0 :: Int) (initCacheSys sys0 emptyCache4) sys0
   where
 
     go :: Int -> Int -> CacheSys RegFile MemBytes TestCache -> Sys -> String
     go 0 _ _ _ = ""
     go j c cs ideal
       | P.not (running core) = ""
-      | P.not (coherent (`readWord` sysMem core) (cacheSysCache cs)) = failAt "the cache is not coherent with memory" ""
+      | P.not (coherent4 (sysMem core) (cacheSysCache cs)) = failAt "the cache is not coherent with memory" ""
       | P.not ready =
           if obsOf oC /= NoAccess
             then failAt "a stall cycle made a request: " (show (obsOf oC))
@@ -128,7 +125,7 @@ stutterReport' penalty n sys0 = go n (0 :: Int) (initCacheSys sys0 (mkDirectMapp
         core = cacheSysCore cs
         ready = inputMemReady (sysInput core)
         withInput (Sys st _ m) = Sys st (sysInput core) m
-        (cs', oC) = stepCachedOut penalty cs
+        (cs', oC) = stepCachedOut (fromIntegral penalty) cs
         (ideal', oI) = stepSysOut ideal
         failAt what detail = "\ncycle " P.++ show c P.++ ": " P.++ what P.++ detail P.++ "\n"
 
@@ -141,13 +138,13 @@ ctTrace n a = leakOf a : case isaStep a of
 
 -- | The requests the core makes behind a cache, cycle by cycle, until it halts.
 cachedObs :: Int -> Int -> Sys -> [Obs]
-cachedObs penalty n sys = go n (initCacheSys sys (mkDirectMapped :: TestCache))
+cachedObs penalty n sys = go n (initCacheSys sys emptyCache4)
   where
     go :: Int -> CacheSys RegFile MemBytes TestCache -> [Obs]
     go 0 _ = []
     go j cs
       | P.not (running (cacheSysCore cs)) = []
-      | otherwise = let (cs', o) = stepCachedOut penalty cs in obsOf o : go (j - 1) cs'
+      | otherwise = let (cs', o) = stepCachedOut (fromIntegral penalty) cs in obsOf o : go (j - 1) cs'
 
 -- | Load a data image (word-aligned addresses below the program) into a system.
 withData :: [(Address, Word)] -> Sys -> Sys
@@ -252,11 +249,232 @@ genByteProg = do
     genDst = elements [1, 2, 3, 4]
     genOff = fromIntegral <$> choose (0 :: Int, 11)
 
+-- Server proof ------------------------------------------------------------------
+
+-- | A memory with words of interest in its first 64 bytes, zero elsewhere.
+genMem :: Gen MemBytes
+genMem = do
+  ws <- P.mapM (\k -> (\w -> (4 * k, w)) <$> genWord) [0 .. 15]
+  pure (P.foldr (\(a, w) -> memWriteWord Types.Word a w) (Clash.Prelude.repeat 0) ws)
+
+-- | The same, as a function, so that reads anywhere succeed: beyond the first
+-- 64 bytes each byte is a function of its address.
+genMemFn :: Gen MemFn
+genMemFn = do
+  mem <- genMem
+  pure (MemFn (\a -> if a < 64 then memReadByte a mem else fromIntegral (a * 7 + 1)))
+
+genWord :: Gen Word
+genWord = oneof [elements [0, 1, 0xFF, 0x1234, 0x80000000, 0xDEADBEEF], fromIntegral <$> (arbitrary :: Gen Int)]
+
+-- | The cache in front of memory, with no miss pending: each line invalid, or
+-- valid with memory's word, mostly under a tag that puts its block in the first
+-- 64 bytes; rarely a line with a wrong word, which takes the server out of its
+-- invariant.
+genSrv :: Gen (Srv MemFn)
+genSrv = do
+  mem <- genMemFn
+  l0 <- genLine mem 0
+  l1 <- genLine mem 1
+  l2 <- genLine mem 2
+  l3 <- genLine mem 3
+  pure (CacheSrv (Cache4 l0 l1 l2 l3) Nothing mem)
+  where
+    genLine mem i =
+      frequency
+        [ (2, pure (CacheLine False 0 0)),
+          (12, (\t -> CacheLine True t (memReadWord (t * 16 + i * 4) mem)) <$> genTag),
+          (1, (\t w -> CacheLine True t w) <$> genTag <*> genWord)
+        ]
+    -- Mostly tags of the requested addresses, but also tags no address has
+    -- (28 bits and up) and arbitrary ones.
+    genTag =
+      frequency
+        [ (40, elements [0, 1, 2, 3]),
+          (1, (\t k -> t + k * 0x10000000) <$> elements [0, 1, 2, 3] <*> elements [1, 8, 15]),
+          (1, fromIntegral <$> choose (0 :: Integer, 0xFFFFFFFF))
+        ]
+
+-- | Requests near the first 64 bytes: none, fetches, and reads and writes of
+-- every width and alignment, and also requests the core never makes.
+genReq :: Gen Request
+genReq =
+  frequency
+    [ (1, pure Nothing),
+      (2, (\a -> Just (MemAccess True a Types.Word Nothing)) <$> genAddr),
+      -- Requests the core never makes: fetches of other widths, and fetches
+      -- carrying a value, which memory takes as writes.
+      (1, (\a sz -> Just (MemAccess True a sz Nothing)) <$> genAddr <*> genSize),
+      (1, (\a sz v -> Just (MemAccess True a sz (Just (Identity v)))) <$> genAddr <*> genSize <*> genWord),
+      (6, (\a sz -> Just (MemAccess False a sz Nothing)) <$> genAddr <*> genSize),
+      (3, (\a sz v -> Just (MemAccess False a sz (Just (Identity v)))) <$> genAddr <*> genSize <*> genWord)
+    ]
+  where
+    genAddr = fromIntegral <$> choose (0 :: Int, 70)
+    genSize = elements [Byte, Half, Types.Word]
+
+-- | Operations on a cache, to compare 'Cache4' with 'DirectMapped' 4.
+data CacheOp = Lookup Address | Insert Address Word | Invalidate Address
+  deriving (Show)
+
+genCacheOps :: Gen [CacheOp]
+genCacheOps = listOf (oneof [Lookup <$> genA, Insert <$> genA <*> genWord, Invalidate <$> genA])
+  where
+    genA = fromIntegral <$> choose (0 :: Int, 200)
+
+-- | Do the two caches answer every lookup alike, and agree on coherence with a
+-- memory?
+cachesAgree :: MemBytes -> [CacheOp] -> Bool
+cachesAgree mem = go emptyCache4 (mkDirectMapped :: DirectMapped 4)
+  where
+    go c d [] = coherent4 mem c == coherent (`readWord` mem) d
+    go c d (Lookup a : ops) = cacheLookup a c == cacheLookup a d P.&& go c d ops
+    go c d (Insert a w : ops) = go (cacheInsert a w c) (cacheInsert a w d) ops
+    go c d (Invalidate a : ops) = go (cacheInvalidate a c) (cacheInvalidate a d) ops
+
+-- | The bus trace of the core behind the cache, computed from the leakage alone:
+-- the core's simulator ('Proof.Leakage.Simulator.leakSimHop') produces each
+-- hop's requests as behind ideal memory, and the cache's simulator
+-- ('Proof.Cache.Server.stBus') adds the cycles in which the core waits.
+compositeTrace :: Int -> Sys -> [Obs]
+compositeTrace hops sys0 = go hops (archOfLeak sys0, censor sys0) emptyCache4
+  where
+    go 0 _ _ = []
+    go k as t =
+      let (as', HopObs o1 o2 o3 o4) = leakSimHop as
+          (t', os) = serveAll t (catMaybes [o1, o2, o3, o4])
+       in os P.++ go (k - 1) as' t'
+    serveAll t [] = (t, [])
+    serveAll t (o : os) =
+      let (t1, xs) = stBus t o
+          (t2, ys) = serveAll t1 os
+       in (t2, xs P.++ ys)
+
+-- | Does the composite trace match the cached run, cycle for cycle, until the
+-- core halts?
+compositeReport :: Sys -> String
+compositeReport sys0
+  | cached == P.take (P.length cached) composite = ""
+  | otherwise = "first difference at cycle " P.++ show i P.++ ": " P.++ show (P.take 6 (P.drop i cached)) P.++ " vs " P.++ show (P.take 6 (P.drop i composite))
+  where
+    cached = cachedObs (fromIntegral penalty) 400 sys0
+    composite = compositeTrace 400 sys0
+    i = P.length (P.takeWhile id (P.zipWith (==) cached composite))
+
+-- | What kind of request, against what cache: for the coverage checks.
+reqKind :: Srv MemFn -> Request -> String
+reqKind y q = case q of
+  Nothing -> "none"
+  Just (MemAccess _ _ _ (Just _)) -> "write"
+  Just (MemAccess True _ _ Nothing) -> "fetch"
+  Just (MemAccess False a sz Nothing)
+    | P.not (inBlock a sz) -> "straddling read"
+    | otherwise -> case cacheLookup a (srvCache y) of
+        Just _ -> "hit"
+        Nothing -> "miss"
+
+-- | A load to put into the memory stage, or none.
+genMeLoad :: Gen (Maybe Instruction)
+genMeLoad =
+  frequency
+    [ (1, pure Nothing),
+      ( 4,
+        (\size sign rd rs1 imm -> Just (IType (Load size sign) rd rs1 imm))
+          <$> elements [Byte, Half, Types.Word]
+          <*> elements [Signed, Unsigned]
+          <*> (fromIntegral <$> choose (0 :: Int, 31))
+          <*> (fromIntegral <$> choose (0 :: Int, 31))
+          <*> (fromIntegral <$> choose (0 :: Int, 63))
+      )
+    ]
+
+-- | Does a cycle of the core from this state issue a data read?
+issuesDataRead :: (RegFileOps r) => StateG r Identity -> Input Identity -> Bool
+issuesDataRead s inp = case getFirst (outMem (snd (circuit s inp))) of
+  Just (MemAccess False _ _ Nothing) -> True
+  _ -> False
+
+-- | The cycles in which the core behind the cache waits, until it halts.
+stallCycles :: Sys -> Int
+stallCycles sys0 = go (400 :: Int) (initCacheSys sys0 emptyCache4)
+  where
+    go 0 _ = 0
+    go j cs
+      | P.not (running (cacheSysCore cs)) = 0
+      | otherwise =
+          (if inputMemReady (sysInput (cacheSysCore cs)) then 0 else 1)
+            + go (j - 1) (stepCached penalty cs)
+
+-- | Coverage of the request kinds, each at least 5%.
+coverKinds :: Srv MemFn -> Request -> Property -> Property
+coverKinds y q =
+  P.foldr
+    (\k f -> cover 5 (reqKind y q == k) k . f)
+    id
+    ["none", "fetch", "write", "straddling read", "hit", "miss"]
+
+-- | Coverage of states and requests the core never produces, each at least 2%.
+coverCorners :: Srv MemFn -> Request -> Property -> Property
+coverCorners y q =
+  cover 2 farTag "a valid line with a tag no address has"
+    . cover 2 valueFetch "a fetch carrying a value"
+  where
+    Cache4 l0 l1 l2 l3 = srvCache y
+    farTag = P.any (\l -> clValid l P.&& clTag l >= 0x10000000) [l0, l1, l2, l3]
+    valueFetch = case q of
+      Just (MemAccess True _ _ (Just _)) -> True
+      _ -> False
+
+serverTests :: TestTree
+serverTests =
+  testGroup
+    "Server proof for the cache"
+    [ testProperty "the four-line cache agrees with DirectMapped 4" $
+        withMaxSuccess 2000 $
+          forAllShow genMem (const "<memory>") $ \mem -> forAll genCacheOps (cachesAgree mem),
+      testProperty "fromBlock cuts a read's bytes out of its block's word" $
+        forAll genWord $ \w -> forAll (choose (0 :: Int, 63)) $ \a ->
+          fromBlock (fromIntegral a) w == w `shiftR` (8 * (a `P.mod` 4)),
+      testProperty "the empty cache starts in the invariant, with the same tags for every memory" $
+        forAllShow genMem (const "<memory>") srvInit,
+      testProperty "refinement: the hop of a request ends with ideal memory's response" $
+        withMaxSuccess 5000 $ checkCoverage $
+          forAllShow genSrv (const "<server>") $ \y -> forAll genReq $ \q ->
+            forAll (fromIntegral <$> choose (0 :: Int, 72)) $ \wa ->
+              coverKinds y q (coverCorners y q (cover 60 (srvInv y) "in the invariant" (srvRefine wa y q))),
+      testProperty "leakage: the ready bits and the next tags follow from the tags and the observed request" $
+        withMaxSuccess 5000 $ checkCoverage $
+          forAllShow genSrv (const "<server>") $ \y -> forAll genReq $ \q ->
+            coverKinds y q (coverCorners y q (property (srvLeak y q))),
+      testProperty "the cache answers late only to a data read" $
+        withMaxSuccess 5000 $
+          forAllShow genSrv (const "<server>") $ \y -> forAll genReq $ \q -> stallsOnReads y q,
+      testProperty "patience: after a data read the core waits" $
+        -- Arbitrary states, mostly with a load in the memory stage and none in
+        -- flight, so that the cycle issues a data read.
+        withMaxSuccess 5000 $ checkCoverage $
+          forAllShow genArbSys1 (const "<state>") $ \(Sys s0 inp _, _, _) ->
+            forAll genMeLoad $ \me ->
+              let s = maybe s0 (\ir -> s0 {stateMeInstr = ir, stateLoadInFlight = False}) me
+               in cover 50 (issuesDataRead s inp) "the cycle issues a data read" (waitObligation s inp),
+      testProperty "composition: the cached core's bus trace follows from the leakage alone" $
+        withMaxSuccess 500 $ checkCoverage $
+          forAll genCTProg $ \prog ->
+            let r = compositeReport (initSys prog)
+             in cover 30 (stallCycles (initSys prog) > 0) "the core waits for the cache" (counterexample r (P.null r)),
+      testProperty "... also with reads and writes of every width and alignment" $
+        withMaxSuccess 500 $ checkCoverage $
+          forAll genByteProg $ \prog -> forAll genData $ \ds ->
+            let sys = withData ds (initSys prog)
+                r = compositeReport sys
+             in cover 30 (stallCycles sys > 0) "the core waits for the cache" (counterexample r (P.null r))
+    ]
+
 compositionTests :: TestTree
 compositionTests =
   testGroup
     "Core behind a cache"
-    [ testProperty "the cached run is the ideal run with stall cycles inserted" $
+    [ serverTests, testProperty "the cached run is the ideal run with stall cycles inserted" $
         withMaxSuccess 1000 $
           forAll genCTProg $ \prog ->
             forAll (choose (1, 4)) $ \penalty ->

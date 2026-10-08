@@ -24,6 +24,7 @@ module Proof.Leakage.Model
     Obs (..),
     HopObs (..),
     obsOf,
+    obsReq,
 
     -- * Leakage
     Class (..),
@@ -78,13 +79,22 @@ data Obs
 data HopObs = HopObs (Maybe Obs) (Maybe Obs) (Maybe Obs) (Maybe Obs)
   deriving (Eq, Show, Generic, NFDataX)
 
--- | The observation a cycle's 'Core.Output' produces.
+-- | The observation a cycle's 'Core.Output' produces: that of its request.
 obsOf :: Output Identity -> Obs
-obsOf o = case getFirst (outMem o) of
+obsOf o = obsReq (getFirst (outMem o))
+
+-- | The observation of a request on the bus: the request without its data.
+--
+-- This is also what a cache in front of the core leaks about each request it
+-- receives ("Proof.Cache.Server"), which is what lets the core's leakage proof
+-- and the cache's compose. A request carrying a value is a write, whatever its
+-- other fields say, as it is to memory ('Proof.Machine.idealServe').
+obsReq :: Maybe (MemAccess Identity) -> Obs
+obsReq req = case req of
   Nothing -> NoAccess
-  Just (MemAccess True addr _ _) -> Fetch addr
+  Just (MemAccess _ addr size (Just _)) -> DataWrite addr size
+  Just (MemAccess True addr _ Nothing) -> Fetch addr
   Just (MemAccess False addr size Nothing) -> DataRead addr size
-  Just (MemAccess False addr size (Just _)) -> DataWrite addr size
 
 -- Leakage ---------------------------------------------------------------------
 

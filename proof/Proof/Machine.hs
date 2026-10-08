@@ -24,6 +24,12 @@ module Proof.Machine
     isNopInstr,
     isBubble,
     readMemWord,
+    Request,
+    readResp,
+    idealServe,
+    Cycles,
+    CacheSrv (..),
+    cacheServe,
     CacheSys (..),
     initCacheSys,
     stepCached,
@@ -78,21 +84,33 @@ stepSys = fst . stepSysOut
 -- The leakage proof observes the cycle-by-cycle memory traffic, which 'stepSys'
 -- discards. Defining both here means what it observes is exactly the traffic
 -- the memory service responds to.
+--
+-- The system is the core in a loop with 'idealServe': the core's request goes
+-- to memory, and memory's response is the core's input in the next cycle.
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output Identity)
 stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
-      (i', m') = service (getFirst (outMem o)) m
+      (m', i') = idealServe m (getFirst (outMem o))
    in (Sys s' i' m', o)
-  where
-    service (Just (MemAccess isInstr addr size mval)) mem =
-      case mval of
-        -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
-        -- word; the size-dependent narrowing happens in 'Core.writeback' via
-        -- 'loadExtend'. We reproduce that here.
-        Nothing -> (Input isInstr (pure (memReadWord addr mem)) True, mem)
-        -- A write.
-        Just val -> (Input isInstr (pure 0) True, memWriteWord size addr (runIdentity val) mem)
-    service Nothing mem = (Input False (pure 0) True, mem)
+
+-- | A request on the memory bus, if any.
+type Request = Maybe (MemAccess Identity)
+
+-- | What memory answers to a read: the bytes the read asks for, zero above.
+--
+-- 'Core.writeback' uses no other bytes ('loadExtend'), and an instruction fetch
+-- reads a whole word. Answering with exactly these bytes is what lets a cache,
+-- which holds only the read's block, give the same answer as memory.
+readResp :: (MemOps m) => Address -> Size -> m -> Word
+readResp addr size mem = loadExtend size Unsigned (memReadWord addr mem)
+
+-- | Ideal memory as a server: it answers every request at once.
+idealServe :: (MemOps m) => m -> Request -> (m, Input Identity)
+idealServe mem req = case req of
+  Just (MemAccess isInstr addr size mval) -> case mval of
+    Nothing -> (mem, Input isInstr (pure (readResp addr size mem)) True)
+    Just val -> (memWriteWord size addr (runIdentity val) mem, Input isInstr (pure 0) True)
+  Nothing -> (mem, Input False (pure 0) True)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
 stepSysN n s
@@ -133,12 +151,68 @@ isBubble _ = False
 readMemWord :: Address -> MemBytes -> Word
 readMemWord = readWord
 
+-- | Cycles of a miss penalty. A bitvector rather than an 'Int', so that the
+-- cache stays in the fragment of the symbolic proof that Bitwuzla reads.
+type Cycles = Unsigned 8
+
+-- | A cache in front of memory, as a server: the cache, a read waiting for
+-- memory, and memory.
+data CacheSrv c m = CacheSrv
+  { srvCache :: c,
+    -- | A read waiting for memory: its address and width, and the cycles left.
+    srvPending :: Maybe (Address, Size, Cycles),
+    srvMem :: m
+  }
+
+deriving instance (Show m, Show c) => Show (CacheSrv c m)
+
+-- | The cache as a server.
+--
+-- Instruction fetches bypass the cache and are answered at once. A data read
+-- that hits is answered at once from its block's word; one that misses is
+-- answered after @missPenalty@ cycles in which the response is not ready, and
+-- its block is then installed. A read that straddles two blocks is not cached: it
+-- always takes the miss penalty and installs nothing. A write goes straight to
+-- memory, is answered at once, and invalidates every block it touches. Reads are
+-- answered with the bytes they ask for, as 'idealServe' does.
+cacheServe :: (MemOps m, CacheOps c) => Cycles -> CacheSrv c m -> Request -> (CacheSrv c m, Input Identity)
+cacheServe missPenalty (CacheSrv c pending mem) req = case pending of
+  Just (addr, size, n)
+    | n > 0 -> (CacheSrv c (Just (addr, size, n - 1)) mem, Input False (pure 0) False)
+    | inBlock addr size ->
+        let w = memReadWord (blockStart addr) mem
+         in (CacheSrv (cacheInsert addr w c) Nothing mem, Input False (pure (fromBlockResp addr size w)) True)
+    | otherwise -> (CacheSrv c Nothing mem, Input False (pure (readResp addr size mem)) True)
+  Nothing -> case req of
+    Nothing -> (CacheSrv c Nothing mem, Input False (pure 0) True)
+    Just (MemAccess isInstr addr size mval) -> case mval of
+      Just val ->
+        ( CacheSrv
+            (cacheInvalidate (lastByte addr size) (cacheInvalidate addr c))
+            Nothing
+            (memWriteWord size addr (runIdentity val) mem),
+          Input isInstr (pure 0) True
+        )
+      Nothing
+        | isInstr -> (CacheSrv c Nothing mem, Input isInstr (pure (readResp addr size mem)) True)
+        | otherwise -> case cacheLookup addr c of
+            Just w
+              | inBlock addr size -> (CacheSrv c Nothing mem, Input isInstr (pure (fromBlockResp addr size w)) True)
+            _ -> (CacheSrv c (Just (addr, size, missPenalty - 1)) mem, Input isInstr (pure 0) False)
+  where
+    fromBlockResp addr size w = loadExtend size Unsigned (fromBlock addr w)
+
+    lastByte addr size = addr + case size of
+      Types.Byte -> 0
+      Types.Half -> 1
+      Types.Word -> 3
+
 -- | System state paired with a cache model.
 data CacheSys r m c = CacheSys
   { cacheSysCore :: SysG r m,
     cacheSysCache :: c,
     -- | A read waiting for memory: its address and width, and the cycles left.
-    cacheSysPending :: Maybe (Address, Size, Int)
+    cacheSysPending :: Maybe (Address, Size, Cycles)
   }
 
 deriving instance (Show (r Identity), Show m, Show c) => Show (CacheSys r m c)
@@ -146,54 +220,22 @@ deriving instance (Show (r Identity), Show m, Show c) => Show (CacheSys r m c)
 initCacheSys :: SysG r m -> c -> CacheSys r m c
 initCacheSys sys cache = CacheSys sys cache Nothing
 
--- | Step a system with memory serviced through a cache.
---
--- Instruction fetches bypass the cache and are answered in the next cycle. A
--- data read that hits is answered in the next cycle from its block's word; one
--- that misses is answered after @missPenalty@ cycles, during which the bus is
--- not ready, and its block is then installed. A read that straddles two blocks
--- is not cached: it always takes the miss penalty and installs nothing. A write
--- goes straight to memory, is answered in the next cycle, and invalidates every
--- block it touches.
-stepCached :: (RegFileOps r, MemOps m, CacheOps c) => Int -> CacheSys r m c -> CacheSys r m c
+-- | Step a system with memory serviced through a cache: the core in a loop with
+-- 'cacheServe'.
+stepCached :: (RegFileOps r, MemOps m, CacheOps c) => Cycles -> CacheSys r m c -> CacheSys r m c
 stepCached missPenalty = fst . stepCachedOut missPenalty
 
 stepCachedOut ::
   (RegFileOps r, MemOps m, CacheOps c) =>
-  Int ->
+  Cycles ->
   CacheSys r m c ->
   (CacheSys r m c, Output Identity)
 stepCachedOut missPenalty (CacheSys (Sys s i m) cache pending) =
   let (s', o) = Core.circuit s i
-      (i', m', cache', pending') = respond (getFirst (outMem o)) m cache pending
+      (CacheSrv cache' pending' m', i') = cacheServe missPenalty (CacheSrv cache pending m) (getFirst (outMem o))
    in (CacheSys (Sys s' i' m') cache' pending', o)
-  where
-    respond _ mem c (Just (addr, size, n))
-      | n > 0 = (Input False (pure 0) False, mem, c, Just (addr, size, n - 1))
-      | inBlock addr size =
-          let w = memReadWord (blockStart addr) mem
-           in (Input False (pure (fromBlock addr w)) True, mem, cacheInsert addr w c, Nothing)
-      | otherwise = (Input False (pure (memReadWord addr mem)) True, mem, c, Nothing)
-    respond Nothing mem c Nothing = (Input False (pure 0) True, mem, c, Nothing)
-    respond (Just (MemAccess isInstr addr size mval)) mem c Nothing = case mval of
-      Just val ->
-        ( Input isInstr (pure 0) True,
-          memWriteWord size addr (runIdentity val) mem,
-          cacheInvalidate (lastByte addr size) (cacheInvalidate addr c),
-          Nothing
-        )
-      Nothing
-        | isInstr -> (Input isInstr (pure (memReadWord addr mem)) True, mem, c, Nothing)
-        | inBlock addr size, Just w <- cacheLookup addr c ->
-            (Input isInstr (pure (fromBlock addr w)) True, mem, c, Nothing)
-        | otherwise -> (Input isInstr (pure 0) False, mem, c, Just (addr, size, missPenalty - 1))
 
-    lastByte addr size = addr + case size of
-      Types.Byte -> 0
-      Types.Half -> 1
-      Types.Word -> 3
-
-stepCachedN :: (RegFileOps r, MemOps m, CacheOps c) => Int -> Int -> CacheSys r m c -> CacheSys r m c
+stepCachedN :: (RegFileOps r, MemOps m, CacheOps c) => Cycles -> Int -> CacheSys r m c -> CacheSys r m c
 stepCachedN missPenalty n s
   | n <= 0 = s
   | otherwise = stepCachedN missPenalty (n - 1) (stepCached missPenalty s)
