@@ -13,7 +13,6 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.ST (stToIO, RealWorld)
 import qualified Core as Core
 import Data.Functor.Identity
-import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
