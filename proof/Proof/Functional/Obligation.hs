@@ -7,8 +7,7 @@
 -- input space, not the property.
 module Proof.Functional.Obligation
   ( isaAt,
-    hopPc,
-    isStartupShape,
+    baseCaseObligation,
     indStepObligation,
     indStepObligation1,
     indStepObligation2,
@@ -19,9 +18,8 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
-import Proof.Driver (driver)
+import Proof.Functional.Driver (driver)
 import ISA (IsaStateG (..), StepG (..), isaStep)
-import Instruction
 import Proof.Functional.Invariant
 import Memory.Types (MemOps (..))
 import Proof.Machine
@@ -44,9 +42,8 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 --
 -- @isaPc@ is different, and is quantified rather than derived. It is a scalar,
 -- so the invariant pins it exactly -- but via a different conjunct in each case:
--- @stateExPc@ when running, @stateFePc@ at startup, and @stateHalt@ once halted.
--- Deriving it from any one of those would make the other two cases
--- unsatisfiable as premises.
+-- @stateExPc@ when running and @stateHalt@ once halted. Deriving it from either
+-- one would make the other case unsatisfiable as a premise.
 isaAt :: (RegFileOps r, MemOps m) => Address -> SysG r m -> IsaStateG r m
 isaAt ipc (Sys st inp mem) =
   IsaState {isaPc = ipc, isaRegFile = frf, isaMem = fm}
@@ -63,36 +60,47 @@ isaAt ipc (Sys st inp mem) =
             (mem, Core.stateRegFile st)
         )
 
--- | Does the pipeline have the reset shape: nothing in flight, nothing on the bus?
+-- | The base case: the invariant holds once the initial state has taken its
+-- first hop.
 --
--- Not a case of the invariant -- 'Proof.Functional.Induction.baseCase' takes the
--- reset state two cycles into the running case -- so no obligation needs it. It
--- is kept for 'hopPc' and the leakage projection, which still assign an
--- architectural state to the reset shape.
-isStartupShape :: SysG r m -> Bool
-isStartupShape (Sys st inp _) =
-  Core.stateWbInstr st == Nop FirstCycle
-    && Core.stateMeInstr st == Nop FirstCycle
-    && Core.stateExInstr st == Nop FirstCycle
-    && not (Core.inputIsInstr inp)
+-- Without this the four steps below say only that the invariant is /preserved/,
+-- which is vacuous if it never holds anywhere. Together they give the theorem:
+-- the invariant relates the core to the ISA at every state the driver lands on
+-- after the start.
+--
+-- The initial state itself is not a case of the invariant. 'Core.init' has
+-- nothing in the pipeline, so the driver gives it a two-cycle hop that fetches
+-- and decodes the first instruction without executing anything. This property
+-- states that hop directly: the driver does assign it two cycles, and after
+-- them the running case relates the core to the ISA's /initial/ state -- zero
+-- ISA steps. Handling it here rather than as a case of the invariant is what
+-- lets every inductive step retire exactly one instruction.
+--
+-- The start PC, the register file and memory are parameters, used for both the
+-- core and the ISA; every other field comes from 'Core.init' itself, so the
+-- initial pipeline shape cannot drift from the real one. Taking them as
+-- parameters makes the base case cover any loaded program and any initial PC
+-- and register contents, such as the ELF entry point and stack pointer the ELF
+-- runners start the core with.
+--
+-- Note what sharing them costs: memory and the register file are the same
+-- values on both sides, and the first hop writes neither, so the invariant's
+-- two container equalities hold by construction here and this property alone
+-- would not notice if the core's initial register file and the ISA's
+-- ('RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
+-- gap -- it runs on the real 'Vec'-backed state, where both files are built
+-- independently.
+baseCaseObligation ::
+  forall r m. (RegFileOps r, MemOps m) => r Identity -> m -> RegIdx -> Address -> Address -> Bool
+baseCaseObligation rf mem wr wa pc =
+  driver sys == 1 && invAtFree wr wa isa sys2
+  where
+    isa = IsaState {isaPc = pc, isaRegFile = rf, isaMem = mem}
+    st = (Core.init :: Core.StateG r Identity) {Core.stateFePc = pc, Core.stateRegFile = rf}
+    sys = Sys st Core.initInput mem
 
--- | The architectural PC a hop-aligned state corresponds to.
---
--- The symbolic obligations do not use this -- they quantify @isaPc@ and let the
--- invariant pin it, which is the whole point of quantifying rather than
--- deriving. It exists for the callers that need a concrete architectural state
--- rather than a quantified one: the QuickCheck harness and the leakage
--- projection. It reproduces, per case, the conjunct that pins @isaPc@ in the
--- invariant -- the trapping instruction once halted, the execute stage
--- otherwise -- plus the fetch stage for the reset shape, which the invariant does
--- not admit but the leakage projection still assigns a PC.
-hopPc :: SysG r m -> Address
-hopPc sys@(Sys st _ _)
-  | isStartupShape sys = Core.stateFePc st
-  | otherwise = case Core.stateHalt st of
-      Just (Core.EBreak a) -> a - 4
-      Just (Core.Syscall a) -> a - 4
-      _ -> Core.stateExPc st
+    sys1 = stepSys sys
+    sys2 = stepSys sys1
 
 -- | The @k = 0@ inductive step: the driver's one-cycle hop.
 --
@@ -114,15 +122,15 @@ indStepObligation wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
     sys' = stepSys sys
 
     premises =
       invAtFree wr wa isa sys
         && driver sys == 0
-
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
 
     conclusion = invAtFree wr wa isa' sys'
 
@@ -137,18 +145,18 @@ indStepObligation1 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
-    s1 = stepSys sys
-    s2 = stepSys s1
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    sys1 = stepSys sys
+    sys2 = stepSys sys1
 
     premises =
       invAtFree wr wa isa sys
         && driver sys == 1
 
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
-
-    conclusion = invAtFree wr wa isa' s2
+    conclusion = invAtFree wr wa isa' sys2
 
 -- | The @k = 2@ inductive step: the driver's three-cycle hop.
 --
@@ -161,19 +169,19 @@ indStepObligation2 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
-    s1 = stepSys sys
-    s2 = stepSys s1
-    s3 = stepSys s2
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    sys1 = stepSys sys
+    sys2 = stepSys sys1
+    sys3 = stepSys sys2
 
     premises =
       invAtFree wr wa isa sys
         && driver sys == 2
 
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
-
-    conclusion = invAtFree wr wa isa' s3
+    conclusion = invAtFree wr wa isa' sys3
 
 -- | The @k = 3@ inductive step: the driver's four-cycle hop, the longest.
 --
@@ -188,17 +196,17 @@ indStepObligation3 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
-    s1 = stepSys sys
-    s2 = stepSys s1
-    s3 = stepSys s2
-    s4 = stepSys s3
+    isa' = case isaStep isa of
+      Next next -> next
+      IsaHalted -> isa
+
+    sys1 = stepSys sys
+    sys2 = stepSys sys1
+    sys3 = stepSys sys2
+    sys4 = stepSys sys3
 
     premises =
       invAtFree wr wa isa sys
         && driver sys == 3
 
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
-
-    conclusion = invAtFree wr wa isa' s4
+    conclusion = invAtFree wr wa isa' sys4
