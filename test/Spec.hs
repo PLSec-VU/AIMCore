@@ -9,6 +9,7 @@ module Main (main) where
 import Access
 import BenchmarkSpec (benchmarkTests)
 import CacheSpec (cacheTests)
+import Cache4KSpec (cache4KTests)
 import CompositionSpec (compositionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
@@ -30,6 +31,7 @@ import qualified Proof.SMT.Sanity as Sanity
 import qualified Prelude
 #ifdef SMT_PROOF
 import qualified Proof.Cache.Induction
+import qualified Proof.Cache.Induction4K
 import qualified Proof.Functional.Induction
 import qualified Proof.Leakage.Induction
 #endif
@@ -112,6 +114,11 @@ sanityTests =
         "the core is patient, and the cache has a server proof"
         [ testCase name $ lookup name Proof.Cache.Induction.results @?= Just Nothing
           | name <- ["stallStep", "waitStep", "srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
+        ],
+      testGroup
+        "the 4 KiB cache has a server proof"
+        [ testCase name $ lookup name Proof.Cache.Induction4K.results @?= Just Nothing
+          | name <- ["cacheArrays", "srvInitKP", "srvRefineKP", "srvLeakKP", "stallsOnReadsKP"]
         ]
     ]
   where
@@ -135,6 +142,7 @@ tests =
       instructionTests,
       cacheTests,
       compositionTests,
+      cache4KTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup

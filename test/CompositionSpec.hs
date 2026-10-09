@@ -17,6 +17,10 @@
 --     cache, whatever the data.
 module CompositionSpec
   ( compositionTests,
+    genByteProg,
+    genData,
+    genWord,
+    withData,
   )
 where
 

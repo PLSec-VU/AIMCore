@@ -110,6 +110,7 @@ library:
       source-dirs: proof-smt
       exposed-modules:
         - Proof.Cache.Induction
+        - Proof.Cache.Induction4K
         - Proof.Functional.Induction
         - Proof.Leakage.Induction
         - Proof.Leakage.Induction.Base
@@ -122,6 +123,7 @@ library:
   exposed-modules:
     - Proof.Cache.Obligation
     - Proof.Cache.Server
+    - Proof.Cache.Server4K
     - Proof.Machine
     - Proof.Driver
     - Proof.Functional.Invariant
@@ -131,6 +133,8 @@ library:
     - Proof.Leakage.Obligation
     - Proof.SMT.Array
     - Proof.SMT.Axioms
+    - Proof.SMT.CacheArray
+    - Proof.SMT.CacheAxioms
     - Proof.SMT.Logged
     - Access
     - Core
@@ -145,6 +149,7 @@ library:
     - Memory.ST
     - Memory.IO
     - Memory.Cache
+    - Memory.Cache4K
     - Leak.Arch.Arch
     - Leak.PC.ISA
     - Leak.PC.Leak
