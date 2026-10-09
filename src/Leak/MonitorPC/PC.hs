@@ -18,7 +18,6 @@ import Core (Input (..), MemAccess (..), Output (..))
 import qualified Core
 import Data.Functor.Identity
 import Data.Maybe (isJust, isNothing)
-import Data.Monoid
 import qualified Leak.MonitorPC.MonitorLeak as Leak
 import qualified Leak.MonitorPC.Sim as Sim
 import Types
@@ -32,14 +31,14 @@ obs = stateless obs'
 
 obs' :: Output Identity -> Maybe Address
 obs' o_sim = do
-  mem <- getFirst $ outMem o_sim
+  mem <- outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
 
-leak :: ((), Core.State Identity) -> Input Identity -> (((), Core.State Identity), (Leak.Instr, Maybe Address))
+leak :: (Core.State Identity, Core.State Identity) -> Input Identity -> ((Core.State Identity, Core.State Identity), (Leak.Instr, Maybe Address))
 leak = Leak.leakCircuit Leak.monitorPC
 
-proj :: Core.State Identity -> (((), Core.State Identity), Sim.State)
+proj :: Core.State Identity -> ((Core.State Identity, Core.State Identity), Sim.State)
 proj s = (ts, ss)
   where
     ts = Leak.leakProject Leak.monitorPC s

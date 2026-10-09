@@ -7,7 +7,6 @@ import Control.Monad (when, forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
 import Data.Functor.Identity
-import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Data.Elf (Elf)
 import Elf.Syscall (handleSyscall, ProgramExitException(..))
@@ -76,12 +75,12 @@ instance Show LeakageDivergenceException where
           "-------------------------------",
           "",
           "Input:",
-          "  inputIsInstr: " P.++ show (Core.inputIsInstr input),
           "  inputMem: " P.++ show (Core.inputMem input),
           "",
           "State:",
           "  PC (fetch): 0x" P.++ showHex (Core.stateFePc state) "",
           "  PC (decode): 0x" P.++ showHex (Core.stateDePc state) "",
+          "  Expects instruction (decode): " P.++ show (Core.stateDeExpInstr state),
           "  PC (execute): 0x" P.++ showHex (Core.stateExPc state) "",
           "  Instruction (execute): " P.++ show (Core.stateExInstr state),
           "  Instruction (memory): " P.++ show (Core.stateMeInstr state),

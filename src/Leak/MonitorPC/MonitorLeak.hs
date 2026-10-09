@@ -30,7 +30,7 @@ data LeakMonitor si ii sl ol = LeakMonitor
     (sl1', o1) = f1 sl1 i
     (sl2', o2) = f2 sl2 i
 
-monitorPC :: LeakMonitor (Core.State Identity) (Core.Input Identity) ((), Core.State Identity) (Instr, Maybe Address)
+monitorPC :: LeakMonitor (Core.State Identity) (Core.Input Identity) (Core.State Identity, Core.State Identity) (Instr, Maybe Address)
 monitorPC = monitorInstructionType ^&^ monitorJumpAddress
 
 data BaseInstr
@@ -72,12 +72,15 @@ toLeakInstr input = Instr (mkInstr input) (getRs1' input) (getRs2' input)
 nop' :: Instr
 nop' = toLeakInstr nop
 
-monitorInstructionType :: LeakMonitor (Core.State Identity) (Core.Input Identity) () Instr
-monitorInstructionType = LeakMonitor (\() i -> ((), leak i)) (const ())
+monitorInstructionType :: LeakMonitor (Core.State Identity) (Core.Input Identity) (Core.State Identity) Instr
+monitorInstructionType = LeakMonitor leak id
  where
-  leak :: Core.Input Identity -> Instr
-  leak input | Core.inputIsInstr input = toLeakInstr $ decode' $ runIdentity $ Core.inputMem input
-  leak _ = nop'
+  leak :: Core.State Identity -> Core.Input Identity -> (Core.State Identity, Instr)
+  leak s i = (fst (Core.circuit s i), instr)
+   where
+    instr
+      | Core.stateDeExpInstr s = toLeakInstr $ decode' $ runIdentity $ Core.inputMem i
+      | otherwise = nop'
 
 monitorJumpAddress :: LeakMonitor (Core.State Identity) (Core.Input Identity) (Core.State Identity) (Maybe Address)
 monitorJumpAddress = LeakMonitor leak id

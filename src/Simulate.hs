@@ -21,7 +21,6 @@ import Core hiding (State)
 import qualified Core
 import Data.Functor.Identity
 import Data.Maybe (isJust)
-import Data.Monoid
 import Memory.Types
 import Memory.Vec
 import Types
@@ -42,28 +41,23 @@ simulator =
   where
     next :: Core.State f -> Output f -> m (Maybe (Input f))
     next s (Output mem) = do
-      (mem_in, mem_instr) <- doMemory
+      mem_in <- doMemory
       if isJust (Core.stateHalt s)
         then pure Nothing
-        else pure $
-          Just $
-            Input
-              { inputIsInstr = mem_instr,
-                inputMem = mem_in
-              }
+        else pure (Just (Input mem_in))
       where
-        doMemory :: m (f Word, Bool)
+        doMemory :: m (f Word)
         doMemory
-          | Just (MemAccess isInstr addr size mval) <- getFirst mem =
+          | Just (MemAccess isInstr addr size mval) <- mem =
               case mval of
                 Nothing -> do
                   word <- ramRead isInstr addr size
                   isSecret <- isMemorySecret addr
-                  pure (conditionalSecret isSecret word, isInstr)
+                  pure (conditionalSecret isSecret word)
                 Just val -> do
                   ramWrite addr size (unAccess val)
-                  pure (pure 0, isInstr)
-          | otherwise = pure (pure 0, False)
+                  pure (pure 0)
+          | otherwise = pure (pure 0)
 
 runSimulator ::
   forall f ramSize progSize a.

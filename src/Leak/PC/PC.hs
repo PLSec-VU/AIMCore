@@ -51,7 +51,7 @@ obs = stateless obs'
 
 obs' :: Output Identity -> Maybe Address
 obs' o_sim = do
-  mem <- getFirst $ outMem o_sim
+  mem <- outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
 
@@ -79,6 +79,7 @@ proj s = (ts, ss)
       Leak.State
         { Leak.stateFePc = Core.stateFePc s,
           Leak.stateDePc = Core.stateDePc s,
+          Leak.stateDeExpInstr = Core.stateDeExpInstr s,
           Leak.stateExPc = Core.stateExPc s,
           Leak.stateExInstr = Core.stateExInstr s,
           Leak.stateMemInstr = Core.stateMeInstr s,
@@ -144,7 +145,7 @@ simulator =
       let (s_core', o_core) = implementation s_core_old i
 
       -- Update memory manually (register file is now in s_core')
-      let mem' = case getFirst (outMem o_core) of
+      let mem' = case outMem o_core of
             Just (MemAccess _ addr size (Just val)) ->
               mem {Simulate.memRAM = write size addr (runIdentity val) (Simulate.memRAM mem)}
             _ -> mem
