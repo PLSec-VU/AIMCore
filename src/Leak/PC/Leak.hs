@@ -68,6 +68,7 @@ nop = Instr (Nop Instr.FirstCycle) (Nothing, Nothing)
 data State = State
   { stateFePc :: Address,
     stateDePc :: Address,
+    stateDeExpInstr :: Bool,
     stateExPc :: Address,
     stateExInstr :: Instr.Instruction,
     stateMemInstr :: Instr.Instruction,
@@ -92,6 +93,7 @@ init =
   State
     { stateFePc = initPc,
       stateDePc = 0,
+      stateDeExpInstr = False,
       stateExPc = 0,
       stateExInstr = Instr.Nop Instr.FirstCycle,
       stateMemInstr = Instr.Nop Instr.FirstCycle,
@@ -157,14 +159,18 @@ fetch = do
   modify $ \s ->
     s
       { stateFePc = next_pc,
-        stateDePc = pc
+        stateDePc = pc,
+        -- The core fetches unless the memory stage uses the bus; a call does
+        -- not stop it.
+        stateDeExpInstr = not meMemInstr
       }
 
 decode :: LeakM ()
 decode = do
   input <- ask
+  expInstr <- gets stateDeExpInstr
   let instr
-        | Core.inputIsInstr input =
+        | expInstr =
             Instr.decode' $ runIdentity $ Core.inputMem input
         | otherwise = Instr.Nop Instr.MemoryBusBusy
 
@@ -175,9 +181,9 @@ decode = do
   mJumpAddr <- gets stateJumpAddr
   firstCycle <- gets stateFirstCycle
 
-  let branch_first_cycle = Instr.isNopJumpFirstCycle exInstr
+  let branch_first_cycle = exInstr == Instr.Nop Instr.JumpFirstCycle
   let load_hazard_current_cycle = Instr.loadHazard instr exInstr
-  let load_hazard_first_cycle = Instr.isNopLoadHazardFirstCycle exInstr
+  let load_hazard_first_cycle = exInstr == Instr.Nop Instr.LoadHazardFirstCycle
   let call_current_cycle = Instr.isCall exInstr
 
   let isSecretInstr = case fromPublic (Core.inputMem input) of Nothing -> True; _ -> False
@@ -196,7 +202,7 @@ decode = do
         -- If this is the first cycle, the instruction to decode is gibberish from memory.
         else if firstCycle then Instr.Nop Instr.FirstCycle
         -- If memory is busy, we stall.
-        else if not (Core.inputIsInstr input) then Instr.Nop Instr.MemoryBusBusy
+        else if not expInstr then Instr.Nop Instr.MemoryBusBusy
         -- If we are in SecurityViolation state, we stall.
         else if isSecretInstr then Instr.Nop Instr.Halted
         -- Otherwise we process the decoded instruction.

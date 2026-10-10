@@ -24,7 +24,6 @@ import Core (Control (..), Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
 import Data.Bifunctor (second)
 import Data.Composition
-import Data.Monoid (First (..), getFirst)
 import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
 import qualified Pantomime.Clash.NonInterference as P
@@ -58,7 +57,7 @@ obs = stateless obs'
 
 obs' :: Output PubSec -> Maybe Address
 obs' o_sim = do
-  mem <- getFirst $ outMem o_sim
+  mem <- outMem o_sim
   guard $ memIsInstr mem
   pure $ memAddress mem
 

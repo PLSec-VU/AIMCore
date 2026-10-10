@@ -1,8 +1,9 @@
--- | The invariant from @proof/notes/invariant.txt@, as code.
+{- HLINT ignore "Use isNothing" -}
+-- | The functional-correctness invariant.
 --
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
--- four for the running core, and two for the halted core. The reset state is
+-- one for the running core, and two for the halted core. The reset state is
 -- not among them: 'Proof.Functional.Induction.baseCase' steps it two cycles,
 -- into the running case, instead.
 --
@@ -17,18 +18,6 @@
 --
 -- The test \"fold-free invariant agrees with the list version\" keeps the two
 -- from drifting.
---
--- == Where this differs from @invariant.txt@
---
--- One place, marked again at its definition: NO @stateCtrl == initCtrl@ clause.
--- It is a holdover from an earlier 'Core' that reset the control lines at the
--- /end/ of each clock cycle; 'Core.withCtrlReset' now resets them at the start,
--- so no state reached by stepping the core satisfies it.
---
--- The note's four running cases are collapsed into one here. They differ only
--- in the fetch conjuncts, and those track the writeback stage alone; the memory
--- stage's classification does no work beyond excluding an environment
--- instruction. See 'invCasesGen'.
 module Proof.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
@@ -47,7 +36,6 @@ import Core
 import Data.Functor.Identity
 import Instruction
 import Memory.Types
-import Proof.Driver (isEnvInstr, isMemInstr)
 import ISA (IsaStateG (..), IsaState)
 import Proof.Machine
 import RegFile
@@ -154,17 +142,9 @@ invCasesAt wr wa =
 -- | The cases of the invariant, parameterised over how register files and
 -- memories are compared.
 --
--- The one deviation from @invariant.txt@ is a silence: the note opens every
--- case with @stateCtrl == initCtrl@, and no case here has it. That clause dates from an
--- earlier 'Core' which reset the control lines at the end of each clock cycle,
--- leaving them at their reset values by the time the next cycle began.
--- 'Core.withCtrlReset' now resets them at the /start/ of the cycle and the
--- stages then set them, so the lines observed in any post-step state are the
--- ones the stages left -- 'Core.execute' alone always sets @ctrlExInstr@ to
--- 'Just'. Only 'Core.init' still satisfies the clause, so keeping it would make
--- the invariant hold of no state the driver lands on and every obligation
--- vacuous. Dropping it is sound because the lines carry no information between
--- cycles: 'Core.withCtrlReset' overwrites them before any stage reads them.
+-- No case constrains @stateCtrl@. The control lines carry no information between
+-- cycles: 'Core.pipe' resets them at the start of each cycle, before any stage
+-- reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
   (r Identity -> r Identity -> Bool) ->
@@ -172,7 +152,7 @@ invCasesGen ::
   IsaStateG r m ->
   SysG r m ->
   [Case]
-invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
+invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
   [ runningCase,
     haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
     haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
@@ -198,7 +178,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
     -- therefore stated directly as \"not an environment instruction\".
     runningCase =
       Case "running" $
-        [ ("running", running sys),
+        [ ("running", stateHalt st == Nothing),
           ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
           ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
           ("exPc == isaPc", stateExPc st == ipc),
@@ -217,11 +197,11 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) sys@(Sys st inp mem) =
         ]
           P.++ if isMemInstr (stateWbInstr st)
             then
-              [ ("not inputIsInstr", P.not (inputIsInstr inp)),
+              [ ("not deExpInstr", P.not (stateDeExpInstr st)),
                 ("fePc == exPc + 4", stateFePc st == stateExPc st + 4)
               ]
             else
-              [ ("inputIsInstr", inputIsInstr inp),
+              [ ("deExpInstr", stateDeExpInstr st),
                 ("inputMem == mem[dePc]", inputWord == dePcWord),
                 ("fePc == exPc + 8", stateFePc st == stateExPc st + 8)
               ]
@@ -266,8 +246,8 @@ data HaltKind = HaltBreak | HaltCall
 runningCaseAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
-  running sys
+runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
+  stateHalt st == Nothing
     && not (isEnvInstr (stateWbInstr st))
     && not (isEnvInstr (stateMeInstr st))
     && stateExPc st == ipc
@@ -275,9 +255,9 @@ runningCaseAt wr wa (IsaState ipc irf imem) sys@(Sys st inp mem) =
     && stateDePc st == stateExPc st + 4
     && not (loadHazard (stateExInstr st) (stateMeInstr st))
     && ( if isMemInstr (stateWbInstr st)
-           then not (inputIsInstr inp) && stateFePc st == stateExPc st + 4
+           then not (stateDeExpInstr st) && stateFePc st == stateExPc st + 4
            else
-             inputIsInstr inp
+             stateDeExpInstr st
                && runIdentity (inputMem inp) == memReadWord (stateDePc st) mem
                && stateFePc st == stateExPc st + 8
        )

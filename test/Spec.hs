@@ -28,6 +28,7 @@ import qualified Proof.SMT.Sanity as Sanity
 import qualified Prelude
 #ifdef SMT_PROOF
 import qualified Proof.Functional.Induction
+import qualified Proof.Leakage.Induction
 #endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
@@ -74,7 +75,8 @@ mkSecretPCLeakTest s prog =
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the refinement proof itself; see "Proof.Functional.Induction".
+-- The rest are the proofs themselves; see "Proof.Functional.Induction" and
+-- "Proof.Leakage.Induction".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -91,15 +93,23 @@ sanityTests =
       testCase "base case: invariant holds after the reset hop" $
         lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep0" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
         lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
         lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing
-      -- The four leakage steps are omitted while Proof.Leakage.Induction is out
-      -- of the build; see the note in package.yaml.
+        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+      testCase "leakage base case: simulator matches the first hop" $
+        lookup "baseCaseLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 0 leakage step is valid" $
+        lookup "indStepLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 1 leakage step is valid" $
+        lookup "indStepLeak1" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 2 leakage step is valid" $
+        lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 3 leakage step is valid" $
+        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing
     ]
   where
     verdict :: String -> Maybe String
@@ -395,16 +405,17 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
 
+-- | Half the time a valid instruction encoding, half the time an arbitrary data
+-- word. Whether the core treats it as an instruction is up to the state's
+-- 'Core.stateDeExpInstr'.
 instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
   arbitrary = do
-    isInstr <- arbitrary
     mem <-
-      if isInstr
-        then fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust)
-        else arbitrary
+      oneof
+        [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
+          arbitrary
+        ]
     isSecretMem <- arbitrary
-    pure $
-      Input
-        isInstr
-        (conditionalSecret isSecretMem mem)
+    pure $ Input (conditionalSecret isSecretMem mem)

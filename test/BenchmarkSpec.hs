@@ -13,7 +13,6 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.ST (stToIO, RealWorld)
 import qualified Core as Core
 import Data.Functor.Identity
-import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
@@ -82,10 +81,9 @@ mkBenchmarkTest testName _benchmark =
         (benchmarkInstrument _benchmark)
         (sim
           { circuitState =
-              (Core.init @Identity @RegFile)
-                { Core.stateFePc = fromIntegral entryOffset,
-                  Core.stateRegFile = modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) initRF
-                }
+              Core.initAt
+                (fromIntegral entryOffset)
+                (modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) (initRF @Identity))
           })
 
     pure ()

@@ -3,13 +3,14 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# OPTIONS_GHC -Wno-deriving-defaults #-}
+{-# LANGUAGE InstanceSigs #-}
 {- HLINT ignore "Functor law" -}
 
 module Core
   ( initInput,
+    initAt,
     init,
     initCtrl,
-    withCtrlReset,
     circuit,
     Input (..),
     Output (..),
@@ -37,9 +38,7 @@ import Access
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
-import Control.Monad.Trans.Maybe
 import Data.Maybe (fromMaybe, isJust)
-import Data.Monoid
 import Instruction hiding (decode)
 import Memory.Types
 import RegFile
@@ -57,12 +56,7 @@ topEntity ::
 topEntity = exposeClockResetEnable $ mealy (circuit @f @RegFile) (init @f @RegFile)
 
 -- | The input to the CPU.
-data Input f = Input
-  { -- | Is this an instruction read?
-    inputIsInstr :: Bool,
-    -- | Reads from memory.
-    inputMem :: f Word
-  }
+newtype Input f = Input {inputMem :: f Word}
 
 deriving instance (Show (f Word)) => Show (Input f)
 
@@ -90,7 +84,7 @@ deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
 -- | The output of the CPU.
 newtype Output f = Output
   { -- | A memory access.
-    outMem :: First (MemAccess f)
+    outMem :: Maybe (MemAccess f)
   }
 
 deriving instance (Show (f Word)) => Show (Output f)
@@ -100,11 +94,13 @@ deriving instance Generic (Output f)
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
 
 instance Semigroup (Output f) where
+  (<>) :: Output f -> Output f -> Output f
+  -- When several stages access memory in one cycle, the first one wins.
   Output mem <> Output mem' =
-    Output (mem <> mem')
+    Output (mem <|> mem')
 
 instance Monoid (Output f) where
-  mempty = Output mempty
+  mempty = Output Nothing
 
 -- | CPU halt state
 data HaltState = EBreak Address | Syscall Address | SecurityViolation
@@ -122,6 +118,8 @@ data StateG r f = State
     stateFePc :: Address,
     -- | Program counter decode stage.
     stateDePc :: Address,
+    -- | Does the decode stage expect an instruction?
+    stateDeExpInstr :: Bool,
     -- | Program counter execute stage.
     stateExPc :: Address,
     -- | Instruction execute stage.
@@ -213,7 +211,9 @@ circuit = flip $ execRWS pipe
 
 -- | The CPU, composed of each stage.
 pipe :: (Access f, RegFileOps r) => CPUM r f ()
-pipe = void $ withCtrlReset $ do
+pipe = do
+  -- The control lines need to be reset every tick.
+  modify $ \s -> s {stateCtrl = initCtrl}
   writeback
   memory
   execute
@@ -221,17 +221,14 @@ pipe = void $ withCtrlReset $ do
   fetch
 
 initInput :: (Access f) => Input f
-initInput =
-  Input
-    { inputIsInstr = False,
-      inputMem = pure 0
-    }
+initInput = Input (pure 0)
 
-init :: forall f r. (Access f, RegFileOps r) => StateG r f
-init =
+initAt :: (Access f) => Address -> r f -> StateG r f
+initAt pc rf =
   State
-    { stateFePc = initPc,
+    { stateFePc = pc,
       stateDePc = 0,
+      stateDeExpInstr = False,
       stateExPc = 0,
       stateExInstr = Nop FirstCycle,
       stateMeInstr = Nop FirstCycle,
@@ -239,11 +236,14 @@ init =
       stateMeAddr = 0,
       stateWbInstr = Nop FirstCycle,
       stateWbRes = pure 0,
-      stateRegFile = initRFg,
+      stateRegFile = rf,
       stateCtrl = initCtrl,
       stateHalt = Nothing,
       stateHaltNextPc = 0
     }
+
+init :: forall f r. (Access f, RegFileOps r) => StateG r f
+init = initAt initPc initRFg
 
 -- | Initial control lines.
 initCtrl :: Control f
@@ -260,30 +260,23 @@ initCtrl =
       ctrlWbRegFwd = Nothing
     }
 
--- | The control lines need to be reset every tick.
-withCtrlReset :: CPUM r f () -> CPUM r f (Control f)
-withCtrlReset m = do
-  modify $ \s -> s {stateCtrl = initCtrl}
-  m
-  gets stateCtrl
-
 -- | Set security violation flag.
 setSecurityViolation :: CPUM r f ()
 setSecurityViolation =
   modify $ \s -> s {stateHalt = Just SecurityViolation}
 
--- | The fetch stage.
+-- | Fetch stage.
 fetch :: CPUM r f ()
 fetch = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
 
-  -- Always try to read unless the instruction in the `memory` stage is a load or a store.
-  unless (ctrlMeMemInstr ctrl) $
-    readPC pc
-  
   -- We stall if the instruction in the `memory` stage is a load or a store.
   let stall = ctrlMeMemInstr ctrl
+
+  -- Always try to read unless we stall.
+  unless stall $
+    readPC pc
 
   let next_pc =
         fromMaybe
@@ -298,7 +291,9 @@ fetch = do
     s { -- Increment program counter for next fetch.
         stateFePc = next_pc,
         -- Propagate program counter to next stage.
-        stateDePc = pc
+        stateDePc = pc,
+        -- Decode expects an instruction next cycle iff we fetch now.
+        stateDeExpInstr = not stall
       }
 
 -- | Decode stage.
@@ -306,20 +301,21 @@ decode :: (Access f) => CPUM r f ()
 decode = do
   input <- ask
   pc <- gets stateDePc
+  expInstr <- gets stateDeExpInstr
   ctrl <- gets stateCtrl
-  
+
   ir <-
-    if inputIsInstr input
+    if expInstr
       then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
       else pure $ Nop MemoryBusBusy
 
-  let halted = maybe False isNopHalted (ctrlExInstr ctrl)
+  let halted = ctrlExInstr ctrl == Just (Nop Halted)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
 
-  let jump_previous_cycle = maybe False isNopJumpFirstCycle (ctrlExInstr ctrl)
-  let store_hazard_previous_cycle = maybe False isNopStoreHazardFirstCycle (ctrlExInstr ctrl)
-  let load_hazard_previous_cycle = maybe False isNopLoadHazardFirstCycle (ctrlExInstr ctrl)
+  let jump_previous_cycle = ctrlExInstr ctrl == Just (Nop JumpFirstCycle)
+  let store_hazard_previous_cycle = ctrlExInstr ctrl == Just (Nop StoreHazardFirstCycle)
+  let load_hazard_previous_cycle = ctrlExInstr ctrl == Just (Nop LoadHazardFirstCycle)
 
   let jump_current_cycle = isJust (ctrlExJumpAddr ctrl)
 
@@ -328,7 +324,7 @@ decode = do
         maybe False (storeHazard pc) (ctrlMeStoreAddrSize ctrl)
 
   let load_hazard_current_cycle = maybe False (loadHazard ir) (ctrlExInstr ctrl)
-  
+
   let ir'
         -- Halt if the core is not running anymore.
         | halted = Nop Halted
@@ -456,13 +452,12 @@ execute = do
 
     regWithFwd ::  RegIdx -> f Word -> CPUM r f (f Word)
     regWithFwd idx def = do
-      let checkForFwd line = do
-            (fwdIdx, fwdVal) <- MaybeT $ gets $ line . stateCtrl
+      ctrl <- gets stateCtrl
+      let pick line = do
+            (fwdIdx, fwdVal) <- line ctrl
             guard $ fwdIdx == idx && idx /= 0
             pure fwdVal
-      fmap (fromMaybe def) $
-        runMaybeT $
-          checkForFwd ctrlMeRegFwd <|> checkForFwd ctrlWbRegFwd
+      pure $ fromMaybe def (pick ctrlMeRegFwd <|> pick ctrlWbRegFwd)
 
 alu :: (Access f) => Arith -> f Word -> f Word -> f Word
 alu op lhs rhs = case op of
@@ -477,7 +472,7 @@ alu op lhs rhs = case op of
   SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
   SLTU -> set <$> ((<) <$> lhs <*> rhs)
   where
-    shiftBits s = slice d4 d0 s
+    shiftBits = slice d4 d0
     sign = unpack @(Signed 32)
     set b = if b then 1 else 0
 
@@ -525,6 +520,7 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
+-- | Memory stage.
 memory :: CPUM r f ()
 memory = do
   ir <- gets stateMeInstr
@@ -556,12 +552,12 @@ memory = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     _ -> pure ()
 
--- | Commit computations to the register file.
+-- | Writeback stage.
 writeback :: forall f r. (Access f, RegFileOps r) => CPUM r f ()
 writeback = do
   input <- asks inputMem
   ir <- gets stateWbInstr
-  res <- gets stateWbRes  
+  res <- gets stateWbRes
 
   case ir of
     Instruction.RType _ rd _ _ -> do
@@ -589,8 +585,7 @@ writeback = do
     Instruction.IType (Env Break) _ _ _ -> do
       cont <- gets stateHaltNextPc
       modify $ \s -> s {stateHalt = Just (EBreak cont), stateHaltNextPc = 0}
-    _ -> do
-      setLines $ \c -> c {ctrlWbRegFwd = Nothing}
+    _ -> setLines $ \c -> c {ctrlWbRegFwd = Nothing}
   where
     writeRF :: RegIdx -> f Word -> CPUM r f ()
     writeRF idx val =

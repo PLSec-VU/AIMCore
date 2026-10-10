@@ -19,10 +19,6 @@ module Proof.Machine
     stepSysOut,
     stepSysN,
     initSys,
-    running,
-    exInstr,
-    isNopInstr,
-    isBubble,
     readMemWord,
   )
 where
@@ -30,13 +26,9 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Functor.Identity
-import Data.Maybe (isNothing)
-import Data.Monoid (getFirst)
-import Instruction
 import Memory.Types
 import RegFile
 import Types
-import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | Core state, the input it is about to consume, and memory.
@@ -57,7 +49,6 @@ deriving instance (Show (r Identity), Show m) => Show (SysG r m)
 instance (Eq (r Identity), Eq m) => Eq (SysG r m) where
   Sys s1 i1 m1 == Sys s2 i2 m2 =
     s1 == s2
-      && inputIsInstr i1 == inputIsInstr i2
       && runIdentity (inputMem i1) == runIdentity (inputMem i2)
       && m1 == m2
 
@@ -75,18 +66,18 @@ stepSys = fst . stepSysOut
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output Identity)
 stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
-      (i', m') = service (getFirst (outMem o)) m
+      (i', m') = service (outMem o) m
    in (Sys s' i' m', o)
   where
-    service (Just (MemAccess isInstr addr size mval)) mem =
+    service (Just (MemAccess _ addr size mval)) mem =
       case mval of
         -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
         -- word; the size-dependent narrowing happens in 'Core.writeback' via
         -- 'loadExtend'. We reproduce that here.
-        Nothing -> (Input isInstr (pure (memReadWord addr mem)), mem)
+        Nothing -> (Input (pure (memReadWord addr mem)), mem)
         -- A write.
-        Just val -> (Input isInstr (pure 0), memWriteWord size addr (runIdentity val) mem)
-    service Nothing mem = (Input False (pure 0), mem)
+        Just val -> (Input (pure 0), memWriteWord size addr (runIdentity val) mem)
+    service Nothing mem = (Input (pure 0), mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
 stepSysN n s
@@ -101,28 +92,6 @@ initSys prog =
       sysInput = initInput,
       sysMem = mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
     }
-
-running :: SysG r m -> Bool
-running = isNothing . stateHalt . sysState
-
-exInstr :: SysG r m -> Instruction
-exInstr = stateExInstr . sysState
-
-isNopInstr :: Instruction -> Bool
-isNopInstr (Nop _) = True
-isNopInstr _ = False
-
--- | Is this a pipeline bubble, as opposed to a real instruction?
---
--- The driver's stated invariant is \"step until the execute stage is no longer
--- a no-op\", but that is slightly too coarse: @Nop DecodeFail@ is what an
--- undecodable memory word decodes to, so it /is/ the architectural instruction
--- at that PC and the ISA steps over it like any other. Only the stall reasons
--- are genuine bubbles.
-isBubble :: Instruction -> Bool
-isBubble (Nop DecodeFail) = False
-isBubble (Nop _) = True
-isBubble _ = False
 
 readMemWord :: Address -> MemBytes -> Word
 readMemWord = readWord
