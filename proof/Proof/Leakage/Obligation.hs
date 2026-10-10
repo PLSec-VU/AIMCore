@@ -45,15 +45,14 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- afterwards. The register file and memory are arbitrary, as in
 -- 'Proof.Functional.Obligation.baseCaseObligation'.
 baseCaseLeakObligation ::
-  forall r m. (RegFileOps r, MemOps m) => r Identity -> m -> Address -> Bool
+  (RegFileOps r, MemOps m) => r Identity -> m -> Address -> Bool
 baseCaseLeakObligation rf mem pc =
   simDriver Nothing sim == 1
     && obs1 == obsOf out1
     && obs2 == obsOf out2
     && simInv sim2 sys2
   where
-    st = (Core.init :: Core.StateG r Identity) {Core.stateFePc = pc, Core.stateRegFile = rf}
-    sys = Sys st Core.initInput mem
+    sys = Sys (Core.initAt pc rf) Core.initInput mem
     sim = simInit {simStateFePc = pc}
 
     (sys1, out1) = stepSysOut sys

@@ -91,13 +91,12 @@ isaAt ipc (Sys st inp mem) =
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
 baseCaseObligation ::
-  forall r m. (RegFileOps r, MemOps m) => r Identity -> m -> RegIdx -> Address -> Address -> Bool
+  (RegFileOps r, MemOps m) => r Identity -> m -> RegIdx -> Address -> Address -> Bool
 baseCaseObligation rf mem wr wa pc =
   driver sys == 1 && invAtFree wr wa isa sys2
   where
     isa = IsaState {isaPc = pc, isaRegFile = rf, isaMem = mem}
-    st = (Core.init :: Core.StateG r Identity) {Core.stateFePc = pc, Core.stateRegFile = rf}
-    sys = Sys st Core.initInput mem
+    sys = Sys (Core.initAt pc rf) Core.initInput mem
 
     sys1 = stepSys sys
     sys2 = stepSys sys1

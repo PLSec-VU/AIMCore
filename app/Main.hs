@@ -224,7 +224,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
     runIOMemT mem $ loadProgram elf
   
   let initialSims = P.map (\_ -> simulator @Identity @(IOMemT IO)) [1..optNumInstances]
-  let initialStates = P.map (\(sim, mem) -> sim { circuitState = (Core.init @Identity @RegFile) { Core.stateFePc = fromIntegral entryOffset, Core.stateRegFile = modifyRF 2 (pure $ ioMemInitSP mem) initRF } }) (P.zip initialSims memInstances)
+  let initialStates = P.map (\(sim, mem) -> sim { circuitState = Core.initAt (fromIntegral entryOffset) (modifyRF 2 (pure $ ioMemInitSP mem) (initRF @Identity)) }) (P.zip initialSims memInstances)
   
   go 0 (P.zip memInstances initialStates)
   where
@@ -253,8 +253,7 @@ runNormalMemory Options{..} elf entryOffset leakOutputHandle leakDigest finalSta
               case mRet of
                 Nothing -> pure (Nothing, True)  -- exit
                 Just ret -> do
-                  let s'' = (Core.init :: Core.State Identity) {Core.stateFePc = resumePc,
-                                       Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+                  let s'' = Core.initAt resumePc (modifyRF 10 ret (Core.stateRegFile s'))
                   _ <- next s'' o
                   pure (Just Core.initInput, False)
             _ -> pure (Nothing, False)  -- EBreak, SecurityViolation: stop
@@ -328,10 +327,9 @@ runExecutable opts@Options{..} = do
               (secureInstrument optVerbose leakOutputHandle leakDigest finalStateRef)
               (simulator @PubSec @(SecureIOMemT IO))
                 { circuitState =
-                    (Core.init @PubSec @RegFile)
-                      { Core.stateFePc = fromIntegral entryOffset,
-                        Core.stateRegFile = modifyRF 2 (pure $ secureIOMemInitSP secureIOMem) initRF
-                      }
+                    Core.initAt
+                      (fromIntegral entryOffset)
+                      (modifyRF 2 (pure $ secureIOMemInitSP secureIOMem) (initRF @PubSec))
                 }
           finalState <- readIORef finalStateRef
           case finalState of

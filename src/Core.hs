@@ -8,6 +8,7 @@
 
 module Core
   ( initInput,
+    initAt,
     init,
     initCtrl,
     circuit,
@@ -222,10 +223,10 @@ pipe = do
 initInput :: (Access f) => Input f
 initInput = Input (pure 0)
 
-init :: forall f r. (Access f, RegFileOps r) => StateG r f
-init =
+initAt :: (Access f) => Address -> r f -> StateG r f
+initAt pc rf =
   State
-    { stateFePc = initPc,
+    { stateFePc = pc,
       stateDePc = 0,
       stateDeExpInstr = False,
       stateExPc = 0,
@@ -235,11 +236,14 @@ init =
       stateMeAddr = 0,
       stateWbInstr = Nop FirstCycle,
       stateWbRes = pure 0,
-      stateRegFile = initRFg,
+      stateRegFile = rf,
       stateCtrl = initCtrl,
       stateHalt = Nothing,
       stateHaltNextPc = 0
     }
+
+init :: forall f r. (Access f, RegFileOps r) => StateG r f
+init = initAt initPc initRFg
 
 -- | Initial control lines.
 initCtrl :: Control f
