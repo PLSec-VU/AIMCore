@@ -46,7 +46,7 @@ runSTMemoryT :: STMemory s -> STMemoryT s m a -> m a
 runSTMemoryT mem (STMemoryT m) = runReaderT m mem
 
 instance {-# OVERLAPPING #-} (MonadIO m) => MonadMemory (STMemoryT RealWorld m) where
-  ramRead _isInstr addr size = do
+  ramRead addr size = do
     st <- ask
     let offset = addr - stDataBase st
     if offset < 0x1000000 && offset >= 0

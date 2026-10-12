@@ -89,7 +89,7 @@ readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m Strin
 readStringFromMemory addr count = do
   bytes <-
     forM [0 .. count - 1] $ \i -> do
-      byte <- ramRead False (addr + i) Byte
+      byte <- ramRead (addr + i) Byte
       pure $ fromIntegral (byte .&. 0xFF)
   pure $ P.map chr $ takeWhile (/= 0) bytes
 

@@ -48,10 +48,10 @@ simulator =
       where
         doMemory :: m (f Word)
         doMemory
-          | Just (MemAccess isInstr addr size mval) <- mem =
+          | Just (MemAccess _ addr size mval) <- mem =
               case mval of
                 Nothing -> do
-                  word <- ramRead isInstr addr size
+                  word <- ramRead addr size
                   isSecret <- isMemorySecret addr
                   pure (conditionalSecret isSecret word)
                 Just val -> do
