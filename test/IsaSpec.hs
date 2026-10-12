@@ -109,8 +109,7 @@ mkIsaTest name =
       Left e -> assertFailure e
 
 -- | The same programs "BenchmarkSpec" runs against the core, run against the
--- ISA model instead. @fence_i@ is excluded for the same reason it is excluded
--- there: it is self-modifying code.
+-- ISA model instead.
 isaConformanceTests :: TestTree
 isaConformanceTests =
   testGroup
@@ -120,6 +119,7 @@ isaConformanceTests =
     programs =
       [ "add", "addi", "and", "andi", "auipc",
         "beq", "bge", "bgeu", "blt", "bltu", "bne",
+        "fence_i",
         "jal", "jalr",
         "lb", "lbu", "ld_st", "lh", "lhu", "lui", "lw",
         "ma_data",

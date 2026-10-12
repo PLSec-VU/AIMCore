@@ -66,12 +66,10 @@ mkBenchmarkTest testName _benchmark =
     elf <- readElf (benchmarkPath _benchmark)
     entryOffset <- startAddr elf
     base <- baseAddr elf
-    let segments = getElfSegments elf
 
-    -- Run the simulator with STMemory and MonadMemory interface
-    stMem <- stToIO $ do
-      mem <- newSTMemory (fromIntegral entryOffset) (fromIntegral base)
-      loadSTProgram mem segments
+    -- Run the simulator with STMemory and MonadMemory interface; loadElf
+    -- copies the program's segments into memory.
+    stMem <- stToIO $ newSTMemory (fromIntegral entryOffset) (fromIntegral base)
     
     _ <- runSTMemoryT stMem $ do
       loadElf elf
@@ -205,17 +203,12 @@ benchmarkTests =
               { benchmarkPath = "test/rv32ui/rv32ui-p-bne",
                 benchmarkInstrument = testSuiteInstrument False
               },
-          {- 
-          -- Commented out because fence_i involves self-modifying code, 
-          -- which is explicitly disallowed by the W^X (Write XOR Execute) 
-          -- policy enforced in STMemory.
           mkBenchmarkTest
             "rv32ui-p-fence_i"
             BenchmarkTest
               { benchmarkPath = "test/rv32ui/rv32ui-p-fence_i",
                 benchmarkInstrument = testSuiteInstrument False
               },
-          -}
           mkBenchmarkTest
             "rv32ui-p-jal"
             BenchmarkTest
