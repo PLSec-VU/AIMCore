@@ -9,7 +9,6 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (topEntity)
 import Data.Functor.Identity
 import Data.Maybe (fromMaybe)
-import Data.Monoid
 import qualified GHC.TypeNats
 import Instruction hiding (decode)
 import RegFile
@@ -33,16 +32,8 @@ system prog = cpuOut
     cpuInput :: Signal dom (Input Identity)
     cpuInput = register initInput input
     cpuOut = cpu @Identity cpuInput
-    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog ((fromMaybe (MemAccess False 0 Word Nothing) . getFirst . outMem) <$> cpuOut)
-    input =
-      ( \o mread ->
-          Input
-            ( fromMaybe False $ memIsInstr <$> getFirst (outMem o)
-            )
-            (Identity mread)
-      )
-        <$> cpuOut
-        <*> ram
+    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemAccess False 0 Word Nothing) . outMem <$> cpuOut)
+    input = Input . Identity <$> ram
 
 mkRAM :: forall f progSize ramSize dom.
   (Access f, HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>

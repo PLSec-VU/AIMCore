@@ -16,21 +16,13 @@
 -- statements themselves live in "Proof.Functional.Obligation", shared with the QuickCheck
 -- harness so the two cannot drift.
 --
--- The pipeline state is passed as an ADT of scalars ('KState') plus SMT-array
--- register file and memory: an ADT of scalars can be a fresh symbolic
--- argument, a record containing a function cannot, and the Clash @Vec@ API is
--- opaque to the plugin (see "Proof.SMT.Array").
+-- The pipeline state is passed as a 'KState' plus SMT-array register file and
+-- memory; see "Proof.SMT.System".
 module Proof.Functional.Induction
-  ( -- | Exported because nothing in Haskell ever applies the constructor: the
-    -- plugin synthesises a 'KState' as a fresh symbolic input to each property,
-    -- and 'sysOf' only reads it back through the field accessors. Without this
-    -- the constructor looks dead to @-Wunused-top-binds@. It is also what a new
-    -- property in this module would take as its pipeline-state argument.
-    KState (..),
-    arrRoundTrip,
+  ( arrRoundTrip,
     shiftsSane,
     baseCase,
-    indStep0,
+    indStep,
     indStep1,
     indStep2,
     indStep3,
@@ -38,63 +30,18 @@ module Proof.Functional.Induction
   )
 where
 
-import Proof.SMT.Array
-import Proof.SMT.Axioms (arrayAxioms)
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Data.Functor.Identity
-import ISA (IsaStateG (..))
-import Instruction
-import Proof.Functional.Invariant (invAtFree)
-import Proof.SMT.Logged (pantomime)
-import Proof.Machine
-import Memory.Types (initPc)
-import Proof.Driver (driver)
-import Proof.Functional.Obligation
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
+import Proof.Functional.Obligation
+import Proof.SMT.Array
+import Proof.SMT.Axioms (arrayAxioms)
+import Proof.SMT.Logged (pantomime)
+import Proof.SMT.System
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
-
--- | The pipeline registers, as plain scalars.
-data KState = KState
-  { kFePc :: Address,
-    kDePc :: Address,
-    kExPc :: Address,
-    kExIr :: Instruction,
-    kMeIr :: Instruction,
-    kMeRes :: Word,
-    kMeAddr :: Address,
-    kWbIr :: Instruction,
-    kWbRes :: Word,
-    kCtrl :: Core.Control Identity,
-    kHalt :: Maybe Core.HaltState,
-    kHaltNextPc :: Address
-  }
-
--- | Assemble a system state from the symbolic pieces.
-sysOf :: KState -> Core.Input Identity -> RegArr -> MemArr -> SysG RegArrF MemArr
-sysOf ss i ra ma =
-  Sys
-    { sysState =
-        Core.State
-          { Core.stateFePc = kFePc ss,
-            Core.stateDePc = kDePc ss,
-            Core.stateExPc = kExPc ss,
-            Core.stateExInstr = kExIr ss,
-            Core.stateMeInstr = kMeIr ss,
-            Core.stateMeRes = Identity (kMeRes ss),
-            Core.stateMeAddr = kMeAddr ss,
-            Core.stateWbInstr = kWbIr ss,
-            Core.stateWbRes = Identity (kWbRes ss),
-            Core.stateRegFile = RegArrF ra,
-            Core.stateCtrl = kCtrl ss,
-            Core.stateHalt = kHalt ss,
-            Core.stateHaltNextPc = kHaltNextPc ss
-          },
-      sysInput = i,
-      sysMem = ma
-    }
 
 -- Sanity probes for the trusted embeddings -------------------------------------
 --
@@ -126,48 +73,17 @@ shiftsSane x =
 
 -- The base case ----------------------------------------------------------------
 
--- | The invariant holds once the reset state has taken its first hop.
---
--- Without this the four steps below say only that the invariant is /preserved/,
--- which is vacuous if it never holds anywhere. Together they give the theorem:
--- the invariant relates the core to the ISA at every state the driver lands on
--- after reset.
---
--- The reset state itself is not a case of the invariant. 'Core.init' has nothing
--- in the pipeline, so the driver gives it a two-cycle hop that fetches and
--- decodes the first instruction without executing anything. This property
--- states that hop directly: the driver does assign it two cycles, and after
--- them the running case relates the core to the ISA's /initial/ state -- zero
--- ISA steps. Handling it here rather than as a case of the invariant is what
--- lets every inductive step retire exactly one instruction.
---
--- It holds for any loaded program, hence the arbitrary memory. Every field
--- except the register file comes from 'Core.init' itself, so the reset shape
--- cannot drift from the real one. The register file has to be substituted
--- because 'RegFileOps.initRFg' builds a Clash 'Vec' with the opaque 'repeat'.
---
--- Note what that substitution costs: memory and the register file are the same
--- symbolic values on both sides, and the reset hop writes neither, so the
--- invariant's two container equalities hold by construction here and this
--- property alone would not notice if the core's reset register file and the
--- ISA's ('RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes
--- that gap -- it runs on the real 'Vec'-backed state, where both files are built
--- independently.
 {-# ANN baseCase (Theory arrayAxioms) #-}
-baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-baseCase ra ma wr wa =
-  Pantomime.boolean $ driver sys == 1 && invAtFree wr wa isa (stepSys (stepSys sys))
-  where
-    st = (Core.init :: Core.StateG RegArrF Identity) {Core.stateRegFile = RegArrF ra}
-    sys = Sys st Core.initInput ma
-    isa = IsaState {isaPc = initPc, isaRegFile = RegArrF ra, isaMem = ma}
+baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+baseCase ra ma wr wa pc =
+  Pantomime.boolean $ baseCaseObligation (RegArrF ra) ma wr wa pc
 
 -- The inductive steps ----------------------------------------------------------
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
-{-# ANN indStep0 (Theory arrayAxioms) #-}
-indStep0 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-indStep0 ss i ra ma wr wa ipc =
+{-# ANN indStep (Theory arrayAxioms) #-}
+indStep :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
+indStep ss i ra ma wr wa ipc =
   Pantomime.boolean $ indStepObligation wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
@@ -196,7 +112,7 @@ results =
   [ ("arrRoundTrip", $(pantomime 'arrRoundTrip)),
     ("shiftsSane", $(pantomime 'shiftsSane)),
     ("baseCase", $(pantomime 'baseCase)),
-    ("indStep0", $(pantomime 'indStep0)),
+    ("indStep", $(pantomime 'indStep)),
     ("indStep1", $(pantomime 'indStep1)),
     ("indStep2", $(pantomime 'indStep2)),
     ("indStep3", $(pantomime 'indStep3))

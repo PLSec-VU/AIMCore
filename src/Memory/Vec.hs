@@ -20,7 +20,7 @@ data Mem n = Mem
   deriving (Eq, Show, Generic, NFDataX)
 
 instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
-  ramRead _isInstr addr _size = readWord addr <$> gets memRAM
+  ramRead addr _size = readWord addr <$> gets memRAM
   ramWrite addr size w = do
     ram <- gets memRAM
     modify $ \s -> s {memRAM = write size addr w ram}

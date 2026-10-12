@@ -59,7 +59,7 @@ loadProgram :: (MonadMemory m) => Elf -> m ()
 loadProgram elf = loadElf elf
 
 instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
-  ramRead _isInstr addr _size = do
+  ramRead addr _size = do
     ramArray <- asks ioMemRAM
     bytes <- forM [0 .. 3] $ \i -> do
       w8 <- lift $ readArray ramArray (fromIntegral addr + i)
@@ -124,7 +124,7 @@ loadSecureProgram :: (MonadMemory m) => Elf -> m ()
 loadSecureProgram elf = loadElf elf
 
 instance {-# OVERLAPPING #-} MonadMemory (SecureIOMemT IO) where
-  ramRead _isInstr addr _size = do
+  ramRead addr _size = do
     ramArray <- asks secureIOMemRAM
     bytes <- forM [0 .. 3] $ \i -> do
       w8 <- lift $ readArray ramArray (fromIntegral addr + i)

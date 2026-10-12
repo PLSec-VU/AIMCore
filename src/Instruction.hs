@@ -20,15 +20,11 @@ module Instruction
     getRs2,
     isBreak,
     isCall,
-    isNopJumpFirstCycle,
-    isNopLoadHazardFirstCycle,
-    isNopStoreHazardFirstCycle,
-    isNopHalted,
+    isEnvInstr,
     break,
     storeHazard,
     loadHazard,
-    isLoad,
-    isStore,
+    isMemInstr,
     loadExtend,
   )
 where
@@ -442,29 +438,16 @@ isCall :: Instruction -> Bool
 isCall (IType (Env Call) _ _ _) = True
 isCall _ = False
 
-isLoad :: Instruction -> Bool
-isLoad (IType Load {} _ _ _) = True
-isLoad _ = False
+-- | @ecall@ / @ebreak@: the instructions that halt the core.
+isEnvInstr :: Instruction -> Bool
+isEnvInstr ir = isCall ir || isBreak ir
 
-isStore :: Instruction -> Bool
-isStore (SType {}) = True
-isStore _ = False
-
-isNopJumpFirstCycle :: Instruction -> Bool
-isNopJumpFirstCycle (Nop JumpFirstCycle) = True
-isNopJumpFirstCycle _ = False
-
-isNopLoadHazardFirstCycle :: Instruction -> Bool
-isNopLoadHazardFirstCycle (Nop LoadHazardFirstCycle) = True
-isNopLoadHazardFirstCycle _ = False
-
-isNopStoreHazardFirstCycle :: Instruction -> Bool
-isNopStoreHazardFirstCycle (Nop StoreHazardFirstCycle) = True
-isNopStoreHazardFirstCycle _ = False
-
-isNopHalted :: Instruction -> Bool
-isNopHalted (Nop Halted) = True
-isNopHalted _ = False
+-- | Loads and stores: the instructions that use the memory bus in the memory
+-- stage.
+isMemInstr :: Instruction -> Bool
+isMemInstr (IType Load {} _ _ _) = True
+isMemInstr (SType {}) = True
+isMemInstr _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0

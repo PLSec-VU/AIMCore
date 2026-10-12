@@ -89,7 +89,7 @@ readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m Strin
 readStringFromMemory addr count = do
   bytes <-
     forM [0 .. count - 1] $ \i -> do
-      byte <- ramRead False (addr + i) Byte
+      byte <- ramRead (addr + i) Byte
       pure $ fromIntegral (byte .&. 0xFF)
   pure $ P.map chr $ takeWhile (/= 0) bytes
 
@@ -112,8 +112,7 @@ runElf instr c = go c
           case mRet of
             Nothing -> pure ()
             Just ret -> do
-              let s'' = (Core.init :: Core.State f) {Core.stateFePc = resumePc,
-                                   Core.stateRegFile = modifyRF 10 ret (Core.stateRegFile s')}
+              let s'' = Core.initAt resumePc (modifyRF 10 ret (Core.stateRegFile s'))
               go $ sim {circuitInput = Core.initInput, circuitState = s''}
         Just (Core.EBreak _) -> pure ()
         Just Core.SecurityViolation -> pure ()

@@ -110,48 +110,34 @@ library:
       source-dirs: proof-smt
       exposed-modules:
         - Proof.Functional.Induction
+        - Proof.Leakage.Induction
+        - Proof.SMT.Array
+        - Proof.SMT.Axioms
+        - Proof.SMT.Logged
         - Proof.SMT.Sanity
+        - Proof.SMT.System
       cpp-options: -DSMT_PROOF
   exposed-modules:
     - Proof.Machine
-    - Proof.Driver
+    - Proof.Functional.Driver
     - Proof.Functional.Invariant
     - Proof.Functional.Obligation
     - Proof.Leakage.Model
     - Proof.Leakage.Simulator
+    - Proof.Leakage.Driver
+    - Proof.Leakage.Invariant
     - Proof.Leakage.Obligation
-    # Proof.Leakage.Induction: temporarily out of the build. Its four properties
-    # are invalid since the aliasing-store assumption was dropped, and the
-    # counterexample-extraction path trips a Pantomime/effectful unlifting bug
-    # ("version (2356) /= storageVersion (0)") that fails the build outright.
-    # Restore once the leakage model can express the store-hazard stall.
-    - Proof.SMT.Array
-    - Proof.SMT.Axioms
-    - Proof.SMT.Logged
     - Access
     - Core
     - Elf.ElfLoader
     - Elf.Syscall
     - HardwareSim
     - Instruction
-    - Interp
     - ISA
     - Memory.Types
     - Memory.Vec
     - Memory.ST
     - Memory.IO
-    - Leak.Arch.Arch
-    - Leak.PC.ISA
-    - Leak.PC.Leak
-    - Leak.PC.PC
-    - Leak.PC.Sim
-    - Leak.PCWithState.PCWithState
-    - Leak.SecretPC.Leak
-    - Leak.SecretPC.PC
-    - Leak.MonitorPC.MonitorLeak
-    - Leak.MonitorPC.PC
-    - Leak.MonitorPC.Sim
-    - Leak.Existence
     - Pretty
     - RegFile
     - Simulate
@@ -169,8 +155,6 @@ executables:
     dependencies:
     - aimcore
     - optparse-applicative
-    - binary
-    - blake2
 
 tests:
   aimcore-test:

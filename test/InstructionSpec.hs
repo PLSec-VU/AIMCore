@@ -224,10 +224,12 @@ testInstructionPredicates = testGroup "Instruction Predicates"
       isCall callInstr @?= True
       isCall nop @?= False,
 
-    testCase "isLoad predicate" $ do
+    testCase "isMemInstr predicate" $ do
       let loadInstr = IType (Load Word Signed) 1 2 100
-      isLoad loadInstr @?= True
-      isLoad nop @?= False
+          storeInstr = SType Word 100 1 2
+      isMemInstr loadInstr @?= True
+      isMemInstr storeInstr @?= True
+      isMemInstr nop @?= False
   ]
 
 -- | Test register extraction functions

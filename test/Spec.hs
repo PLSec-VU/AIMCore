@@ -15,9 +15,6 @@ import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import InstructionSpec (instructionTests)
-import qualified Leak.MonitorPC.PC as Leak.MonitorPC
-import qualified Leak.PC.PC as Leak.PC
-import qualified Leak.SecretPC.PC as Leak.SecretPC
 import RegFile
 import Simulate
 import Memory.Types
@@ -28,13 +25,13 @@ import qualified Proof.SMT.Sanity as Sanity
 import qualified Prelude
 #ifdef SMT_PROOF
 import qualified Proof.Functional.Induction
+import qualified Proof.Leakage.Induction
 #endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
-import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
 import "aimcore" Types
 import "aimcore" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -56,25 +53,14 @@ mkPureTest s (CPUTest prog expected) =
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
 
-mkPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
-mkPCLeakTest s prog =
-  testCase s $
-    assertBool "" $
-      Leak.PC.pcsEqual prog
-
-mkSecretPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
-mkSecretPCLeakTest s prog =
-  testCase s $
-    assertBool "" $
-      Leak.SecretPC.pcsEqual prog
-
 #ifdef SMT_PROOF
 -- | The compile-time symbolic checks, read back out.
 --
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the refinement proof itself; see "Proof.Functional.Induction".
+-- The rest are the proofs themselves; see "Proof.Functional.Induction" and
+-- "Proof.Leakage.Induction".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -91,15 +77,23 @@ sanityTests =
       testCase "base case: invariant holds after the reset hop" $
         lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep0" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
         lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
         lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing
-      -- The four leakage steps are omitted while Proof.Leakage.Induction is out
-      -- of the build; see the note in package.yaml.
+        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+      testCase "leakage base case: simulator matches the first hop" $
+        lookup "baseCaseLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 0 leakage step is valid" $
+        lookup "indStepLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 1 leakage step is valid" $
+        lookup "indStepLeak1" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 2 leakage step is valid" $
+        lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
+      testCase "k = 3 leakage step is valid" $
+        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing
     ]
   where
     verdict :: String -> Maybe String
@@ -148,50 +142,6 @@ tests =
                     testExpected = [(0, sum [0 .. 10])]
                   }
             ]
-          -- testGroup
-          --   "PC leak"
-          --   [ mkPCLeakTest "test 1" $ mkProg prog1,
-          --     mkPCLeakTest "test 2" $ mkProg prog1,
-          --     mkPCLeakTest "test 3" $ mkProg prog1
-          --     {-
-          --     , testProperty "PC Simulator" $
-          --       withMaxSuccess 500000 $
-          --         simulatorTheorem
-          --           Leak.PC.proj
-          --           Leak.PC.leak
-          --           Leak.PC.sim
-          --           Core.circuit
-          --           Leak.PC.obs,
-          --     testProperty "Non-interference" $
-          --       withMaxSuccess 500000 $
-          --         nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
-          --     -}
-          --   ],
-          -- testGroup
-          --   "SecretPC leak"
-          --   [ mkSecretPCLeakTest "test 1" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 1" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 2" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 3" $ mkProg prog1,
-          --     mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
-          --     {-
-          --     , testProperty "SecretPC Simulator" $
-          --       withMaxSuccess 500000 $
-          --         simulatorTheorem
-          --           Leak.SecretPC.proj
-          --           Leak.SecretPC.leak
-          --           Leak.SecretPC.sim
-          --           Core.circuit
-          --           Leak.SecretPC.obs,
-          --     testProperty "MonitorPC Non-interference" $
-          --       withMaxSuccess 500000 $
-          --         nonInterferenceTheorem
-          --           Leak.MonitorPC.proj
-          --           Leak.MonitorPC.leak
-          --           Core.circuit
-          --           Leak.MonitorPC.obs
-          --     -}
-          --   ]
         ],
       benchmarkTests
     ]
@@ -395,16 +345,17 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
 
+-- | Half the time a valid instruction encoding, half the time an arbitrary data
+-- word. Whether the core treats it as an instruction is up to the state's
+-- 'Core.stateDeExpInstr'.
 instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
   arbitrary = do
-    isInstr <- arbitrary
     mem <-
-      if isInstr
-        then fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust)
-        else arbitrary
+      oneof
+        [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
+          arbitrary
+        ]
     isSecretMem <- arbitrary
-    pure $
-      Input
-        isInstr
-        (conditionalSecret isSecretMem mem)
+    pure $ Input (conditionalSecret isSecretMem mem)

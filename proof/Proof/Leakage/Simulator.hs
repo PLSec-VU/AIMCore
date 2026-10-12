@@ -1,370 +1,300 @@
--- | The simulator: a machine that sees only the leakage and still reproduces
--- everything the attacker can see.
+-- | The leakage simulator: a pipeline with the same stage structure and timing
+-- as "Core", which sees only the leakage -- never the program, the register
+-- file or memory contents.
 --
--- It is the unmodified 'Core.circuit', run on a censored state and fed
--- instruction words made up from the leakage. Per hop:
---
---   1. 'installLeak' puts @'Proof.Leakage.Model.invWord' l@ on the bus.
---   2. 'Proof.Driver.driver' picks the hop length from the censored state, and
---      the core runs that many cycles, every instruction fetch answered with
---      the same word.
---   3. 'scrub' normalises the state for the next hop.
---
--- The hop length is /derived/, not supplied. That is the point: the number of
--- cycles an instruction takes is exactly the timing an attacker sees, so a
--- simulator that were told it would be proving nothing.
---
--- 'proj' is the refinement relation the proof preserves. Its architectural half
--- is 'archOfLeak' and its simulator half is 'censor'.
+-- Each cycle it may receive the 'Leak' of the instruction entering its execute
+-- stage ('SimInput'; 'Nothing' when there is none) and emits the bus
+-- observation the core would make that cycle ('SimOutput'). The leakage proof
+-- shows that, fed the ISA's leakage, it produces the same observations as the
+-- core, so everything an attacker on the bus sees is a function of the leakage
+-- alone.
 module Proof.Leakage.Simulator
-  ( -- * Simulator states
-    SimSys,
-    censor,
-    censorEx,
-    censorPast,
-    exLeak,
-    installJump,
-    scrub,
-    simEq,
-
-    -- * The refinement relation
-    proj,
-    archOfLeak,
-    isaNext,
-
-    -- * The two machines
-    implHop,
-    simHop,
-    leakSimHop,
-    stepSimOut,
-    installLeak,
+  ( SimInput,
+    SimOutput,
+    SimExInstrType (..),
+    SimState (..),
+    SimControl (..),
+    SimM,
+    simCircuit,
+    simInit,
+    simInitCtrl,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
-import Data.Functor.Identity
-import Data.Monoid (getFirst)
-import Instruction
-import Proof.Driver (driver)
-import Proof.Functional.Obligation (hopPc, isStartupShape, isaAt)
-import ISA (IsaStateG (..), StepG (..), isaStep)
+import Control.Monad
+import Control.Monad.RWS
+import Data.Maybe (fromMaybe, isJust)
+import Instruction (storeHazard)
+import Memory.Types
 import Proof.Leakage.Model
-import Memory.Types (MemOps (..))
-import Proof.Machine
-import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
--- Censoring --------------------------------------------------------------------
+-- | The input of the simulator.
+type SimInput = Maybe Leak
 
--- | The simulator's state: a core state with the secrets removed.
---
--- The memory slot is @()@ -- the simulator has no memory, and answers
--- instruction fetches from the leakage and data reads with zero.
--- 'Proof.Driver.driver' is polymorphic in the memory type, so it runs on this
--- unchanged.
-type SimSys r = SysG r ()
+-- | The output of the simulator.
+type SimOutput = Obs
 
--- | Remove the secrets from a core state.
---
--- Kept: the three program counters (they are the observable fetch addresses),
--- the halt state, the 'Core.inputIsInstr' flag, and the /class/ of each
--- pipeline instruction.
---
--- Removed: the register file, both result registers, the memory-stage address,
--- and the instruction word on the bus. The control lines are reset rather than
--- copied, because 'Core.withCtrlReset' rewrites them before any stage reads
--- them and they carry nothing between cycles.
-censor :: (RegFileOps r) => SysG r m -> SimSys r
-censor sys@(Sys st inp _) =
-  installJump (jumpSource =<< exLeak sys) $
-    Sys
-      { sysState =
-          State
-            { stateFePc = stateFePc st,
-              stateDePc = stateDePc st,
-              stateExPc = stateExPc st,
-              stateExInstr = censorEx sys,
-              stateMeInstr = censorPast (stateMeInstr st),
-              stateMeRes = Identity 0,
-              stateMeAddr = 0,
-              stateWbInstr = censorPast (stateWbInstr st),
-              stateWbRes = Identity 0,
-              stateRegFile = initRFg,
-              stateCtrl = initCtrl,
-              stateHalt = stateHalt st,
-              stateHaltNextPc = stateHaltNextPc st
-            },
-        sysInput = Input (inputIsInstr inp) (Identity 0),
-        sysMem = ()
+data SimExInstrType
+  = -- | A decoded instruction, whose leakage is the input.
+    DecodedInstr
+  | -- | First instruction discarded because of a jump.
+    StallJumpFirstCycle
+  | -- | Second instruction discarded because of a jump.
+    StallJumpSecondCycle
+  | -- | First instruction discarded because of a load hazard.
+    StallLoadHazardFirstCycle
+  | -- | Second instruction discarded because of a load hazard.
+    StallLoadHazardSecondCycle
+  | -- | First instruction discarded because of a store hazard.
+    StallStoreHazardFirstCycle
+  | -- | Second instruction discarded because of a store hazard.
+    StallStoreHazardSecondCycle
+  | -- | No instruction read because of memory bus overload.
+    StallMemoryBusBusy
+  | -- | First cycle.
+    FirstCycle
+  | -- | The core has halted.
+    Halted
+  deriving (Eq, Show, Generic, NFDataX)
+
+-- | The internal state of the simulator.
+data SimState = SimState
+  { -- | Program counter fetch stage.
+    simStateFePc :: Address,
+    -- | Program counter decode stage.
+    simStateDePc :: Address,
+    -- | Does the decode stage expect an instruction?
+    simStateDeExpInstr :: Bool,
+    -- | Instruction execute stage.
+    simStateExInstrType :: SimExInstrType,
+    -- | Instruction memory stage.
+    simStateMeInstr :: Leak,
+    -- | Control/forwarding lines.
+    simStateCtrl :: SimControl
+  }
+  deriving (Eq, Show, Generic, NFDataX)
+
+-- | Control lines.
+data SimControl = SimControl
+  { -- | Stores `stateDePc` when the instruction in the `decode` stage has
+    --   a load hazard with the instruction in the `execute` stage.
+    simCtrlDeLoadHazard :: Maybe Address,
+    -- | Stores `stateDePc` when the instruction in the `decode` stage has
+    --   a store hazard with the instruction in the `execute` stage or the
+    --   instruction in the `memory` stage.
+    simCtrlDeStoreHazard :: Maybe Address,
+    -- | Stores the type of instruction in the `execute` stage (if it's a decoded
+    -- instruction versus various stalls).
+    simCtrlExInstrType :: Maybe SimExInstrType,
+    -- | `True` when the leaked instruction is an environment instruction. To
+    -- maintain consistency with the core, the execute stage is the only one
+    -- that examines the input, which is why this control line is needed.
+    simCtrlExEnvInstr :: Bool,
+    -- | Stores the jump address if the instruction in the `execute` stage
+    --   results in a jump.
+    simCtrlExJumpAddr :: Maybe Address,
+    -- | Stores the write address and size if the instruction in the `execute` stage
+    --   is a store.
+    simCtrlExStoreAddrSize :: Maybe (Address, Size),
+    -- | Stores the load hazard bit if the instruction in the `execute` stage
+    --   is a load.
+    simCtrlExLoadHazard :: Maybe Bool,
+    -- | `True` when the instruction in the `memory` stage is a store or a load.
+    simCtrlMeMemInstr :: Bool,
+    -- | Stores the write address and size if the instruction in the `memory` stage
+    --   is a store.
+    simCtrlMeStoreAddrSize :: Maybe (Address, Size)
+  }
+  deriving (Eq, Show, Generic, NFDataX)
+
+type SimM = RWS SimInput SimOutput SimState
+
+simSetLines :: (SimControl -> SimControl) -> SimM ()
+simSetLines f = modify $ \s -> s {simStateCtrl = f (simStateCtrl s)}
+
+-- | Run the simulator for one step.
+simCircuit :: SimState -> SimInput -> (SimState, SimOutput)
+simCircuit = flip $ execRWS simPipe
+
+-- | The simulator, composed of each stage.
+simPipe :: SimM ()
+simPipe = do
+  -- The control lines need to be reset every tick.
+  modify $ \s -> s {simStateCtrl = simInitCtrl}
+  simWriteback
+  simMemory
+  simExecute
+  simDecode
+  simFetch
+
+simInit :: SimState
+simInit =
+  SimState
+    { simStateFePc = initPc,
+      simStateDePc = 0,
+      simStateDeExpInstr = False,
+      simStateExInstrType = FirstCycle,
+      simStateMeInstr = LArith,
+      simStateCtrl = simInitCtrl
+    }
+
+-- | Initial control lines.
+simInitCtrl :: SimControl
+simInitCtrl =
+  SimControl
+    { simCtrlDeLoadHazard = Nothing,
+      simCtrlDeStoreHazard = Nothing,
+      simCtrlExInstrType = Nothing,
+      simCtrlExEnvInstr = False,
+      simCtrlExJumpAddr = Nothing,
+      simCtrlExStoreAddrSize = Nothing,
+      simCtrlExLoadHazard = Nothing,
+      simCtrlMeMemInstr = False,
+      simCtrlMeStoreAddrSize = Nothing
+    }
+
+-- | Fetch stage.
+simFetch :: SimM ()
+simFetch = do
+  pc <- gets simStateFePc
+  ctrl <- gets simStateCtrl
+
+  -- We stall if the instruction in the `memory` stage is a load or a store.
+  let stall = simCtrlMeMemInstr ctrl
+
+  -- Always try to read unless we stall.
+  unless stall $
+    simReadPC pc
+
+  let next_pc =
+        fromMaybe
+          (fromMaybe
+             (fromMaybe
+                (if stall then pc else pc + 4)
+                (simCtrlDeLoadHazard ctrl))
+             (simCtrlDeStoreHazard ctrl))
+          (simCtrlExJumpAddr ctrl)
+
+  modify $ \s ->
+    s { -- Increment program counter for next fetch.
+        simStateFePc = next_pc,
+        -- Propagate program counter to next stage.
+        simStateDePc = pc,
+        -- Decode expects an instruction next cycle iff we fetch now.
+        simStateDeExpInstr = not stall
       }
 
--- | The leakage of the execute-stage instruction, or 'Nothing' when that stage
--- holds a stall @Nop@.
---
--- @Nop DecodeFail@ is not a stall: it is what an undecodable memory word
--- decodes to, so it is a real architectural instruction and is classified like
--- any other non-memory one. 'Proof.Machine.isBubble' draws the same line.
-exLeak :: (RegFileOps r) => SysG r m -> Maybe L
-exLeak sys = case exInstr sys of
-  Nop DecodeFail -> Just (L CPlain (Nothing, Nothing))
-  Nop _ -> Nothing
-  ir -> Just (L (coreClass sys ir) (mkDeps ir))
+-- | Decode stage.
+simDecode :: SimM ()
+simDecode = do
+  pc <- gets simStateDePc
+  expInstr <- gets simStateDeExpInstr
+  ctrl <- gets simStateCtrl
 
--- | Censor the execute-stage instruction.
---
--- This is the only stage whose instruction still has decisions to make, so it
--- is replaced by the representative of its leakage, with the class resolved
--- against the /core/ state -- forwarded operands and all.
---
--- Stall @Nop@s pass through verbatim: 'Core.decode' reads the reason back off
--- @ctrlExInstr@ to decide the follow-on stall, so it is live here.
-censorEx :: (RegFileOps r) => SysG r m -> Instruction
-censorEx sys = case exLeak sys of
-  Nothing -> exInstr sys
-  Just l -> inv l
+  let irt = if expInstr then DecodedInstr else StallMemoryBusBusy
 
--- | Censor a memory- or writeback-stage instruction.
---
--- These have no decisions left. 'Core.memory' and 'Core.writeback' consult them
--- only to decide whether to issue a memory access and of what width, which
--- register to forward, and which register to write, so only the memory class
--- and width need survive.
---
--- The destination register is dropped, unlike in 'censorEx'. No hazard check
--- reads it here -- 'Core.decode', 'Proof.Driver.loadHazardD' and the
--- invariant's @me->ex@ conjunct all look at the execute stage -- and dropping
--- it keeps a censored writeback from clobbering the value 'installJump' parks
--- in the register file. With @rd == 0@ the write is a no-op and
--- 'Core.regWithFwd' ignores the forwarding line.
---
--- Idempotent on its own image, which is what lets 'scrub' apply it to
--- instructions the simulator produced itself.
-censorPast :: Instruction -> Instruction
-censorPast ir = case ir of
-  Nop DecodeFail -> inv (L CPlain (Nothing, Nothing))
-  Nop reason -> Nop reason
-  IType (Load size _) _ _ _ -> inv (L (CLoad size 0) (mkDeps ir))
-  SType size _ _ _ -> inv (L (CStore size) (mkDeps ir))
-  _ -> inv (L CPlain (mkDeps ir))
+  let halted = simCtrlExInstrType ctrl == Just Halted
+  let env_instr_current_cycle = simCtrlExEnvInstr ctrl
+  
+  let jump_previous_cycle = simCtrlExInstrType ctrl == Just StallJumpFirstCycle
+  let store_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallStoreHazardFirstCycle
+  let load_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallLoadHazardFirstCycle
 
--- | Park a leaked jump target in the register file, where 'Core.execute' will
--- read it back.
---
--- The register file is what 'Core.execute' reads, because in a censored state
--- neither forwarding line can fire: 'censorPast' gives every memory- and
--- writeback-stage instruction @rd == 0@, and 'Core.regWithFwd' ignores @x0@.
---
--- The value lives for exactly one hop -- the next 'censor' or 'scrub' rebuilds
--- the register file -- and during that hop the only register-reading
--- instruction in the execute stage is the @jalr@ that needs it.
-installJump :: (RegFileOps r) => Maybe (RegIdx, Address) -> SimSys r -> SimSys r
-installJump Nothing ss = ss
-installJump (Just (src, target)) (Sys st inp m) =
-  Sys
-    st {stateRegFile = modifyRFg src (Identity (pack target)) (stateRegFile st)}
-    inp
-    m
+  let jump_current_cycle = isJust (simCtrlExJumpAddr ctrl)
 
--- | Normalise the simulator's state at a hop boundary.
---
--- Two jobs. First, discard dead state: the register file, both result
--- registers, the memory-stage address and the parked bus word. Every
--- instruction 'inv' emits reads only registers held at zero, writes either
--- @x0@ or a load result that is zero, and never lets a result value reach an
--- observation, so 'censor' can zero them on the implementation side and the
--- two still agree.
---
--- Second, re-censor the memory- and writeback-stage instructions. 'censorEx'
--- resolves an execute-stage branch to a taken or untaken representative, and
--- the simulator carries that form down the pipeline; 'censor', looking at the
--- implementation one hop later, sees the same instruction in the memory stage
--- and cannot recover the outcome, so it uses the plain representative. Running
--- 'censorPast' on both sides reconciles them.
-scrub :: (RegFileOps r) => L -> SimSys r -> SimSys r
-scrub l (Sys st inp _) =
-  installJump parked $
-    Sys
-      { sysState =
-          st
-            { stateMeInstr = censorPast (stateMeInstr st),
-              stateWbInstr = censorPast (stateWbInstr st),
-              stateMeRes = Identity 0,
-              stateWbRes = Identity 0,
-              stateMeAddr = 0,
-              stateRegFile = initRFg,
-              stateCtrl = initCtrl
-            },
-        sysInput = Input (inputIsInstr inp) (Identity 0),
-        sysMem = ()
-      }
-  where
-    -- The instruction that just reached the execute stage is the one this hop
-    -- injected, so its leakage is @l@ -- unless it was squashed or the core
-    -- halted, in which case that stage holds a @Nop@ and nothing is parked.
-    parked
-      | stateExInstr st == inv l = jumpSource l
-      | otherwise = Nothing
+  let store_hazard_current_cycle =
+        maybe False (storeHazard pc) (simCtrlExStoreAddrSize ctrl) ||
+        maybe False (storeHazard pc) (simCtrlMeStoreAddrSize ctrl)
 
--- | Structural equality on simulator states, at one witness register.
---
--- 'SysG' has an 'Eq' instance, but it needs @'Eq' (r 'Identity')@, which the
--- SMT-array register file does not have; the register file is compared
--- pointwise instead, as 'Proof.Functional.Invariant.invAtFree' does. Quantifying
--- over the witness recovers full equality.
---
--- The control lines are not compared: 'Core.withCtrlReset' resets them at the
--- start of every cycle, so they carry nothing between hops.
-simEq :: (RegFileOps r) => RegIdx -> SimSys r -> SimSys r -> Bool
-simEq wr (Sys a ia _) (Sys b ib _) =
-  stateFePc a == stateFePc b
-    && stateDePc a == stateDePc b
-    && stateExPc a == stateExPc b
-    && stateExInstr a == stateExInstr b
-    && stateMeInstr a == stateMeInstr b
-    && stateMeAddr a == stateMeAddr b
-    && stateWbInstr a == stateWbInstr b
-    && runIdentity (stateMeRes a) == runIdentity (stateMeRes b)
-    && runIdentity (stateWbRes a) == runIdentity (stateWbRes b)
-    && stateHalt a == stateHalt b
-    && stateHaltNextPc a == stateHaltNextPc b
-    && inputIsInstr ia == inputIsInstr ib
-    && runIdentity (lookupRFg wr (stateRegFile a)) == runIdentity (lookupRFg wr (stateRegFile b))
-    && runIdentity (inputMem ia) == runIdentity (inputMem ib)
+  let load_hazard_current_cycle = expInstr && fromMaybe False (simCtrlExLoadHazard ctrl)
 
--- The refinement relation ------------------------------------------------------
+  let irt'
+        -- Halt if the core is not running anymore.
+        | halted = Halted
+        -- Halt if there is an environment instruction in this cycle.
+        | env_instr_current_cycle = Halted
+        -- Stall if there was a jump in the previous cycle.
+        | jump_previous_cycle = StallJumpSecondCycle
+        -- Stall if there was a store hazard in the previous cycle.
+        | store_hazard_previous_cycle = StallStoreHazardSecondCycle
+        -- Stall if there was a load hazard in the previous cycle.
+        | load_hazard_previous_cycle = StallLoadHazardSecondCycle
+        -- Stall if there is a jump in this cycle.
+        | jump_current_cycle = StallJumpFirstCycle
+        -- Stall if there is a store hazard in this cycle.
+        | store_hazard_current_cycle = StallStoreHazardFirstCycle
+        -- Stall if there is a load hazard in this cycle.
+        | load_hazard_current_cycle = StallLoadHazardFirstCycle
+        -- Otherwise we process the decoded instruction.
+        | otherwise = irt
 
--- | 'isaStep' made total: a halted ISA stands still.
-isaNext :: (RegFileOps r, MemOps m) => IsaStateG r m -> IsaStateG r m
-isaNext a = case isaStep a of
-  Next a' -> a'
-  IsaHalted -> a
+  modify $ \s -> s {simStateExInstrType = irt'}
 
--- | The architectural state a core state corresponds to, for the leakage proof.
---
--- Fetch-aligned: the instruction at its PC is the one the pipeline is /taking
--- in/, not the one in the execute stage. 'Proof.Functional.Obligation.hopPc'
--- is execute-aligned, one instruction behind, so a single
--- 'isaStep' converts between them.
---
--- The alignment is forced. The simulator's only channel into the core is the
--- instruction word on the bus, and the invariant pins that word to
--- @mem[dePc] == mem[isaPc + 4]@ -- the instruction after the one in execute. So
--- the leakage a hop consumes must describe that one.
---
--- At reset nothing is in flight and the PC comes off the fetch stage, exactly as
--- 'Proof.Functional.Obligation.hopPc' already does there.
-archOfLeak :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
-archOfLeak sys
-  | isStartupShape sys = isaAt (hopPc sys) sys
-  | otherwise = isaNext (isaAt (hopPc sys) sys)
+  when (irt' == StallStoreHazardFirstCycle) $ do
+    simSetLines $ \c -> c {simCtrlDeStoreHazard = Just pc}
 
--- | The refinement relation: an architectural state paired with a censored core.
-proj :: (RegFileOps r, MemOps m) => SysG r m -> (IsaStateG r m, SimSys r)
-proj sys = (archOfLeak sys, censor sys)
+  when (irt' == StallLoadHazardFirstCycle) $ do
+    simSetLines $ \c -> c {simCtrlDeLoadHazard = Just pc}
 
--- The two machines -------------------------------------------------------------
+-- | Execute stage.
+simExecute :: SimM ()
+simExecute = do
+  input <- ask
+  irt <- gets simStateExInstrType
 
--- | One simulator cycle.
---
--- The shape of 'Proof.Machine.stepSysOut', except that there is no memory to
--- service: an instruction fetch is answered with the leaked word, a data read
--- with zero, and a write with zero exactly as 'Proof.Machine.stepSys' does.
-stepSimOut :: (RegFileOps r) => Word -> SimSys r -> (SimSys r, Output Identity)
-stepSimOut w (Sys s i _) =
-  let (s', o) = Core.circuit s i
-      i' = case getFirst (outMem o) of
-        Just (MemAccess isInstr _ _ Nothing) ->
-          Input isInstr (Identity (if isInstr then w else 0))
-        Just (MemAccess isInstr _ _ (Just _)) -> Input isInstr (Identity 0)
-        Nothing -> Input False (Identity 0)
-   in (Sys s' i' (), o)
+  simSetLines $ \c -> c {simCtrlExInstrType = Just irt}
+  
+  case irt of
+    DecodedInstr ->
+      case input of
+        Just ir -> do
+          modify $ \s -> s {simStateMeInstr = ir}
 
--- | Put the leaked instruction word on the simulator's bus.
---
--- Only onto an instruction fetch. When 'Core.inputIsInstr' is 'False' the bus
--- carries the data for a load in the writeback stage, and 'Core.writeback'
--- would sign-extend the instruction word into a register. The censored value
--- there is zero and stays zero; the leaked word reaches 'Core.decode' one cycle
--- later through 'stepSimOut'.
-installLeak :: Word -> SimSys r -> SimSys r
-installLeak word (Sys s i m)
-  | inputIsInstr i = Sys s (Input True (Identity word)) m
-  | otherwise = Sys s i m
+          case ir of
+            LArith -> pure ()
+            LJump addr ->
+              simSetLines $ \c -> c {simCtrlExJumpAddr = Just addr}
+            LLoad _ _ haz ->
+              simSetLines $ \c -> c {simCtrlExLoadHazard = Just haz}
+            LStore size addr ->
+              simSetLines $ \c -> c {simCtrlExStoreAddrSize = Just (addr, size)}
+            LEnv ->
+              simSetLines $ \c -> c {simCtrlExEnvInstr = True}
+        Nothing -> modify $ \s -> s {simStateMeInstr = LArith}
+    _ -> modify $ \s -> s {simStateMeInstr = LArith}
 
--- | The implementation, run for one driver hop, with the observation of each
--- cycle.
---
--- A four-way case rather than a loop: @driver sys@ is symbolic and Pantomime
--- cannot unroll a symbolic count.
-implHop :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, HopObs)
-implHop sys = case driver sys of
-  0 ->
-    let (s1, o1) = stepSysOut sys
-     in (s1, HopObs (Just (obsOf o1)) Nothing Nothing Nothing)
-  1 ->
-    let (s1, o1) = stepSysOut sys
-        (s2, o2) = stepSysOut s1
-     in (s2, HopObs (Just (obsOf o1)) (Just (obsOf o2)) Nothing Nothing)
-  2 ->
-    let (s1, o1) = stepSysOut sys
-        (s2, o2) = stepSysOut s1
-        (s3, o3) = stepSysOut s2
-     in (s3, HopObs (Just (obsOf o1)) (Just (obsOf o2)) (Just (obsOf o3)) Nothing)
-  _ ->
-    let (s1, o1) = stepSysOut sys
-        (s2, o2) = stepSysOut s1
-        (s3, o3) = stepSysOut s2
-        (s4, o4) = stepSysOut s3
-     in (s4, HopObs (Just (obsOf o1)) (Just (obsOf o2)) (Just (obsOf o3)) (Just (obsOf o4)))
+-- | Memory stage.
+simMemory :: SimM ()
+simMemory = do
+  ir <- gets simStateMeInstr
 
--- | The simulator, run for one hop.
---
--- The leaked word goes on the bus before the hop length is asked for, because
--- 'Proof.Driver.driver' reads it: a load-use hazard between the incoming
--- instruction and a load in the execute stage is one of the things that decides
--- how long the hop is.
-simHop :: (RegFileOps r) => SimSys r -> L -> (SimSys r, HopObs)
-simHop ss l = (scrub l ss', o)
-  where
-    w = invWord l
-    ss0 = installLeak w ss
-    (ss', o) = case driver ss0 of
-      0 ->
-        let (s1, o1) = stepSimOut w ss0
-         in (s1, HopObs (Just (obsOf o1)) Nothing Nothing Nothing)
-      1 ->
-        let (s1, o1) = stepSimOut w ss0
-            (s2, o2) = stepSimOut w s1
-         in (s2, HopObs (Just (obsOf o1)) (Just (obsOf o2)) Nothing Nothing)
-      2 ->
-        let (s1, o1) = stepSimOut w ss0
-            (s2, o2) = stepSimOut w s1
-            (s3, o3) = stepSimOut w s2
-         in (s3, HopObs (Just (obsOf o1)) (Just (obsOf o2)) (Just (obsOf o3)) Nothing)
-      _ ->
-        let (s1, o1) = stepSimOut w ss0
-            (s2, o2) = stepSimOut w s1
-            (s3, o3) = stepSimOut w s2
-            (s4, o4) = stepSimOut w s3
-         in (s4, HopObs (Just (obsOf o1)) (Just (obsOf o2)) (Just (obsOf o3)) (Just (obsOf o4)))
+  case ir of
+    LArith -> pure ()
+    LJump _ -> pure ()
+    LLoad size addr _ -> do
+      simSetLines $ \c -> c {simCtrlMeMemInstr = True}
+      simReadRAM addr size
+    LStore size addr -> do
+      simSetLines $ \c ->
+        c {simCtrlMeMemInstr = True, simCtrlMeStoreAddrSize = Just (addr, size)}
+      simWriteRAM addr size
+    LEnv -> pure ()
 
--- | Specification and simulator, composed.
---
--- The architectural state steps, and the simulator is handed the leakage of the
--- instruction that state is currently processing. Nothing here mentions the
--- pipeline: the leakage is @'leakOf' a@, a function of the architectural state
--- alone. That is the point of the construction -- an attacker model that can be
--- stated without the processor in it.
---
--- A closed machine, unlike its counterpart in the @highlevel-leakage@
--- development: AIMCore's ISA reads its instruction out of its own memory, so
--- the architectural state is all the input there is.
-leakSimHop ::
-  (RegFileOps r, MemOps m) =>
-  (IsaStateG r m, SimSys r) ->
-  ((IsaStateG r m, SimSys r), HopObs)
-leakSimHop (a, ss) = ((isaNext a, ss'), o)
-  where
-    (ss', o) = simHop ss (leakOf a)
+-- | Writeback stage.
+simWriteback :: SimM ()
+simWriteback = pure ()
+
+simReadPC :: Address -> SimM ()
+simReadPC addr =
+  tell $ Fetch addr
+
+simReadRAM :: Address -> Size -> SimM ()
+simReadRAM addr size =
+  tell $ DataRead addr size
+
+simWriteRAM :: Address -> Size -> SimM ()
+simWriteRAM addr size =
+  tell $ DataWrite addr size

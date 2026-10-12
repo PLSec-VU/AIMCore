@@ -5,7 +5,7 @@
 -- | The ISA specification: what each instruction means, and how the
 -- architectural state evolves.
 --
--- Two halves, both semantics. 'interp'' turns an 'Instruction.Instruction' into
+-- Two halves, both semantics. 'interp' turns an 'Instruction.Instruction' into
 -- an @'Instr' 'Func'@ -- the effect it denotes -- and 'apply' evaluates one of
 -- those 'Func's against the two source-register values and the PC. On top of
 -- that, 'isaStep' says how the @(isaPc, isaRegFile, isaMem)@ triple moves.
@@ -26,7 +26,6 @@ module ISA
     getR1,
     getR2,
     interp,
-    interp',
     IsaStateG (..),
     IsaState,
     StepG (..),
@@ -119,13 +118,8 @@ instance DepReg (Instr Func) where
   deps Nop = (empty, empty)
   deps Syscall = (pure 17, empty)
 
-interp :: (Access f) => Input f -> Instr Func
-interp input
-  | not (inputIsInstr input) = Nop
-  | otherwise = interp' $ Instruction.decode' $ unAccess $ inputMem input
-
-interp' :: Instruction.Instruction -> Instr Func
-interp' instr
+interp :: Instruction.Instruction -> Instr Func
+interp instr
   | Instruction.isBreak instr = Break
   | otherwise =
       case instr of
@@ -259,7 +253,7 @@ isaStepDecoded ir st@(IsaState pc rf mem) =
     Break -> IsaHalted
     Syscall -> IsaHalted
   where
-    instr = interp' ir
+    instr = interp ir
 
     reg = maybe 0 (\idx -> runIdentity (lookupRFg idx rf))
 

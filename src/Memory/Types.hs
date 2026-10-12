@@ -27,7 +27,7 @@ import Types
 import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat, replicate, take, undefined, (!!), (&&), (++), (||))
 
 class Monad m => MonadMemory m where
-  ramRead :: Bool -> Address -> Size -> m Word
+  ramRead :: Address -> Size -> m Word
   ramWrite :: Address -> Size -> Word -> m ()
   -- | Mark a region of memory as public or secret
   markMemoryRegion :: Address -> Address -> Bool -> m ()

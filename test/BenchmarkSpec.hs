@@ -13,7 +13,6 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.ST (stToIO, RealWorld)
 import qualified Core as Core
 import Data.Functor.Identity
-import Data.Monoid (First (getFirst))
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
@@ -67,12 +66,10 @@ mkBenchmarkTest testName _benchmark =
     elf <- readElf (benchmarkPath _benchmark)
     entryOffset <- startAddr elf
     base <- baseAddr elf
-    let segments = getElfSegments elf
 
-    -- Run the simulator with STMemory and MonadMemory interface
-    stMem <- stToIO $ do
-      mem <- newSTMemory (fromIntegral entryOffset) (fromIntegral base)
-      loadSTProgram mem segments
+    -- Run the simulator with STMemory and MonadMemory interface; loadElf
+    -- copies the program's segments into memory.
+    stMem <- stToIO $ newSTMemory (fromIntegral entryOffset) (fromIntegral base)
     
     _ <- runSTMemoryT stMem $ do
       loadElf elf
@@ -82,10 +79,9 @@ mkBenchmarkTest testName _benchmark =
         (benchmarkInstrument _benchmark)
         (sim
           { circuitState =
-              (Core.init @Identity @RegFile)
-                { Core.stateFePc = fromIntegral entryOffset,
-                  Core.stateRegFile = modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) initRF
-                }
+              Core.initAt
+                (fromIntegral entryOffset)
+                (modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) (initRF @Identity))
           })
 
     pure ()
@@ -207,17 +203,12 @@ benchmarkTests =
               { benchmarkPath = "test/rv32ui/rv32ui-p-bne",
                 benchmarkInstrument = testSuiteInstrument False
               },
-          {- 
-          -- Commented out because fence_i involves self-modifying code, 
-          -- which is explicitly disallowed by the W^X (Write XOR Execute) 
-          -- policy enforced in STMemory.
           mkBenchmarkTest
             "rv32ui-p-fence_i"
             BenchmarkTest
               { benchmarkPath = "test/rv32ui/rv32ui-p-fence_i",
                 benchmarkInstrument = testSuiteInstrument False
               },
-          -}
           mkBenchmarkTest
             "rv32ui-p-jal"
             BenchmarkTest
