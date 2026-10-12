@@ -15,9 +15,6 @@ import Core
 import Data.Maybe (fromJust, isJust)
 import Instruction
 import InstructionSpec (instructionTests)
-import qualified Leak.MonitorPC.PC as Leak.MonitorPC
-import qualified Leak.PC.PC as Leak.PC
-import qualified Leak.SecretPC.PC as Leak.SecretPC
 import RegFile
 import Simulate
 import Memory.Types
@@ -35,7 +32,6 @@ import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck
-import TheoremSpec (nonInterferenceTheorem, simulatorTheorem)
 import "aimcore" Types
 import "aimcore" Util
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (!!), (&&), (++), (||))
@@ -56,18 +52,6 @@ mkPureTest s (CPUTest prog expected) =
     let ram = simResult @RAM_SIZE_BYTES prog
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
-
-mkPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
-mkPCLeakTest s prog =
-  testCase s $
-    assertBool "" $
-      Leak.PC.pcsEqual prog
-
-mkSecretPCLeakTest :: String -> Vec PROG_SIZE Word -> TestTree
-mkSecretPCLeakTest s prog =
-  testCase s $
-    assertBool "" $
-      Leak.SecretPC.pcsEqual prog
 
 #ifdef SMT_PROOF
 -- | The compile-time symbolic checks, read back out.
@@ -158,50 +142,6 @@ tests =
                     testExpected = [(0, sum [0 .. 10])]
                   }
             ]
-          -- testGroup
-          --   "PC leak"
-          --   [ mkPCLeakTest "test 1" $ mkProg prog1,
-          --     mkPCLeakTest "test 2" $ mkProg prog1,
-          --     mkPCLeakTest "test 3" $ mkProg prog1
-          --     {-
-          --     , testProperty "PC Simulator" $
-          --       withMaxSuccess 500000 $
-          --         simulatorTheorem
-          --           Leak.PC.proj
-          --           Leak.PC.leak
-          --           Leak.PC.sim
-          --           Core.circuit
-          --           Leak.PC.obs,
-          --     testProperty "Non-interference" $
-          --       withMaxSuccess 500000 $
-          --         nonInterferenceTheorem Leak.PC.proj Leak.PC.leak Core.circuit Leak.PC.obs
-          --     -}
-          --   ],
-          -- testGroup
-          --   "SecretPC leak"
-          --   [ mkSecretPCLeakTest "test 1" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 1" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 2" $ mkProg prog1,
-          --     mkSecretPCLeakTest "test 3" $ mkProg prog1,
-          --     mkSecretPCLeakTest "sumTo 10" $ mkProg $ sumTo 10
-          --     {-
-          --     , testProperty "SecretPC Simulator" $
-          --       withMaxSuccess 500000 $
-          --         simulatorTheorem
-          --           Leak.SecretPC.proj
-          --           Leak.SecretPC.leak
-          --           Leak.SecretPC.sim
-          --           Core.circuit
-          --           Leak.SecretPC.obs,
-          --     testProperty "MonitorPC Non-interference" $
-          --       withMaxSuccess 500000 $
-          --         nonInterferenceTheorem
-          --           Leak.MonitorPC.proj
-          --           Leak.MonitorPC.leak
-          --           Core.circuit
-          --           Leak.MonitorPC.obs
-          --     -}
-          --   ]
         ],
       benchmarkTests
     ]

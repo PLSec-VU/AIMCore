@@ -133,24 +133,11 @@ library:
     - Elf.Syscall
     - HardwareSim
     - Instruction
-    - Interp
     - ISA
     - Memory.Types
     - Memory.Vec
     - Memory.ST
     - Memory.IO
-    - Leak.Arch.Arch
-    - Leak.PC.ISA
-    - Leak.PC.Leak
-    - Leak.PC.PC
-    - Leak.PC.Sim
-    - Leak.PCWithState.PCWithState
-    - Leak.SecretPC.Leak
-    - Leak.SecretPC.PC
-    - Leak.MonitorPC.MonitorLeak
-    - Leak.MonitorPC.PC
-    - Leak.MonitorPC.Sim
-    - Leak.Existence
     - Pretty
     - RegFile
     - Simulate
@@ -168,8 +155,6 @@ executables:
     dependencies:
     - aimcore
     - optparse-applicative
-    - binary
-    - blake2
 
 tests:
   aimcore-test:
