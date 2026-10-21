@@ -83,7 +83,7 @@ serve (CacheSrv c mem s) req = case s of
     Just (MemWrite addr size val) ->
       ( CacheSrv
           (cacheWrite addr size val c)
-          (memWrite size addr val mem)
+          (memWrite addr size val mem)
           CacheSrvReady,
         Input Nothing
       )      
