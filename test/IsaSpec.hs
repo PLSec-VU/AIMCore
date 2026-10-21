@@ -20,7 +20,6 @@ module IsaSpec (isaConformanceTests) where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Data.ByteString as BS
-import Data.Functor.Identity (Identity (..))
 import qualified Data.Map.Strict as M
 import Elf.ElfLoader (baseAddr, getElfSegments, readElf, startAddr)
 import ISA (IsaStateG (..), StepG (..), isaStep)
@@ -86,7 +85,7 @@ loadProgram path = do
   P.pure
     IsaState
       { isaPc = fromIntegral entry,
-        isaRegFile = modifyRF 2 (Identity sp) initRF,
+        isaRegFile = modifyRF 2 sp initRF,
         isaMem = MemMap bytes
       }
 
@@ -97,8 +96,8 @@ checkPassed st
   | a0 P./= 0 = Left ("a0 = " P.++ show a0 P.++ ", expected 0")
   | otherwise = Right ()
   where
-    gp = runIdentity (lookupRFg 3 (isaRegFile st))
-    a0 = runIdentity (lookupRFg 10 (isaRegFile st))
+    gp = (lookupRFg 3 (isaRegFile st))
+    a0 = (lookupRFg 10 (isaRegFile st))
 
 mkIsaTest :: String -> TestTree
 mkIsaTest name =

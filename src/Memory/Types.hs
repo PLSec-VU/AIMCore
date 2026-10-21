@@ -29,10 +29,6 @@ import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat
 class Monad m => MonadMemory m where
   ramRead :: Address -> Size -> m Word
   ramWrite :: Address -> Size -> Word -> m ()
-  -- | Mark a region of memory as public or secret
-  markMemoryRegion :: Address -> Address -> Bool -> m ()
-  -- | Check if a memory address is marked as secret
-  isMemorySecret :: Address -> m Bool
 
 -- | The byte-addressed memory the ISA model and the proof harness use. Same
 -- size as the one the simulation tests use.

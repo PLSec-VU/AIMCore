@@ -6,7 +6,6 @@
 
 module Main (main) where
 
-import Access
 import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
@@ -288,7 +287,7 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
+instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
@@ -301,35 +300,27 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
     where
-      genAccessWord = do
-        isSecret <- arbitrary
-        word <- arbitrary
-        pure $ conditionalSecret isSecret word
       genMaybeRegFwd = do
         hasFwd <- arbitrary
         if hasFwd
           then do
             regIdx <- arbitrary
-            accessWord <- genAccessWord
-            pure $ Just (regIdx, accessWord)
+            word <- arbitrary
+            pure $ Just (regIdx, word)
           else pure Nothing
-
-instance (Arbitrary a) => Arbitrary (PubSec a) where
-  arbitrary = oneof [Public <$> arbitrary, Secret <$> arbitrary]
 
 instance Arbitrary Core.HaltState where
   arbitrary = oneof
     [ Core.EBreak <$> arbitrary
     , Core.Syscall <$> arbitrary
-    , pure Core.SecurityViolation
     ]
 
-instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
+instance Arbitrary RegFile where
   arbitrary = do
     vals <- vectorOf 31 arbitrary
     pure $ RegFile $ unsafeFromList vals
 
-instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.State f) where
+instance Arbitrary Core.State where
   arbitrary =
     Core.State
       <$> arbitrary
@@ -350,12 +341,11 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
 -- | Half the time a valid instruction encoding, half the time an arbitrary data
 -- word. Whether the core treats it as an instruction is up to the state's
 -- 'Core.stateDeExpInstr'.
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
+instance Arbitrary Input where
   arbitrary = do
     mem <-
       oneof
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    isSecretMem <- arbitrary
-    pure $ Input (conditionalSecret isSecretMem mem)
+    pure $ Input mem

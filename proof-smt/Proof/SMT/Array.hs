@@ -40,7 +40,6 @@ module Proof.SMT.Array
   )
 where
 
-import Access
 import qualified Clash.Prelude
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Coerce (Coercible, coerce)
@@ -133,18 +132,15 @@ zeroRA = RegArr (Clash.Prelude.repeat 0)
 zeroRAE :: forall arr. (Coercible RegArrSMT arr) => arr
 zeroRAE = coerce (RegArrSMT (P.aconst 0))
 
--- | The array-backed register file, wrapped so it fits 'RegFileOps'.
---
--- The @f@ parameter is phantom: the embedding must be monomorphic, so the
--- element type is fixed to 'Word'. This is a verification-only representation
--- and is used at @f ~ Identity@, where 'unAccess' is the identity.
-newtype RegArrF (f :: Type -> Type) = RegArrF RegArr
+-- | The array-backed register file, wrapped so it fits 'RegFileOps'. A
+-- verification-only representation.
+newtype RegArrF = RegArrF RegArr
 
 instance RegFileOps RegArrF where
-  lookupRFg idx (RegArrF a) = if idx == 0 then pure 0 else pure (loadRA a idx)
+  lookupRFg idx (RegArrF a) = if idx == 0 then 0 else loadRA a idx
   modifyRFg idx v rf@(RegArrF a)
     | idx == 0 = rf
-    | otherwise = RegArrF (storeRA a idx (unAccess v))
+    | otherwise = RegArrF (storeRA a idx v)
 
   -- On the symbolic path; see 'zeroRA'.
   initRFg = RegArrF zeroRA

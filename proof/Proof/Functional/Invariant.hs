@@ -33,7 +33,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Instruction
 import Memory.Types
 import ISA (IsaStateG (..), IsaState)
@@ -50,8 +49,8 @@ flushWbStage ::
   Instruction ->
   Word ->
   Word ->
-  (m, r Identity) ->
-  (m, r Identity)
+  (m, r) ->
+  (m, r)
 flushWbStage ir res inputWord (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
@@ -65,7 +64,7 @@ flushWbStage ir res inputWord (mem, rf) =
     IType (Env _) _ _ _ -> (mem, rf)
     Nop _ -> (mem, rf)
   where
-    put rd v = modifyRFg rd (pure v) rf
+    put rd v = modifyRFg rd v rf
 
 -- | Apply the pending effect of the memory-stage instruction.
 --
@@ -77,8 +76,8 @@ flushMeStage ::
   Instruction ->
   Word ->
   Address ->
-  (m, r Identity) ->
-  (m, r Identity)
+  (m, r) ->
+  (m, r)
 flushMeStage ir res addr (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
@@ -93,7 +92,7 @@ flushMeStage ir res addr (mem, rf) =
     IType (Env _) _ _ _ -> (mem, rf)
     Nop _ -> (mem, rf)
   where
-    put rd v = modifyRFg rd (pure v) rf
+    put rd v = modifyRFg rd v rf
 
 -- | A named case of the invariant, with its conjuncts.
 data Case = Case
@@ -136,7 +135,7 @@ invCasesAt ::
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> [Case]
 invCasesAt wr wa =
   invCasesGen
-    (\a b -> runIdentity (lookupRFg wr a) == runIdentity (lookupRFg wr b))
+    (\a b -> (lookupRFg wr a) == (lookupRFg wr b))
     (\a b -> memReadByte wa a == memReadByte wa b)
 
 -- | The cases of the invariant, parameterised over how register files and
@@ -147,7 +146,7 @@ invCasesAt wr wa =
 -- reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
-  (r Identity -> r Identity -> Bool) ->
+  (r -> r -> Bool) ->
   (m -> m -> Bool) ->
   IsaStateG r m ->
   SysG r m ->
@@ -158,7 +157,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
   ]
   where
-    inputWord = runIdentity (inputMem inp)
+    inputWord = (inputMem inp)
 
     -- Bound once: under symbolic execution a repeated 'decode'' is not shared,
     -- and it is a large decision tree.
@@ -189,9 +188,9 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
             let (fm, frf) =
                   flushMeStage
                     (stateMeInstr st)
-                    (runIdentity (stateMeRes st))
+                    ((stateMeRes st))
                     (stateMeAddr st)
-                    (flushWbStage (stateWbInstr st) (runIdentity (stateWbRes st)) inputWord (mem, stateRegFile st))
+                    (flushWbStage (stateWbInstr st) ((stateWbRes st)) inputWord (mem, stateRegFile st))
              in eqMem imem fm && eqRF irf frf
           )
         ]
@@ -258,11 +257,11 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
            then not (stateDeExpInstr st) && stateFePc st == stateExPc st + 4
            else
              stateDeExpInstr st
-               && runIdentity (inputMem inp) == memReadWord (stateDePc st) mem
+               && (inputMem inp) == memReadWord (stateDePc st) mem
                && stateFePc st == stateExPc st + 8
        )
     && memReadByte wa imem == memReadByte wa fm
-    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr frf)
+    && (lookupRFg wr irf) == (lookupRFg wr frf)
   where
     -- The same flush the container form applies, read at the witness. Writing
     -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWriteWord'
@@ -272,12 +271,12 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
     (fm, frf) =
       flushMeStage
         (stateMeInstr st)
-        (runIdentity (stateMeRes st))
+        ((stateMeRes st))
         (stateMeAddr st)
         ( flushWbStage
             (stateWbInstr st)
-            (runIdentity (stateWbRes st))
-            (runIdentity (inputMem inp))
+            ((stateWbRes st))
+            ((inputMem inp))
             (mem, stateRegFile st)
         )
 
@@ -292,7 +291,7 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
     && stateMeInstr st == Nop Halted
     && stateExInstr st == Nop Halted
     && memReadByte wa imem == memReadByte wa mem
-    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr (stateRegFile st))
+    && (lookupRFg wr irf) == (lookupRFg wr (stateRegFile st))
   where
     isKind = case kind of
       HaltBreak -> isBreak

@@ -12,7 +12,6 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.ST (stToIO, RealWorld)
 import qualified Core as Core
-import Data.Functor.Identity
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
@@ -30,10 +29,10 @@ import qualified Prelude as P
 -- | Data type for benchmark test configuration
 data BenchmarkTest = BenchmarkTest
   { benchmarkPath :: String,
-    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Core.State Identity -> m (Maybe (Identity Types.Word))
+    benchmarkInstrument :: forall m. (MonadIO m, MonadMemory m) => Core.State -> m (Maybe Types.Word)
   }
 
-cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.State Identity -> m (Maybe (Identity Types.Word))
+cryptoInstrument :: (MonadIO m, MonadMemory m) => Bool -> Core.State -> m (Maybe Types.Word)
 cryptoInstrument shouldLog s = do
   when shouldLog $ do
     let pc = Core.stateExPc s
@@ -43,7 +42,7 @@ cryptoInstrument shouldLog s = do
       liftIO $ print $ "stateExPc=0x" P.++ showHex pc "" P.++ " stateExInstr=0x" P.++ show (Core.stateExInstr s) P.++ " s9=" P.++ show s9 P.++ " s11=" P.++ show s11
   handleSyscall s
 
-testSuiteInstrument :: (MonadIO m) => Bool -> Core.State Identity -> m (Maybe (Identity Types.Word))
+testSuiteInstrument :: (MonadIO m) => Bool -> Core.State -> m (Maybe Types.Word)
 testSuiteInstrument shouldLog s = do
   when shouldLog $ do
     let pc = Core.stateExPc s
@@ -73,7 +72,7 @@ mkBenchmarkTest testName _benchmark =
     
     _ <- runSTMemoryT stMem $ do
       loadElf elf
-      let sim :: CircuitSim (STMemoryT RealWorld IO) (Core.Input Identity) (Core.State Identity) (Core.Output Identity)
+      let sim :: CircuitSim (STMemoryT RealWorld IO) (Core.Input) (Core.State) (Core.Output)
           sim = simulator
       runElf
         (benchmarkInstrument _benchmark)
@@ -81,7 +80,7 @@ mkBenchmarkTest testName _benchmark =
           { circuitState =
               Core.initAt
                 (fromIntegral entryOffset)
-                (modifyRF 2 (pure $ fromIntegral (base + 0x1000000 - 0x1000)) (initRF @Identity))
+                (modifyRF 2 (fromIntegral (base + 0x1000000 - 0x1000)) initRF)
           })
 
     pure ()

@@ -17,7 +17,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
-import Data.Functor.Identity
 import Proof.Functional.Driver (driver)
 import ISA (IsaStateG (..), StepG (..), isaStep)
 import Proof.Functional.Invariant
@@ -51,12 +50,12 @@ isaAt ipc (Sys st inp mem) =
     (fm, frf) =
       flushMeStage
         (Core.stateMeInstr st)
-        (runIdentity (Core.stateMeRes st))
+        ((Core.stateMeRes st))
         (Core.stateMeAddr st)
         ( flushWbStage
             (Core.stateWbInstr st)
-            (runIdentity (Core.stateWbRes st))
-            (runIdentity (Core.inputMem inp))
+            ((Core.stateWbRes st))
+            ((Core.inputMem inp))
             (mem, Core.stateRegFile st)
         )
 
@@ -91,7 +90,7 @@ isaAt ipc (Sys st inp mem) =
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
 baseCaseObligation ::
-  (RegFileOps r, MemOps m) => r Identity -> m -> RegIdx -> Address -> Address -> Bool
+  (RegFileOps r, MemOps m) => r -> m -> RegIdx -> Address -> Address -> Bool
 baseCaseObligation rf mem wr wa pc =
   driver sys == 1 && invAtFree wr wa isa sys2
   where

@@ -5,7 +5,6 @@ module ProofSpec (proofTests, progs, alignedWalk, invTrace, invReport, genProg, 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Core
-import Data.Functor.Identity (Identity (..), runIdentity)
 import Proof.Functional.Driver hiding (loadHazard, storeHazard)
 import ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Instruction
@@ -581,7 +580,7 @@ sampleStates n =
 -- never actually occur, so nothing else in the invariant rules it out.
 withJumpInMe :: Sys -> Sys
 withJumpInMe s =
-  s {sysState = (sysState s) {stateMeInstr = JType 5 0, stateMeRes = pure 0x1234}}
+  s {sysState = (sysState s) {stateMeInstr = JType 5 0, stateMeRes = 0x1234}}
 
 -- The fifth counterexample, explained: address wraparound ---------------------
 --
@@ -638,16 +637,16 @@ wrapCESys =
           -- memory stage.
           stateMeInstr = SType Types.Byte 0 0 0,
           stateWbInstr = Nop MemoryBusBusy,
-          stateMeRes = pure 0, -- the byte written: 0x00, over 0x01
-          stateWbRes = pure 0,
+          stateMeRes = 0, -- the byte written: 0x00, over 0x01
+          stateWbRes = 0,
           stateMeAddr = 0xFFFFFFFD, -- second byte of the decode-stage word
-          stateRegFile = RegFn (const (pure 0)),
+          stateRegFile = RegFn (const 0),
           stateCtrl = initCtrl,
           stateHalt = Nothing,
           stateHaltNextPc = 0
         }
     )
-    (Input (pure wrapDeWord))
+    (Input wrapDeWord)
     wrapMem
 
 -- Arbitrary-state search ------------------------------------------------------
@@ -837,15 +836,15 @@ genArbSys = do
                stateExInstr = decode' w0,
                stateMeInstr = meI,
                stateWbInstr = wbI,
-               stateMeRes = pure mr,
-               stateWbRes = pure wbr,
+               stateMeRes = mr,
+               stateWbRes = wbr,
                stateMeAddr = ma,
-               stateRegFile = RegFn (P.fmap Identity rfF),
+               stateRegFile = RegFn rfF,
                stateCtrl = initCtrl,
                stateHalt = Nothing,
                stateHaltNextPc = 0
              })
-          (Input (pure w1))
+          (Input w1)
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -907,7 +906,7 @@ genRunning2 label genEx = do
   -- premise is exercised rather than making those samples vacuous.
   let ma = base + 64
       wbMem = isMemInstr wbI
-      inp = Input (pure (if wbMem then loaded else w1))
+      inp = Input (if wbMem then loaded else w1)
       fePc = if wbMem then base + 4 else base + 8
   wr <- genWitnessReg
   wa <- unpack <$> genW
@@ -921,10 +920,10 @@ genRunning2 label genEx = do
                 stateExInstr = decode' w0,
                 stateMeInstr = meI,
                 stateWbInstr = wbI,
-                stateMeRes = pure mr,
-                stateWbRes = pure wbr,
+                stateMeRes = mr,
+                stateWbRes = wbr,
                 stateMeAddr = ma,
-                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0
@@ -982,16 +981,16 @@ genSteady2 = do
                 stateExInstr = decode' w0,
                 stateMeInstr = meI,
                 stateWbInstr = wbI,
-                stateMeRes = pure mr,
-                stateWbRes = pure wbr,
+                stateMeRes = mr,
+                stateWbRes = wbr,
                 stateMeAddr = base + 64,
-                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0
               }
           )
-          (Input (pure loaded))
+          (Input loaded)
           (MemFn memf)
   P.pure ("steady", sys, wr, wa)
 
@@ -1027,16 +1026,16 @@ genSteady1 = do
                 stateExInstr = decode' w0,
                 stateMeInstr = meI,
                 stateWbInstr = wbI,
-                stateMeRes = pure mr,
-                stateWbRes = pure wbr,
+                stateMeRes = mr,
+                stateWbRes = wbr,
                 stateMeAddr = ma,
-                stateRegFile = RegFn (P.fmap Identity rfF),
+                stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0
               }
           )
-          (Input (pure loaded))
+          (Input loaded)
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -1233,7 +1232,7 @@ genTakenTransfer useJalr = do
       w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
       wT = P.maybe 0 P.id (encode' (roundTrips tgtI))
       wbMem = isMemInstr wbI
-      inp = Input (pure (if wbMem then loaded else w1))
+      inp = Input (if wbMem then loaded else w1)
       fePc = if wbMem then base + 4 else base + 8
       ma = base + 4096 -- parked away from every PC and from the target
 
@@ -1247,10 +1246,10 @@ genTakenTransfer useJalr = do
                 stateExInstr = decode' w0,
                 stateMeInstr = meI,
                 stateWbInstr = wbI,
-                stateMeRes = pure mr,
-                stateWbRes = pure wbr,
+                stateMeRes = mr,
+                stateWbRes = wbr,
                 stateMeAddr = ma,
-                stateRegFile = RegFn (P.fmap Identity rfun),
+                stateRegFile = RegFn rfun,
                 stateCtrl = initCtrl,
                 stateHalt = Nothing,
                 stateHaltNextPc = 0
@@ -1362,16 +1361,16 @@ mk3 base exI meI wbI nextI wbMem = do
               stateExInstr = decode' w0,
               stateMeInstr = meI,
               stateWbInstr = wbI,
-              stateMeRes = pure mr,
-              stateWbRes = pure wbr,
+              stateMeRes = mr,
+              stateWbRes = wbr,
               stateMeAddr = ma,
-              stateRegFile = RegFn (P.fmap Identity rfF),
+              stateRegFile = RegFn rfF,
               stateCtrl = initCtrl,
               stateHalt = Nothing,
               stateHaltNextPc = 0
             }
         )
-        (Input (pure (if wbMem then loaded else w1)))
+        (Input (if wbMem then loaded else w1))
         (MemFn memf),
       wr,
       wa

@@ -37,7 +37,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
-import Data.Functor.Identity
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Leakage.Obligation
@@ -62,13 +61,13 @@ baseCaseLeak ra ma pc =
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
 {-# ANN indStepLeak (Theory arrayAxioms) #-}
-indStepLeak :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
+indStepLeak :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
 indStepLeak ss i ra ma wr wa ipc sim =
   Pantomime.boolean $ indStepLeakObligation wr wa ipc (sysOf ss i ra ma) sim
 
 -- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
 {-# ANN indStepLeak1 (Theory arrayAxioms) #-}
-indStepLeak1 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
+indStepLeak1 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
 indStepLeak1 ss i ra ma wr wa ipc sim =
   Pantomime.boolean $ indStepLeakObligation1 wr wa ipc (sysOf ss i ra ma) sim
 
@@ -76,14 +75,14 @@ indStepLeak1 ss i ra ma wr wa ipc sim =
 -- non-memory execute instruction, or memory instructions in both older stages).
 -- The hop on which the ISA enters a halt; a halted state then sits at k = 0.
 {-# ANN indStepLeak2 (Theory arrayAxioms) #-}
-indStepLeak2 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
+indStepLeak2 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
 indStepLeak2 ss i ra ma wr wa ipc sim =
   Pantomime.boolean $ indStepLeakObligation2 wr wa ipc (sysOf ss i ra ma) sim
 
 -- | @k = 3@: the four-cycle hop (store hazard with a memory execute
 -- instruction, load hazard, or all three stages holding memory instructions).
 {-# ANN indStepLeak3 (Theory arrayAxioms) #-}
-indStepLeak3 :: KState -> Core.Input Identity -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
+indStepLeak3 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
 indStepLeak3 ss i ra ma wr wa ipc sim =
   Pantomime.boolean $ indStepLeakObligation3 wr wa ipc (sysOf ss i ra ma) sim
 

@@ -27,7 +27,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Instruction hiding (loadHazard, storeHazard)
 import qualified Instruction
 import Memory.Types (MemOps (..))
@@ -48,7 +47,7 @@ meFwd (Sys st _ _) =
     UType _ rd _ -> Just (rd, res)
     _ -> Nothing
   where
-    res = runIdentity (stateMeRes st)
+    res = (stateMeRes st)
 
 -- | @ctrlWbRegFwd@ as set by 'Core.writeback'. A load forwards the value read
 -- from memory on this cycle's 'inputMem', not 'stateWbRes'.
@@ -57,13 +56,13 @@ wbFwd (Sys st inp _) =
   case stateWbInstr st of
     RType _ rd _ _ -> Just (rd, res)
     IType (Arith _) rd _ _ -> Just (rd, res)
-    IType (Load size sign) rd _ _ -> Just (rd, loadExtend size sign (runIdentity (inputMem inp)))
+    IType (Load size sign) rd _ _ -> Just (rd, loadExtend size sign ((inputMem inp)))
     JType rd _ -> Just (rd, res)
     IType Jump rd _ _ -> Just (rd, res)
     UType _ rd _ -> Just (rd, res)
     _ -> Nothing
   where
-    res = runIdentity (stateWbRes st)
+    res = (stateWbRes st)
 
 -- | The value 'Core.execute' reads for a source register, honouring the
 -- memory-then-writeback forwarding priority of 'Core.execute'.
@@ -71,7 +70,7 @@ exArg :: (RegFileOps r) => SysG r m -> RegIdx -> Word
 exArg sys@(Sys st _ _) idx =
   case pick (meFwd sys) <|> pick (wbFwd sys) of
     Just v -> v
-    Nothing -> runIdentity (lookupRFg idx (stateRegFile st))
+    Nothing -> (lookupRFg idx (stateRegFile st))
   where
     pick m = do
       (fwdIdx, fwdVal) <- m
@@ -83,7 +82,7 @@ takingJump :: (RegFileOps r) => SysG r m -> Bool
 takingJump sys@(Sys st _ _) =
   case stateExInstr st of
     BType cmp _ rs1 rs2 ->
-      runIdentity (branch cmp (pure (exArg sys rs1)) (pure (exArg sys rs2)))
+      (branch cmp (exArg sys rs1) (exArg sys rs2))
     JType _ _ -> True
     IType Jump _ _ _ -> True
     _ -> False
@@ -107,7 +106,7 @@ storeHazard sys@(Sys st _ _) =
     exStore = case stateExInstr st of
       SType size imm rs1 _ ->
         Just
-          ( unpack (runIdentity (alu ADD (pure (exArg sys rs1)) (pure (signExtend imm)))),
+          ( unpack ((alu ADD (exArg sys rs1) (signExtend imm))),
             size
           )
       _ -> Nothing
@@ -123,7 +122,7 @@ loadHazard (Sys st inp _) =
   where
     expInstr = stateDeExpInstr st
     deIr
-      | expInstr = decode' (runIdentity (inputMem inp))
+      | expInstr = decode' ((inputMem inp))
       | otherwise = Nop MemoryBusBusy
 
 -- | The driver's case table. The cases are checked in order.

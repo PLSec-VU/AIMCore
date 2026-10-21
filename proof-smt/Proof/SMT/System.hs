@@ -21,7 +21,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
-import Data.Functor.Identity
 import Instruction (Instruction)
 import Proof.Machine
 import Proof.SMT.Array
@@ -40,13 +39,13 @@ data KState = KState
     kMeAddr :: Address,
     kWbIr :: Instruction,
     kWbRes :: Word,
-    kCtrl :: Core.Control Identity,
+    kCtrl :: Core.Control,
     kHalt :: Maybe Core.HaltState,
     kHaltNextPc :: Address
   }
 
 -- | Assemble a system state from the symbolic pieces.
-sysOf :: KState -> Core.Input Identity -> RegArr -> MemArr -> SysG RegArrF MemArr
+sysOf :: KState -> Core.Input -> RegArr -> MemArr -> SysG RegArrF MemArr
 sysOf ss i ra ma =
   Sys
     { sysState =
@@ -57,10 +56,10 @@ sysOf ss i ra ma =
             Core.stateExPc = kExPc ss,
             Core.stateExInstr = kExIr ss,
             Core.stateMeInstr = kMeIr ss,
-            Core.stateMeRes = Identity (kMeRes ss),
+            Core.stateMeRes = kMeRes ss,
             Core.stateMeAddr = kMeAddr ss,
             Core.stateWbInstr = kWbIr ss,
-            Core.stateWbRes = Identity (kWbRes ss),
+            Core.stateWbRes = kWbRes ss,
             Core.stateRegFile = RegArrF ra,
             Core.stateCtrl = kCtrl ss,
             Core.stateHalt = kHalt ss,

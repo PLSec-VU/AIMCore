@@ -25,7 +25,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Memory.Types
 import RegFile
 import Types
@@ -33,23 +32,23 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 -- | Core state, the input it is about to consume, and memory.
 data SysG r m = Sys
-  { sysState :: Core.StateG r Identity,
-    sysInput :: Input Identity,
+  { sysState :: Core.StateG r,
+    sysInput :: Input,
     sysMem :: m
   }
 
 -- | The concrete system the QuickCheck harness runs: @Vec@-backed throughout.
 type Sys = SysG RegFile MemBytes
 
-deriving instance (Show (r Identity), Show m) => Show (SysG r m)
+deriving instance (Show r, Show m) => Show (SysG r m)
 
 -- | Structural equality. 'Input' has no 'Eq' instance in "Core" (adding one
 -- there clashes with the existing @Eq Out@ in the Leak modules), so we compare
 -- its fields directly.
-instance (Eq (r Identity), Eq m) => Eq (SysG r m) where
+instance (Eq r, Eq m) => Eq (SysG r m) where
   Sys s1 i1 m1 == Sys s2 i2 m2 =
     s1 == s2
-      && runIdentity (inputMem i1) == runIdentity (inputMem i2)
+      && (inputMem i1) == (inputMem i2)
       && m1 == m2
 
 -- | One system step: run the pipeline for a cycle, then service whatever
@@ -63,20 +62,20 @@ stepSys = fst . stepSysOut
 -- The leakage proof observes the cycle-by-cycle memory traffic, which 'stepSys'
 -- discards. Defining both here means what it observes is exactly the traffic
 -- the memory service responds to.
-stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output Identity)
+stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output)
 stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
       (i', m') = service (outMem o) m
    in (Sys s' i' m', o)
   where
-    service (Just (MemFetch addr)) mem = (Input (pure (memReadWord addr mem)), mem)
+    service (Just (MemFetch addr)) mem = (Input (memReadWord addr mem), mem)
     -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
     -- word; the size-dependent narrowing happens in 'Core.writeback' via
     -- 'loadExtend'. We reproduce that here.
-    service (Just (MemRead addr _)) mem = (Input (pure (memReadWord addr mem)), mem)
+    service (Just (MemRead addr _)) mem = (Input (memReadWord addr mem), mem)
     -- A write.
-    service (Just (MemWrite addr size val)) mem = (Input (pure 0), memWriteWord size addr (runIdentity val) mem)
-    service Nothing mem = (Input (pure 0), mem)
+    service (Just (MemWrite addr size val)) mem = (Input 0, memWriteWord size addr (val) mem)
+    service Nothing mem = (Input 0, mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
 stepSysN n s

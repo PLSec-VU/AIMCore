@@ -21,7 +21,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Memory.Types (MemOps (..))
 import Proof.Functional.Driver
 import Proof.Functional.Invariant (invAtFree)
@@ -45,7 +44,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- afterwards. The register file and memory are arbitrary, as in
 -- 'Proof.Functional.Obligation.baseCaseObligation'.
 baseCaseLeakObligation ::
-  (RegFileOps r, MemOps m) => r Identity -> m -> Address -> Bool
+  (RegFileOps r, MemOps m) => r -> m -> Address -> Bool
 baseCaseLeakObligation rf mem pc =
   simDriver Nothing sim == 1
     && obs1 == obsOf out1

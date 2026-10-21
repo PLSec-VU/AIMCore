@@ -18,21 +18,15 @@
 -- load-use hazard against it, which is the one thing the fetch trace does not
 -- already give away, since it decides how long the hop takes.
 --
--- == What 'Leak' is, and is not
+-- == What 'Leak' means
 --
--- It is not a list of secrets. Every field is public in any run that does not
--- halt, because 'Core.execute' computes each one inside @noSecrets'@: the
--- branch condition, the @jalr@ target, and the load and store addresses. The
--- fetched instruction word goes through @noSecrets'@ in 'Core.decode' too, so
--- the program is public even under self-modifying code -- which matters, because
--- store /data/ is not forced public, so a store could otherwise plant a
--- secret-dependent instruction. A secret reaching any of these halts the core
--- with 'Core.SecurityViolation'. The hazard bit is not even data dependent:
+-- The leakage theorem says the bus observation is a function of the ISA-level
+-- leakage trace: an attacker watching the bus learns nothing beyond the 'Leak'
+-- of each executed instruction. The core does not keep any of it secret -- the
+-- branch outcome, the @jalr@ target and the load and store addresses all show.
+-- Whether a program is constant-time is a property of its leakage trace,
+-- checked at the ISA level. The hazard bit is not data dependent:
 -- 'Instruction.loadHazard' compares register /fields/, not their contents.
---
--- So 'Leak' is what the /simulator/ needs in order to replay the observation
--- from the architectural state alone, not what escapes. The security content
--- lives in the @Access@ / @noSecrets@ discipline.
 module Proof.Leakage.Model
   ( -- * Observation
     Obs (..),
@@ -49,7 +43,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Instruction
 import ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))
@@ -76,7 +69,7 @@ instance Monoid Obs where
   mempty = NoAccess
 
 -- | The observation a cycle's 'Core.Output' produces.
-obsOf :: Output Identity -> Obs
+obsOf :: Output -> Obs
 obsOf o = case outMem o of
   Nothing -> NoAccess
   Just (MemFetch addr) -> Fetch addr
@@ -132,7 +125,7 @@ leakOf isa@(IsaState pc rf _) =
     IType (Arith _) _ _ _ -> LArith
     UType {} -> LArith
     BType cmp imm rs1 rs2 ->
-      let doBranch = runIdentity $ branch cmp (pure (regv rs1)) (pure (regv rs2))
+      let doBranch = branch cmp (regv rs1) (regv rs2)
       in if doBranch
            then LJump (pc + off imm)
            else LArith
@@ -151,6 +144,6 @@ leakOf isa@(IsaState pc rf _) =
     Nop _ -> LArith
   where
     ir = isaInstrAt isa
-    regv i = runIdentity (lookupRFg i rf)
+    regv i = (lookupRFg i rf)
     off imm = unpack $ signExtend imm
     addr rs1 imm = unpack $ regv rs1 + signExtend imm
