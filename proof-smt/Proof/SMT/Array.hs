@@ -258,7 +258,7 @@ instance MemOps MemArr where
   memReadWord a m =
     loadM m (a + 3) ++# loadM m (a + 2) ++# loadM m (a + 1) ++# loadM m a
 
-  memWrite size a w m =
+  memWrite a size w m =
     case size of
       Types.Byte -> put a b0 m
       Types.Half -> put (a + 1) b1 (put a b0 m)

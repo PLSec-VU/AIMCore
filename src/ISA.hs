@@ -244,7 +244,7 @@ isaStepDecoded ir st@(IsaState pc rf mem) =
             isaRegFile = modifyRFg rd (bitCoerce (ap link)) rf
           }
     Store size addr rs2 ->
-      Next st {isaPc = pc + 4, isaMem = memWrite size (ap addr) (reg (Just rs2)) mem}
+      Next st {isaPc = pc + 4, isaMem = memWrite (ap addr) size (reg (Just rs2)) mem}
     Branch cond target ->
       Next st {isaPc = if ap cond then ap target else pc + 4}
     Nop -> Next st {isaPc = pc + 4}

@@ -84,7 +84,7 @@ flushMeStage ir res addr (mem, rf) =
     IType (Arith _) rd _ _ -> (mem, put rd res)
     IType (Load size sign) rd _ _ ->
       (mem, put rd (loadExtend size sign (memReadWord addr mem)))
-    SType size _ _ _ -> (memWrite size addr res mem, rf)
+    SType size _ _ _ -> (memWrite addr size res mem, rf)
     BType {} -> (mem, rf)
     JType rd _ -> (mem, put rd res)
     IType Jump rd _ _ -> (mem, put rd res)

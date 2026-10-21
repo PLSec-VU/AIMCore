@@ -41,7 +41,7 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 -- can.
 class MemOps m where
   memReadWord :: Address -> m -> Word
-  memWrite :: Size -> Address -> Word -> m -> m
+  memWrite :: Address -> Size -> Word -> m -> m
 
   -- | Single byte, which is what the pointwise form of the invariant compares.
   memReadByte :: Address -> m -> Byte
@@ -56,7 +56,7 @@ newtype MemFn = MemFn {memByte :: Address -> Byte}
 
 instance MemOps MemFn where
   memReadWord a (MemFn m) = m (a + 3) ++# m (a + 2) ++# m (a + 1) ++# m a
-  memWrite size a w m =
+  memWrite a size w m =
     case size of
       Byte -> put a b0 m
       Half -> put (a + 1) b1 (put a b0 m)
@@ -74,8 +74,8 @@ readWord :: (KnownNat n) => Address -> Vec n Byte -> Word
 readWord addr m =
   (m !! (addr + 3)) ++# (m !! (addr + 2)) ++# (m !! (addr + 1)) ++# (m !! addr)
 
-write :: (KnownNat n) => Size -> Address -> Word -> Vec n Byte -> Vec n Byte
-write size addr w mem =
+write :: (KnownNat n) => Address -> Size -> Word -> Vec n Byte -> Vec n Byte
+write addr size w mem =
   let b0 = slice d7 d0 w
       b1 = slice d15 d8 w
       b2 = slice d23 d16 w
