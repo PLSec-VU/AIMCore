@@ -97,7 +97,7 @@ ctTrace n a = leakOf a : case isaStep a of
 
 -- | Load a data image (word-aligned addresses below the program) into a system.
 withData :: [(Address, Word)] -> Sys -> Sys
-withData ws (Sys s i m) = Sys s i (P.foldr (\(a, w) -> memWriteWord Types.Word a w) m ws)
+withData ws (Sys s i m) = Sys s i (P.foldr (\(a, w) -> memWrite Types.Word a w) m ws)
 
 genData :: Gen [(Address, Word)]
 genData =

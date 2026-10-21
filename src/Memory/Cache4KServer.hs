@@ -20,7 +20,6 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core (Input (..), MemAccess (..), Request)
-import Data.Functor.Identity
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
 import Types
@@ -76,15 +75,15 @@ serve (CacheSrv c mem s) req = case s of
           c2 = if hit2ndLine then c1 else cacheFill (addr + off) mem c1
 
           n = penalty1stLine + penalty2ndLine
-          w = pure (cacheRead addr size c2)
+          w = cacheRead addr size c2
 
       in if n > 0
            then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input Nothing)
-           else (CacheSrv c2 mem, Input $ Just w)
+           else (CacheSrv c2 mem CacheSrvReady, Input $ Just w)
     Just (MemWrite addr size val) ->
       ( CacheSrv
           (cacheWrite addr size val c)
-          (memWriteWord size addr val mem)
+          (memWrite size addr val mem)
           CacheSrvReady,
         Input Nothing
       )      

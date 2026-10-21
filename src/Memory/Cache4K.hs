@@ -172,18 +172,18 @@ cacheFill a mem c = Cache4K tags' dat4
     rd wi = memReadWord (wordAddr (tagOf a) (setOf a) wi 0) mem
 
 -- | Byte @bi@ of a word.
-readByteInWord :: ByteIdx -> Word -> Byte
-readByteInWord bi w = case bi of
+cacheReadByteInWord :: ByteIdx -> Word -> Byte
+cacheReadByteInWord bi w = case bi of
   0 -> slice d7 d0 w
   1 -> slice d15 d8 w
   2 -> slice d23 d16 w
   _ -> slice d31 d24 w
 
 -- | The cached byte at an address, meaningful on a hit.
-readByte :: Address -> Cache4K -> Byte
-readByte a c =
+cacheReadByte :: Address -> Cache4K -> Byte
+cacheReadByte a c =
   let w = dataRead (setOf a ++# wordOf a) (dataArr c)
-  in readByteInWord (byteOf a) w
+  in cacheReadByteInWord (byteOf a) w
 
 -- | What a read of @size@ at an address gets from the cache: its bytes, the
 -- byte at the address lowest, zero above, as memory answers
@@ -195,14 +195,14 @@ cacheRead a size c = case size of
   Half -> zeroExtend (b1 ++# b0)
   Word -> b3 ++# b2 ++# b1 ++# b0
   where
-    b0 = readByte a c
-    b1 = readByte (a + 1) c
-    b2 = readByte (a + 2) c
-    b3 = readByte (a + 3) c
+    b0 = cacheReadByte a c
+    b1 = cacheReadByte (a + 1) c
+    b2 = cacheReadByte (a + 2) c
+    b3 = cacheReadByte (a + 3) c
 
 -- | A word with byte @bi@ replaced by @b@.
-writeByteInWord :: ByteIdx -> Byte -> Word -> Word
-writeByteInWord bi b w = case bi of
+cacheWriteByteInWord :: ByteIdx -> Byte -> Word -> Word
+cacheWriteByteInWord bi b w = case bi of
   0 -> slice d31 d8 w ++# b
   1 -> slice d31 d16 w ++# b ++# slice d7 d0 w
   2 -> slice d31 d24 w ++# b ++# slice d15 d0 w
@@ -210,9 +210,9 @@ writeByteInWord bi b w = case bi of
 
 -- | Put a byte into the cached word of its address, if its line holds the
 -- address's block; otherwise leave the cache alone (no allocation).
-writeByte :: Address -> Byte -> Cache4K -> Cache4K
-writeByte a b c
-  | cacheHit a c = c {dataArr = dataWrite i (writeByteInWord (byteOf a) b w) (dataArr c)}
+cacheWriteByte :: Address -> Byte -> Cache4K -> Cache4K
+cacheWriteByte a b c
+  | cacheHit a c = c {dataArr = dataWrite i (cacheWriteByteInWord (byteOf a) b w) (dataArr c)}
   | otherwise = c
   where
     i = setOf a ++# wordOf a
@@ -220,7 +220,7 @@ writeByte a b c
 
 -- | What a write does to the cache. Memory always takes the write
 -- (write-through); the cache only makes sure its copy does not go stale. Byte by
--- byte, as memory stores it ('Memory.Types.memWriteWord'): each byte goes into
+-- byte, as memory stores it ('Memory.Types.memWrite'): each byte goes into
 -- its cached word if its line hits, so a write may cross a word or line
 -- boundary.
 cacheWrite :: Address -> Size -> Word -> Cache4K -> Cache4K
@@ -229,10 +229,10 @@ cacheWrite a size w c = case size of
   Half -> c2
   Word -> c4
   where
-    c1 = writeByte a (slice d7 d0 w) c
-    c2 = writeByte (a + 1) (slice d15 d8 w) c1
-    c3 = writeByte (a + 2) (slice d23 d16 w) c2
-    c4 = writeByte (a + 3) (slice d31 d24 w) c3
+    c1 = cacheWriteByte a (slice d7 d0 w) c
+    c2 = cacheWriteByte (a + 1) (slice d15 d8 w) c1
+    c3 = cacheWriteByte (a + 2) (slice d23 d16 w) c2
+    c4 = cacheWriteByte (a + 3) (slice d31 d24 w) c3
 
 -- | Coherence at word @wi@ of set @s@: if the line there is valid, the word is
 -- the one memory holds at its address. The cache is coherent if this holds at

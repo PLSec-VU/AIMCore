@@ -89,7 +89,7 @@ data NoMem = NoMem
 
 instance MemOps NoMem where
   memReadWord _ _ = 0
-  memWriteWord _ _ _ m = m
+  memWrite _ _ _ m = m
   memReadByte _ _ = 0
 
 -- | A request with a given observation: a fetch of a word, and a write of zero.
