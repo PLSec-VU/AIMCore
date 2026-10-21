@@ -125,7 +125,7 @@ runTests =
         hops [rdReq 0x100 Types.Word, wrReq 0x101 Byte 0xAB, rdReq 0x100 Types.Word]
           @?= [ (penalty, memReadWord 0x100 memU),
                 (0, 0),
-                (0, memReadWord 0x100 (memWrite Byte 0x101 0xAB memU))
+                (0, memReadWord 0x100 (memWrite 0x101 Byte 0xAB memU))
               ],
       testCase "a write that leaves its word drops its lines" $
         P.map fst (hops [rdReq 0x100 Types.Word, rdReq 0x110 Types.Word, wrReq 0x10E Types.Word 1, rdReq 0x100 Types.Word, rdReq 0x110 Types.Word])
