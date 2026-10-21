@@ -123,7 +123,7 @@ loadHazard (Sys st inp _) =
     expInstr = stateDeExpInstr st
     deIr
       | expInstr = decode' ((inputMem inp))
-      | otherwise = Nop MemoryBusBusy
+      | otherwise = Nop NoInstruction
 
 -- | The driver's case table. The cases are checked in order.
 driver :: (RegFileOps r) => SysG r m -> Int

@@ -268,7 +268,7 @@ decode = do
   let ir =
         if expInstr
           then decode' (inputMem input)
-          else Nop MemoryBusBusy
+          else Nop NoInstruction
 
   let halted = ctrlExInstr ctrl == Just (Nop Halted)
   let call_current_cycle = maybe False isCall (ctrlExInstr ctrl)

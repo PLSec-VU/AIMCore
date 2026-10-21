@@ -117,8 +117,9 @@ data Reason4Stall
     StoreHazardFirstCycle
   | -- | Second instruction discarded because of a store hazard.
     StoreHazardSecondCycle
-  | -- | No instruction read because of memory bus overload.
-    MemoryBusBusy
+  | -- | No instruction this cycle: the fetch stage did not fetch, because the
+    -- memory stage used the bus.
+    NoInstruction
   | -- | Failed to decode an instruction.
     DecodeFail
   | -- | First cycle.

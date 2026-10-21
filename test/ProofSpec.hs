@@ -636,7 +636,7 @@ wrapCESys =
           -- its operand fields are already spent by the time it reaches the
           -- memory stage.
           stateMeInstr = SType Types.Byte 0 0 0,
-          stateWbInstr = Nop MemoryBusBusy,
+          stateWbInstr = Nop NoInstruction,
           stateMeRes = 0, -- the byte written: 0x00, over 0x01
           stateWbRes = 0,
           stateMeAddr = 0xFFFFFFFD, -- second byte of the decode-stage word
@@ -687,7 +687,7 @@ genNonMem =
       UType <$> elements [Zero, PC] <*> gr3 <*> (fromIntegral <$> choose (0 :: Int, 15)),
       JType <$> gr3 <*> (fromIntegral <$> choose (0 :: Int, 15)),
       (\rd rs i -> IType Jump rd rs i) <$> gr3 <*> gr3 <*> gi15,
-      P.pure (Nop MemoryBusBusy)
+      P.pure (Nop NoInstruction)
     ]
 
 -- | The decode-stage instruction. Unlike the writeback stage, nothing under
@@ -742,7 +742,7 @@ genExInstr =
       -- immediate is kept even so 'roundTrips' preserves the shape.
       (\cmp t r1 r2 -> BType cmp (fromIntegral (2 * t :: Int)) r1 r2)
         <$> elements [EQ, NE, LT, GE, LTU, GEU] <*> choose (0, 7) <*> gr3 <*> gr3,
-      P.pure (Nop MemoryBusBusy)
+      P.pure (Nop NoInstruction)
     ]
 
 -- | The memory stage. A load's destination avoids the execute stage's sources,
@@ -943,7 +943,7 @@ genSteady2 = do
         (\op rd rs i -> IType (Arith op) rd rs i)
           <$> elements [ADD, XOR] <*> gr3 <*> gr3 <*> gi15,
         UType <$> elements [Zero, PC] <*> gr3 <*> (fromIntegral <$> choose (0 :: Int, 15)),
-        P.pure (Nop MemoryBusBusy)
+        P.pure (Nop NoInstruction)
       ]
   meI <-
     oneof
@@ -1401,7 +1401,7 @@ genStageInstr =
       P.pure (IType (Env Call) 0 0 0),
       IType (Env Break) 0 <$> genSmallReg <*> P.pure 1,
       JType <$> genSmallReg <*> (fromIntegral . (2 *) <$> choose (0 :: Int, 7)),
-      P.pure (Nop MemoryBusBusy),
+      P.pure (Nop NoInstruction),
       P.pure (Nop DecodeFail)
     ]
 

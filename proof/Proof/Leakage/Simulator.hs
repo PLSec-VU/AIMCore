@@ -52,8 +52,9 @@ data SimExInstrType
     StallStoreHazardFirstCycle
   | -- | Second instruction discarded because of a store hazard.
     StallStoreHazardSecondCycle
-  | -- | No instruction read because of memory bus overload.
-    StallMemoryBusBusy
+  | -- | No instruction this cycle: the fetch stage did not fetch, because the
+    -- memory stage used the bus.
+    StallNoInstruction
   | -- | First cycle.
     FirstCycle
   | -- | The core has halted.
@@ -194,7 +195,7 @@ simDecode = do
   expInstr <- gets simStateDeExpInstr
   ctrl <- gets simStateCtrl
 
-  let irt = if expInstr then DecodedInstr else StallMemoryBusBusy
+  let irt = if expInstr then DecodedInstr else StallNoInstruction
 
   let halted = simCtrlExInstrType ctrl == Just Halted
   let env_instr_current_cycle = simCtrlExEnvInstr ctrl
