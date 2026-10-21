@@ -64,16 +64,14 @@ deriving instance Generic (Input f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
 
--- | A memory access
-data MemAccess f = MemAccess
-  { -- | Is this an instruction read?
-    memIsInstr :: Bool,
-    memAddress :: Address,
-    memSize :: Size,
-    -- | The word to be written, if there is one. If set to `Nothing`, then the
-    -- `MemAccess` is a read. Otherwise, it's a write.
-    memVal :: Maybe (f Word)
-  }
+-- | A memory access.
+data MemAccess f
+  = -- | An instruction fetch: always a whole word.
+    MemFetch Address
+  | -- | A data read of the given size.
+    MemRead Address Size
+  | -- | A data write of the given size, with the value to write.
+    MemWrite Address Size (f Word)
 
 deriving instance (Show (f Word)) => Show (MemAccess f)
 
@@ -597,12 +595,7 @@ readPC addr =
     (mempty :: Output f)
       { outMem =
           pure $
-            MemAccess
-              { memIsInstr = True,
-                memAddress = addr,
-                memSize = Word,
-                memVal = Nothing
-              }
+            MemFetch addr
       }
 
 readRAM :: (MonadWriter (Output f) m) => Address -> Size -> m ()
@@ -611,12 +604,7 @@ readRAM addr size =
     (mempty :: Output f)
       { outMem =
           pure $
-            MemAccess
-              { memIsInstr = False,
-                memAddress = addr,
-                memSize = size,
-                memVal = Nothing
-              }
+            MemRead addr size
       }
 
 writeRAM :: (MonadWriter (Output f) m) => Address -> Size -> f Word -> m ()
@@ -625,10 +613,5 @@ writeRAM addr size val =
     (mempty :: Output f)
       { outMem =
           pure $
-            MemAccess
-              { memIsInstr = False,
-                memAddress = addr,
-                memSize = size,
-                memVal = Just val
-              }
+            MemWrite addr size val
       }

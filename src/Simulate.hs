@@ -47,17 +47,19 @@ simulator =
         else pure (Just (Input mem_in))
       where
         doMemory :: m (f Word)
-        doMemory
-          | Just (MemAccess _ addr size mval) <- mem =
-              case mval of
-                Nothing -> do
-                  word <- ramRead addr size
-                  isSecret <- isMemorySecret addr
-                  pure (conditionalSecret isSecret word)
-                Just val -> do
-                  ramWrite addr size (unAccess val)
-                  pure (pure 0)
-          | otherwise = pure (pure 0)
+        doMemory = case mem of
+          Just (MemFetch addr) -> readMem addr Word
+          Just (MemRead addr size) -> readMem addr size
+          Just (MemWrite addr size val) -> do
+            ramWrite addr size (unAccess val)
+            pure (pure 0)
+          Nothing -> pure (pure 0)
+
+        readMem :: Address -> Size -> m (f Word)
+        readMem addr size = do
+          word <- ramRead addr size
+          isSecret <- isMemorySecret addr
+          pure (conditionalSecret isSecret word)
 
 runSimulator ::
   forall f ramSize progSize a.

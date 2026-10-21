@@ -69,14 +69,13 @@ stepSysOut (Sys s i m) =
       (i', m') = service (outMem o) m
    in (Sys s' i' m', o)
   where
-    service (Just (MemAccess _ addr size mval)) mem =
-      case mval of
-        -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
-        -- word; the size-dependent narrowing happens in 'Core.writeback' via
-        -- 'loadExtend'. We reproduce that here.
-        Nothing -> (Input (pure (memReadWord addr mem)), mem)
-        -- A write.
-        Just val -> (Input (pure 0), memWriteWord size addr (runIdentity val) mem)
+    service (Just (MemFetch addr)) mem = (Input (pure (memReadWord addr mem)), mem)
+    -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
+    -- word; the size-dependent narrowing happens in 'Core.writeback' via
+    -- 'loadExtend'. We reproduce that here.
+    service (Just (MemRead addr _)) mem = (Input (pure (memReadWord addr mem)), mem)
+    -- A write.
+    service (Just (MemWrite addr size val)) mem = (Input (pure 0), memWriteWord size addr (runIdentity val) mem)
     service Nothing mem = (Input (pure 0), mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m

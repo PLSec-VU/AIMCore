@@ -32,7 +32,7 @@ system prog = cpuOut
     cpuInput :: Signal dom (Input Identity)
     cpuInput = register initInput input
     cpuOut = cpu @Identity cpuInput
-    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemAccess False 0 Word Nothing) . outMem <$> cpuOut)
+    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemRead 0 Word) . outMem <$> cpuOut)
     input = Input . Identity <$> ram
 
 mkRAM :: forall f progSize ramSize dom.
@@ -43,12 +43,16 @@ mkRAM :: forall f progSize ramSize dom.
 mkRAM prog memAccessM =
   combine <$> ram0 <*> ram1 <*> ram2 <*> ram3
   where
-    addr = memAddress <$> memAccessM
+    addr = accessAddr <$> memAccessM
+
+    accessAddr (MemFetch a) = a
+    accessAddr (MemRead a _) = a
+    accessAddr (MemWrite a _ _) = a
 
     mkWrite n =
-      fmap $ \memAccess -> do
-        w <- memVal memAccess
-        pure (memAddress memAccess, extractByte n (unAccess w))
+      fmap $ \memAccess -> case memAccess of
+        MemWrite a _ w -> Just (a, extractByte n (unAccess w))
+        _ -> Nothing
 
     extractByte 0 w = slice d7 d0 w
     extractByte 1 w = slice d15 d8 w

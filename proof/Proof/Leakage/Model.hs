@@ -79,9 +79,9 @@ instance Monoid Obs where
 obsOf :: Output Identity -> Obs
 obsOf o = case outMem o of
   Nothing -> NoAccess
-  Just (MemAccess True addr _ _) -> Fetch addr
-  Just (MemAccess False addr size Nothing) -> DataRead addr size
-  Just (MemAccess False addr size (Just _)) -> DataWrite addr size
+  Just (MemFetch addr) -> Fetch addr
+  Just (MemRead addr size) -> DataRead addr size
+  Just (MemWrite addr size _) -> DataWrite addr size
 
 -- Leakage ---------------------------------------------------------------------
 
