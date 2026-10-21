@@ -18,13 +18,13 @@ module Memory.Cache4KServer
   )
 where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log, read)
+import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core (Input (..), MemAccess (..), Request)
 import Data.Functor.Identity
 import Memory.Cache4K
-import Memory.Types (MemOps (..), readResp)
+import Memory.Types (MemOps (..))
 import Types
-import Prelude hiding (Ordering (..), Word, init, log, not, read, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | Cycles of a miss penalty: a small counter, sized as hardware would size it.
 -- (This also keeps the symbolic proof in the bitvector fragment Bitwuzla reads.)
@@ -51,46 +51,42 @@ data CacheSrv m = CacheSrv
 deriving instance (Show m) => Show (CacheSrv m)
 
 -- | One cycle of the cache in front of ideal memory.
-serve :: (MemOps m) => CacheSrv m -> Request -> (CacheSrv m, Input Identity)
+serve :: (MemOps m) => CacheSrv m -> Request -> (CacheSrv m, Input)
 serve (CacheSrv c mem s) req = case s of
   CacheSrvStall n w
     | n > 0 ->
-        (CacheSrv c mem (CacheSrvStall (n - 1) w), Input (pure 0) False)
+        (CacheSrv c mem (CacheSrvStall (n - 1) w), Input Nothing)
     | otherwise ->
-        (CacheSrv c mem CacheSrvReady, Input (pure w) True)
+        (CacheSrv c mem CacheSrvReady, Input $ Just w)
   CacheSrvReady -> case req of
-    Nothing -> (CacheSrv c mem CacheSrvReady, Input (pure 0) True)
-    Just (MemAccess isInstr addr size mval) -> case mval of
-      Just val ->
-        ( CacheSrv
-            (write addr size (runIdentity val) c)
-            (memWriteWord size addr (runIdentity val) mem)
-            CacheSrvReady,
-          Input (pure 0) True
-        )
-      Nothing
-        | isInstr ->
-            ( CacheSrv c mem CacheSrvReady,
-              Input (pure (readResp addr size mem)) True
-            )
-        | otherwise ->
-            let off = case size of                         
-                  Byte -> 0
-                  Half -> 1
-                  Word -> 3
+    Just (MemFetch addr) ->
+      (CacheSrv c mem CacheSrvReady, Input $ Just $ memReadWord addr mem)
+    Just (MemRead addr size) ->
+      let off = case size of                         
+            Byte -> 0
+            Half -> 1
+            Word -> 3
             
-                hit1stLine = hit addr c
-                hit2ndLine = hit (addr + off) c
+          hit1stLine = cacheHit addr c
+          penalty1stLine = if hit1stLine then 0 else penalty
+          c1 = if hit1stLine then c else cacheFill addr mem c
 
-                penalty1stLine = if hit1stLine then 0 else 4
-                penalty2ndLine = if hit2ndLine then 0 else 4
-                n = penalty1stLine + penalty2ndLine
+          hit2ndLine = cacheHit (addr + off) c1             
+          penalty2ndLine = if hit2ndLine then 0 else penalty
+          c2 = if hit2ndLine then c1 else cacheFill (addr + off) mem c1
 
-                c1 = if hit1stLine then c else fill addr mem c
-                c2 = if hit2ndLine then c1 else fill (addr + off) mem c1
+          n = penalty1stLine + penalty2ndLine
+          w = pure (cacheRead addr size c2)
 
-                w = pure (read addr size c2)
-
-                in if penalty > 0
-                  then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input (pure 0) False)
-                  else (CacheSrv c2 mem, Input (pure w) True)
+      in if n > 0
+           then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input Nothing)
+           else (CacheSrv c2 mem, Input $ Just w)
+    Just (MemWrite addr size val) ->
+      ( CacheSrv
+          (cacheWrite addr size val c)
+          (memWriteWord size addr val mem)
+          CacheSrvReady,
+        Input Nothing
+      )      
+    -- this case should never occur
+    _ -> (CacheSrv c mem CacheSrvReady, Input Nothing)

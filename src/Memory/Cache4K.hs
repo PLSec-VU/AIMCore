@@ -37,18 +37,18 @@ module Memory.Cache4K
     emptyCache4K,
     entryValid,
     entryTag,
-    hit,
-    fill,
-    read,
-    write,
+    cacheHit,
+    cacheFill,
+    cacheRead,
+    cacheWrite,
     coherentAt,
   )
 where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log, read)
+import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Memory.Types (MemOps (..))
 import Types (Address, Size (..), Word, Byte)
-import Prelude hiding (Ordering (..), Word, init, log, not, read, repeat, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, init, log, not, repeat, undefined, (!!), (&&), (++), (||))
 
 -- Arrays ------------------------------------------------------------------------
 
@@ -149,15 +149,15 @@ entryTag :: BitVector 21 -> Tag
 entryTag e = slice d19 d0 e
 
 -- | Does the line of an address hold its block?
-hit :: Address -> Cache4K -> Bool
-hit a c = entryValid e && entryTag e == tagOf a
+cacheHit :: Address -> Cache4K -> Bool
+cacheHit a c = entryValid e && entryTag e == tagOf a
   where
     e = tagRead (setOf a) (tagArr c)
 
 -- | Load the line of an address from memory: the four words of its block, and
 -- the line's tag entry made valid with the address's tag.
-fill :: (MemOps m) => Address -> m -> Cache4K -> Cache4K
-fill a mem c = Cache4K tags' dat4
+cacheFill :: (MemOps m) => Address -> m -> Cache4K -> Cache4K
+cacheFill a mem c = Cache4K tags' dat4
   where
     tags' = tagWrite (setOf a) ((1 :: BitVector 1) ++# tagOf a) (tagArr c)
 
@@ -189,8 +189,8 @@ readByte a c =
 -- byte at the address lowest, zero above, as memory answers
 -- ('Memory.Types.readResp'). Byte by byte, so a read may cross a word or line
 -- boundary. Meaningful when the lines of all its bytes hit.
-read :: Address -> Size -> Cache4K -> Word
-read a size c = case size of
+cacheRead :: Address -> Size -> Cache4K -> Word
+cacheRead a size c = case size of
   Byte -> zeroExtend b0
   Half -> zeroExtend (b1 ++# b0)
   Word -> b3 ++# b2 ++# b1 ++# b0
@@ -212,7 +212,7 @@ writeByteInWord bi b w = case bi of
 -- address's block; otherwise leave the cache alone (no allocation).
 writeByte :: Address -> Byte -> Cache4K -> Cache4K
 writeByte a b c
-  | hit a c = c {dataArr = dataWrite i (writeByteInWord (byteOf a) b w) (dataArr c)}
+  | cacheHit a c = c {dataArr = dataWrite i (writeByteInWord (byteOf a) b w) (dataArr c)}
   | otherwise = c
   where
     i = setOf a ++# wordOf a
@@ -223,8 +223,8 @@ writeByte a b c
 -- byte, as memory stores it ('Memory.Types.memWriteWord'): each byte goes into
 -- its cached word if its line hits, so a write may cross a word or line
 -- boundary.
-write :: Address -> Size -> Word -> Cache4K -> Cache4K
-write a size w c = case size of
+cacheWrite :: Address -> Size -> Word -> Cache4K -> Cache4K
+cacheWrite a size w c = case size of
   Byte -> c1
   Half -> c2
   Word -> c4

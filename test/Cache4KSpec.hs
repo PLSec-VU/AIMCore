@@ -7,7 +7,7 @@ module Cache4KSpec
   )
 where
 
-import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log, read)
+import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import CompositionSpec (coreDiff, ctTrace, genByteProg, genCTProg, genData, genSecretFreeProg, genWord, sameModuloCtrl, simHops, withData)
 import Core
@@ -25,7 +25,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.QuickCheck
 import "aimcore" Types
-import Prelude hiding (Ordering (..), Word, init, log, map, not, read, undefined, (!!), (&&), (++), (||))
+import Prelude hiding (Ordering (..), Word, init, log, map, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 
 cache4KTests :: TestTree
@@ -36,8 +36,8 @@ cache4KTests =
       testProperty "read, from the lines of the first and last byte, answers as memory does" $
         withMaxSuccess 2000 $ checkCoverage $
           forAllShow genMem (const "<memory>") $ \mem -> forAll genAddr $ \a -> forAll (elements [Byte, Half, Types.Word]) $ \size ->
-            let c = fill (lastByteOf a size) mem (fill a mem emptyCache4K)
-             in cover 10 (straddles a size) "straddling" (read a size c == readResp a size mem),
+            let c = cacheFill (lastByteOf a size) mem (cacheFill a mem emptyCache4K)
+             in cover 10 (straddles a size) "straddling" (cacheRead a size c == readResp a size mem),
       serverTests,
       testProperty "composition: the cached core's bus trace follows from the leakage alone" $
         withMaxSuccess 300 $ checkCoverage $
