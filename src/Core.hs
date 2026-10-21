@@ -339,10 +339,10 @@ decodeFresh = do
 execute :: forall r. (RegFileOps r) => CPUM r ()
 execute = do
   hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
-  unless hadInFlight execute'
+  unless hadInFlight executeFresh
 
-execute' :: forall r. (RegFileOps r) => CPUM r ()
-execute' = do
+executeFresh :: forall r. (RegFileOps r) => CPUM r ()
+executeFresh = do
   ir <- gets stateExInstr
 
   -- Default values.
