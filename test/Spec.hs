@@ -365,4 +365,4 @@ instance Arbitrary Input where
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    pure $ Input mem True
+    pure $ Input (Just mem)

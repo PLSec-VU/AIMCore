@@ -42,12 +42,7 @@ simulator =
       mem_in <- doMemory
       if isJust (Core.stateHalt s)
         then pure Nothing
-        else pure $
-          Just $
-            Input
-              { inputMem = mem_in,
-                inputMemReady = True
-              }
+        else pure (Just (Input (Just mem_in)))
       where
         doMemory :: m Word
         doMemory = case mem of

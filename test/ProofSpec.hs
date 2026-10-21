@@ -646,7 +646,7 @@ wrapCESys =
           stateLoadInFlight = False
         }
     )
-    (Input wrapDeWord True)
+    (Input (Just wrapDeWord))
     wrapMem
 
 -- Arbitrary-state search ------------------------------------------------------
@@ -844,7 +844,7 @@ genArbSys = do
                stateHalt = Nothing,
                stateLoadInFlight = isLoad wbI
              })
-          (Input w1 True)
+          (Input (Just w1))
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -906,7 +906,7 @@ genRunning2 label genEx = do
   -- premise is exercised rather than making those samples vacuous.
   let ma = base + 64
       wbMem = isMemInstr wbI
-      inp = Input (if wbMem then loaded else w1) True
+      inp = Input (Just (if wbMem then loaded else w1))
       fePc = if wbMem then base + 4 else base + 8
   wr <- genWitnessReg
   wa <- unpack <$> genW
@@ -990,7 +990,7 @@ genSteady2 = do
                 stateLoadInFlight = isLoad wbI
               }
           )
-          (Input loaded True)
+          (Input (Just loaded))
           (MemFn memf)
   P.pure ("steady", sys, wr, wa)
 
@@ -1035,7 +1035,7 @@ genSteady1 = do
                 stateLoadInFlight = isLoad wbI
               }
           )
-          (Input loaded True)
+          (Input (Just loaded))
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -1232,7 +1232,7 @@ genTakenTransfer useJalr = do
       w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
       wT = P.maybe 0 P.id (encode' (roundTrips tgtI))
       wbMem = isMemInstr wbI
-      inp = Input (if wbMem then loaded else w1) True
+      inp = Input (Just (if wbMem then loaded else w1))
       fePc = if wbMem then base + 4 else base + 8
       ma = base + 4096 -- parked away from every PC and from the target
 
@@ -1370,7 +1370,7 @@ mk3 base exI meI wbI nextI wbMem = do
               stateLoadInFlight = isLoad wbI
             }
         )
-        (Input (if wbMem then loaded else w1) True)
+        (Input (Just (if wbMem then loaded else w1)))
         (MemFn memf),
       wr,
       wa

@@ -27,6 +27,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
+import Data.Maybe (fromMaybe)
 import Core.Instruction hiding (loadHazard, storeHazard)
 import qualified Core.Instruction
 import Memory.Types (MemOps (..))
@@ -56,7 +57,7 @@ wbFwd (Sys st inp _) =
   case stateWbInstr st of
     RType _ rd _ _ -> Just (rd, res)
     IType (Arith _) rd _ _ -> Just (rd, res)
-    IType (Load size sign) rd _ _ -> Just (rd, loadExtend size sign ((inputMem inp)))
+    IType (Load size sign) rd _ _ -> Just (rd, loadExtend size sign (fromMaybe 0 (inputMem inp)))
     JType rd _ -> Just (rd, res)
     IType Jump rd _ _ -> Just (rd, res)
     UType _ rd _ -> Just (rd, res)
@@ -122,7 +123,7 @@ loadHazard (Sys st inp _) =
   where
     expInstr = stateDeExpInstr st
     deIr
-      | expInstr = decode' ((inputMem inp))
+      | expInstr = maybe (Nop NoInstruction) decode' (inputMem inp)
       | otherwise = Nop NoInstruction
 
 -- | The driver's case table. The cases are checked in order.

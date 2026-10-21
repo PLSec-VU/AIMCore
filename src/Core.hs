@@ -53,13 +53,9 @@ topEntity ::
   Signal System Output
 topEntity = exposeClockResetEnable $ mealy (circuit @RegFile) (init @RegFile)
 
--- | The input to the CPU.
-data Input = Input
-  { -- | Reads from memory.
-    inputMem :: Word,
-    -- | Is the memory answer ready this cycle?
-    inputMemReady :: Bool
-  }
+-- | The input to the CPU: memory's answer to the previous request, or 'Nothing'
+-- while it is not ready yet.
+newtype Input = Input {inputMem :: Maybe Word}
   deriving (Show, Generic, NFDataX)
 
 -- | A memory access.
@@ -78,7 +74,7 @@ type Request = Maybe MemAccess
 -- | The output of the CPU.
 newtype Output = Output
   { -- | A memory access.
-    outMem :: Maybe MemAccess
+    outMem :: Request
   }
   deriving (Show, Generic, NFDataX)
 
@@ -198,11 +194,7 @@ pipe = do
   fetch
 
 initInput :: Input
-initInput =
-  Input
-    { inputMem = 0,
-      inputMemReady = True
-    }
+initInput = Input (Just 0)
 
 initAt :: Address -> r -> StateG r
 initAt pc rf =
@@ -294,7 +286,7 @@ decodeFresh = do
 
   let ir =
         if expInstr
-          then decode' (inputMem input)
+          then maybe (Nop NoInstruction) decode' (inputMem input)
           else Nop NoInstruction
 
   let halted = ctrlExInstr ctrl == Just (Nop Halted)
@@ -560,13 +552,14 @@ writeback = do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
     Core.Instruction.IType (Load size sign) rd _ _ -> do
-      ready <- asks inputMemReady
-      when ready $ do
-        input <- asks inputMem
-        let val = loadExtend size sign input
-        setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
-        writeRF rd val
-        modify $ \s -> s {stateLoadInFlight = False}
+      input <- asks inputMem
+      case input of
+        Nothing -> pure ()
+        Just w -> do
+          let val = loadExtend size sign w
+          setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
+          writeRF rd val
+          modify $ \s -> s {stateLoadInFlight = False}
     Core.Instruction.JType rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res

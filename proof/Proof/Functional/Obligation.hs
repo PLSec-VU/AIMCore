@@ -16,6 +16,7 @@ module Proof.Functional.Obligation
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
+import Data.Maybe (fromMaybe)
 import qualified Core
 import Proof.Functional.Driver (driver)
 import Core.ISA (IsaStateG (..), StepG (..), isaStep)
@@ -55,7 +56,7 @@ isaAt ipc (Sys st inp mem) =
         ( flushWbStage
             (Core.stateWbInstr st)
             ((Core.stateWbRes st))
-            ((Core.inputMem inp))
+            (fromMaybe 0 (Core.inputMem inp))
             (mem, Core.stateRegFile st)
         )
 

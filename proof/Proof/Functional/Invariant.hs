@@ -40,6 +40,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
+import Data.Maybe (fromMaybe, isJust)
 import Core.Instruction
 import Memory.Types
 import Core.ISA (IsaStateG (..), IsaState)
@@ -164,7 +165,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
   ]
   where
-    inputWord = (inputMem inp)
+    inputWord = fromMaybe 0 (inputMem inp)
 
     -- Bound once: under symbolic execution a repeated 'decode'' is not shared,
     -- and it is a large decision tree.
@@ -186,7 +187,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
       Case "running" $
         [ ("running", stateHalt st == Nothing),
           ("load in flight iff a load is in wb", stateLoadInFlight st == isLoad (stateWbInstr st)),
-          ("memory answered", inputMemReady inp),
+          ("memory answered", isJust (inputMem inp)),
           ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
           ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
           ("exPc == isaPc", stateExPc st == ipc),
@@ -225,7 +226,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
           ("halt state matches", stateHalt st == Just expected),
           ("wb == Nop Halted", stateWbInstr st == Nop Halted),
           ("no load in flight", P.not (stateLoadInFlight st)),
-          ("memory answered", inputMemReady inp),
+          ("memory answered", isJust (inputMem inp)),
           ("me == Nop Halted", stateMeInstr st == Nop Halted),
           ("ex == Nop Halted", stateExInstr st == Nop Halted),
           ("isaRegFile == stateRegFile", eqRF irf (stateRegFile st)),
@@ -259,7 +260,7 @@ runningCaseAt ::
 runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
   stateHalt st == Nothing
     && stateLoadInFlight st == isLoad (stateWbInstr st)
-    && inputMemReady inp
+    && isJust (inputMem inp)
     && not (isEnvInstr (stateWbInstr st))
     && not (isEnvInstr (stateMeInstr st))
     && stateExPc st == ipc
@@ -270,7 +271,7 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
            then not (stateDeExpInstr st) && stateFePc st == stateExPc st + 4
            else
              stateDeExpInstr st
-               && (inputMem inp) == memReadWord (stateDePc st) mem
+               && inputMem inp == Just (memReadWord (stateDePc st) mem)
                && stateFePc st == stateExPc st + 8
        )
     && memReadByte wa imem == memReadByte wa fm
@@ -289,7 +290,7 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
         ( flushWbStage
             (stateWbInstr st)
             ((stateWbRes st))
-            ((inputMem inp))
+            (fromMaybe 0 (inputMem inp))
             (mem, stateRegFile st)
         )
 
@@ -302,7 +303,7 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st inp mem) =
     && stateHalt st == Just expected
     && stateWbInstr st == Nop Halted
     && not (stateLoadInFlight st)
-    && inputMemReady inp
+    && isJust (inputMem inp)
     && stateMeInstr st == Nop Halted
     && stateExInstr st == Nop Halted
     && memReadByte wa imem == memReadByte wa mem
