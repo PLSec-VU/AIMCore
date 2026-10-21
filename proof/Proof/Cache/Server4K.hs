@@ -17,6 +17,7 @@
 -- obligation for the whole invariant.
 module Proof.Cache.Server4K
   ( hop,
+    coherentAt,
     srvInvAt,
     srvTag,
     simStep,
@@ -65,6 +66,16 @@ hop y q
     (y4, x4) = serve y3 Nothing
     (y5, x5) = serve y4 Nothing
     (y6, x6) = serve y5 Nothing
+
+-- | Coherence at word @wi@ of set @s@: if the line there is valid, the word is
+-- the one memory holds at its address. The cache is coherent if this holds at
+-- every set and word.
+coherentAt :: (MemOps m) => m -> SetIdx -> WordIdx -> Cache4K -> Bool
+coherentAt mem s wi c =
+  not (entryValid e) || dataRead (s ++# wi) (dataArr c) == w
+  where
+    e = tagRead s (tagArr c)
+    w = memReadWord (wordAddr (entryTag e) s wi 0) mem
 
 -- | The invariant at word @w@ of set @s@: no miss is pending, and if the line
 -- is valid, its word @w@ is memory's.

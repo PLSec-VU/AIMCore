@@ -41,7 +41,6 @@ module Memory.Cache4K
     cacheFill,
     cacheRead,
     cacheWrite,
-    coherentAt,
   )
 where
 
@@ -233,13 +232,3 @@ cacheWrite a size w c = case size of
     c2 = cacheWriteByte (a + 1) (slice d15 d8 w) c1
     c3 = cacheWriteByte (a + 2) (slice d23 d16 w) c2
     c4 = cacheWriteByte (a + 3) (slice d31 d24 w) c3
-
--- | Coherence at word @wi@ of set @s@: if the line there is valid, the word is
--- the one memory holds at its address. The cache is coherent if this holds at
--- every set and word.
-coherentAt :: (MemOps m) => m -> SetIdx -> WordIdx -> Cache4K -> Bool
-coherentAt mem s wi c =
-  not (entryValid e) || dataRead (s ++# wi) (dataArr c) == w
-  where
-    e = tagRead s (tagArr c)
-    w = memReadWord (wordAddr (entryTag e) s wi 0) mem
