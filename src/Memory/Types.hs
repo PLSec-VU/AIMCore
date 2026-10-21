@@ -41,14 +41,14 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 -- can.
 class MemOps m where
   memReadWord :: Address -> m -> Word
-  memWriteWord :: Size -> Address -> Word -> m -> m
+  memWrite :: Size -> Address -> Word -> m -> m
 
   -- | Single byte, which is what the pointwise form of the invariant compares.
   memReadByte :: Address -> m -> Byte
 
 instance (KnownNat n) => MemOps (Vec n Byte) where
   memReadWord = readWord
-  memWriteWord = write
+  memWrite = write
   memReadByte a m = m !! a
 
 -- | Verification-only memory: a function rather than a container.
@@ -56,7 +56,7 @@ newtype MemFn = MemFn {memByte :: Address -> Byte}
 
 instance MemOps MemFn where
   memReadWord a (MemFn m) = m (a + 3) ++# m (a + 2) ++# m (a + 1) ++# m a
-  memWriteWord size a w m =
+  memWrite size a w m =
     case size of
       Byte -> put a b0 m
       Half -> put (a + 1) b1 (put a b0 m)

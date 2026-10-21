@@ -45,7 +45,7 @@ instance MemOps MemMap where
   memReadWord a m =
     memReadByte (a + 3) m ++# memReadByte (a + 2) m ++# memReadByte (a + 1) m ++# memReadByte a m
 
-  memWriteWord size a w (MemMap m) =
+  memWrite size a w (MemMap m) =
     MemMap $ case size of
       Byte -> put a b0 m
       Half -> put (a + 1) b1 (put a b0 m)

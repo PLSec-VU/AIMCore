@@ -84,7 +84,7 @@ flushMeStage ir res addr (mem, rf) =
     IType (Arith _) rd _ _ -> (mem, put rd res)
     IType (Load size sign) rd _ _ ->
       (mem, put rd (loadExtend size sign (memReadWord addr mem)))
-    SType size _ _ _ -> (memWriteWord size addr res mem, rf)
+    SType size _ _ _ -> (memWrite size addr res mem, rf)
     BType {} -> (mem, rf)
     JType rd _ -> (mem, put rd res)
     IType Jump rd _ _ -> (mem, put rd res)
@@ -264,7 +264,7 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
     && (lookupRFg wr irf) == (lookupRFg wr frf)
   where
     -- The same flush the container form applies, read at the witness. Writing
-    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWriteWord'
+    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWrite'
     -- for no gain: 'Proof.Functional.Obligation.isaAt' already puts this flush
     -- into every query, and the solver rewrites @select@ over a @store@ chain
     -- natively.

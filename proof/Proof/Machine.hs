@@ -74,7 +74,7 @@ stepSysOut (Sys s i m) =
     -- 'loadExtend'. We reproduce that here.
     service (Just (MemRead addr _)) mem = (Input (memReadWord addr mem), mem)
     -- A write.
-    service (Just (MemWrite addr size val)) mem = (Input 0, memWriteWord size addr (val) mem)
+    service (Just (MemWrite addr size val)) mem = (Input 0, memWrite size addr (val) mem)
     service Nothing mem = (Input 0, mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
