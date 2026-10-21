@@ -642,10 +642,11 @@ wrapCESys =
           stateMeAddr = 0xFFFFFFFD, -- second byte of the decode-stage word
           stateRegFile = RegFn (const 0),
           stateCtrl = initCtrl,
-          stateHalt = Nothing
+          stateHalt = Nothing,
+          stateLoadInFlight = False
         }
     )
-    (Input wrapDeWord)
+    (Input wrapDeWord True)
     wrapMem
 
 -- Arbitrary-state search ------------------------------------------------------
@@ -840,9 +841,10 @@ genArbSys = do
                stateMeAddr = ma,
                stateRegFile = RegFn rfF,
                stateCtrl = initCtrl,
-               stateHalt = Nothing
+               stateHalt = Nothing,
+               stateLoadInFlight = isLoad wbI
              })
-          (Input w1)
+          (Input w1 True)
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -904,7 +906,7 @@ genRunning2 label genEx = do
   -- premise is exercised rather than making those samples vacuous.
   let ma = base + 64
       wbMem = isMemInstr wbI
-      inp = Input (if wbMem then loaded else w1)
+      inp = Input (if wbMem then loaded else w1) True
       fePc = if wbMem then base + 4 else base + 8
   wr <- genWitnessReg
   wa <- unpack <$> genW
@@ -923,7 +925,8 @@ genRunning2 label genEx = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing
+                stateHalt = Nothing,
+                stateLoadInFlight = isLoad wbI
               }
           )
           inp
@@ -983,10 +986,11 @@ genSteady2 = do
                 stateMeAddr = base + 64,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing
+                stateHalt = Nothing,
+                stateLoadInFlight = isLoad wbI
               }
           )
-          (Input loaded)
+          (Input loaded True)
           (MemFn memf)
   P.pure ("steady", sys, wr, wa)
 
@@ -1027,10 +1031,11 @@ genSteady1 = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing
+                stateHalt = Nothing,
+                stateLoadInFlight = isLoad wbI
               }
           )
-          (Input loaded)
+          (Input loaded True)
           (MemFn memf)
   P.pure (sys, wr, wa)
 
@@ -1227,7 +1232,7 @@ genTakenTransfer useJalr = do
       w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
       wT = P.maybe 0 P.id (encode' (roundTrips tgtI))
       wbMem = isMemInstr wbI
-      inp = Input (if wbMem then loaded else w1)
+      inp = Input (if wbMem then loaded else w1) True
       fePc = if wbMem then base + 4 else base + 8
       ma = base + 4096 -- parked away from every PC and from the target
 
@@ -1246,7 +1251,8 @@ genTakenTransfer useJalr = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfun,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing
+                stateHalt = Nothing,
+                stateLoadInFlight = isLoad wbI
               }
           )
           inp
@@ -1360,10 +1366,11 @@ mk3 base exI meI wbI nextI wbMem = do
               stateMeAddr = ma,
               stateRegFile = RegFn rfF,
               stateCtrl = initCtrl,
-              stateHalt = Nothing
+              stateHalt = Nothing,
+              stateLoadInFlight = isLoad wbI
             }
         )
-        (Input (if wbMem then loaded else w1))
+        (Input (if wbMem then loaded else w1) True)
         (MemFn memf),
       wr,
       wa

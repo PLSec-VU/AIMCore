@@ -24,6 +24,7 @@ module Core
     writeback,
     CPUM,
     MemAccess (..),
+    Request,
     Control (..),
     alu,
     branch,
@@ -53,7 +54,12 @@ topEntity ::
 topEntity = exposeClockResetEnable $ mealy (circuit @RegFile) (init @RegFile)
 
 -- | The input to the CPU.
-newtype Input = Input {inputMem :: Word}
+data Input = Input
+  { -- | Reads from memory.
+    inputMem :: Word,
+    -- | Is the memory answer ready this cycle?
+    inputMemReady :: Bool
+  }
   deriving (Show, Generic, NFDataX)
 
 -- | A memory access.
@@ -65,6 +71,9 @@ data MemAccess
   | -- | A data write of the given size, with the value to write.
     MemWrite Address Size Word
   deriving (Show, Generic, NFDataX)
+
+-- | A request on the memory bus, if any, as the memory servers see it.
+type Request = Maybe MemAccess
 
 -- | The output of the CPU.
 newtype Output = Output
@@ -119,7 +128,9 @@ data StateG r = State
     -- | Control/forwarding lines.
     stateCtrl :: Control,
     -- | CPU halt state.
-    stateHalt :: Maybe HaltState
+    stateHalt :: Maybe HaltState,
+    -- | True when a load is in flight.
+    stateLoadInFlight :: Bool
   }
 
 -- | The synthesisable state: the register file is a 'Vec'.
@@ -160,7 +171,9 @@ data Control = Control
     ctrlMeRegFwd :: Maybe (RegIdx, Word),
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
-    ctrlWbRegFwd :: Maybe (RegIdx, Word)
+    ctrlWbRegFwd :: Maybe (RegIdx, Word),
+    -- | True when a load was in flight at the start of the cycle.
+    ctrlMeHadInFlight :: Bool
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -185,7 +198,11 @@ pipe = do
   fetch
 
 initInput :: Input
-initInput = Input 0
+initInput =
+  Input
+    { inputMem = 0,
+      inputMemReady = True
+    }
 
 initAt :: Address -> r -> StateG r
 initAt pc rf =
@@ -202,7 +219,8 @@ initAt pc rf =
       stateWbRes = 0,
       stateRegFile = rf,
       stateCtrl = initCtrl,
-      stateHalt = Nothing
+      stateHalt = Nothing,
+      stateLoadInFlight = False
     }
 
 init :: forall r. (RegFileOps r) => StateG r
@@ -220,12 +238,19 @@ initCtrl =
       ctrlMeMemInstr = False,
       ctrlMeStoreAddrSize = Nothing,
       ctrlMeRegFwd = Nothing,
-      ctrlWbRegFwd = Nothing
+      ctrlWbRegFwd = Nothing,
+      ctrlMeHadInFlight = False
     }
 
--- | Fetch stage.
+-- | The fetch stage. Frozen, like decode and execute, while a load is in
+-- flight: a stall then leaves every pipeline register as it was.
 fetch :: CPUM r ()
 fetch = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight fetchFresh
+
+fetchFresh :: CPUM r ()
+fetchFresh = do
   pc <- gets stateFePc
   ctrl <- gets stateCtrl
 
@@ -257,6 +282,11 @@ fetch = do
 -- | Decode stage.
 decode :: CPUM r ()
 decode = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight decodeFresh
+
+decodeFresh :: CPUM r ()
+decodeFresh = do
   input <- ask
   pc <- gets stateDePc
   expInstr <- gets stateDeExpInstr
@@ -316,6 +346,11 @@ decode = do
 -- | Execute stage.
 execute :: forall r. (RegFileOps r) => CPUM r ()
 execute = do
+  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
+  unless hadInFlight execute'
+
+execute' :: forall r. (RegFileOps r) => CPUM r ()
+execute' = do
   ir <- gets stateExInstr
 
   -- Default values.
@@ -472,6 +507,15 @@ branch op lhs rhs = case op of
 -- | Memory stage.
 memory :: CPUM r ()
 memory = do
+  wasInFlight <- gets stateLoadInFlight
+  setLines $ \c -> c {ctrlMeHadInFlight = wasInFlight}
+  if wasInFlight
+    then setLines $ \c -> c {ctrlMeMemInstr = True}
+    else memoryFresh
+
+-- | Process a fresh memory instruction.
+memoryFresh :: CPUM r ()
+memoryFresh = do
   ir <- gets stateMeInstr
   res <- gets stateMeRes
   addr <- gets stateMeAddr
@@ -489,6 +533,7 @@ memory = do
     Core.Instruction.IType (Load size _) _ _ _ -> do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readRAM addr size
+      modify $ \s -> s {stateLoadInFlight = True}
     Core.Instruction.SType size _ _ _ -> do
       setLines $ \c ->
         c {ctrlMeMemInstr = True, ctrlMeStoreAddrSize = Just (addr, size)}
@@ -504,7 +549,6 @@ memory = do
 -- | Writeback stage.
 writeback :: forall r. (RegFileOps r) => CPUM r ()
 writeback = do
-  input <- asks inputMem
   ir <- gets stateWbInstr
   res <- gets stateWbRes
 
@@ -516,9 +560,13 @@ writeback = do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
     Core.Instruction.IType (Load size sign) rd _ _ -> do
-      let val = loadExtend size sign input
-      setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
-      writeRF rd val
+      ready <- asks inputMemReady
+      when ready $ do
+        input <- asks inputMem
+        let val = loadExtend size sign input
+        setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
+        writeRF rd val
+        modify $ \s -> s {stateLoadInFlight = False}
     Core.Instruction.JType rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res

@@ -14,10 +14,10 @@ import Prelude
 -- input for the next cycle.
 idealServe :: (MemOps m) => m -> Maybe MemAccess -> (m, Input)
 idealServe mem req = case req of
-  Just (MemFetch addr) -> (mem, Input (memReadWord addr mem))
+  Just (MemFetch addr) -> (mem, Input (memReadWord addr mem) True)
   -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
   -- word; the size-dependent narrowing happens in 'Core.writeback' via
   -- 'loadExtend'. We reproduce that here.
-  Just (MemRead addr _) -> (mem, Input (memReadWord addr mem))
-  Just (MemWrite addr size val) -> (memWrite addr size val mem, Input 0)
-  Nothing -> (mem, Input 0)
+  Just (MemRead addr _) -> (mem, Input (memReadWord addr mem) True)
+  Just (MemWrite addr size val) -> (memWrite addr size val mem, Input 0 True)
+  Nothing -> (mem, Input 0 True)

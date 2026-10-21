@@ -31,7 +31,7 @@ system prog = cpuOut
     cpuInput = register initInput input
     cpuOut = cpu cpuInput
     ram = HardwareSim.mkRAM @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemRead 0 Word) . outMem <$> cpuOut)
-    input = Input <$> ram
+    input = (\mread -> Input mread True) <$> ram
 
 mkRAM :: forall progSize ramSize dom.
   (HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>

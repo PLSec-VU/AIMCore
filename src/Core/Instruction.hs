@@ -25,6 +25,7 @@ module Core.Instruction
     storeHazard,
     loadHazard,
     isMemInstr,
+    isLoad,
     loadExtend,
   )
 where
@@ -449,6 +450,12 @@ isMemInstr :: Instruction -> Bool
 isMemInstr (IType Load {} _ _ _) = True
 isMemInstr (SType {}) = True
 isMemInstr _ = False
+
+-- | Loads: the instructions whose result arrives over the memory bus in the
+-- writeback stage.
+isLoad :: Instruction -> Bool
+isLoad (IType Load {} _ _ _) = True
+isLoad _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0

@@ -19,12 +19,15 @@ module Proof.Machine
     stepSysOut,
     stepSysN,
     initSys,
+    running,
     readMemWord,
+    idealServe,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
+import Data.Maybe (isNothing)
 import Memory.Ideal (idealServe)
 import Memory.Types
 import Core.RegFile
@@ -63,6 +66,9 @@ stepSys = fst . stepSysOut
 -- The leakage proof observes the cycle-by-cycle memory traffic, which 'stepSys'
 -- discards. Defining both here means what it observes is exactly the traffic
 -- the memory service responds to.
+--
+-- The system is the core in a loop with 'idealServe': the core's request goes
+-- to memory, and memory's response is the core's input in the next cycle.
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output)
 stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
@@ -82,6 +88,9 @@ initSys prog =
       sysInput = initInput,
       sysMem = mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
     }
+
+running :: SysG r m -> Bool
+running = isNothing . stateHalt . sysState
 
 readMemWord :: Address -> MemBytes -> Word
 readMemWord = readWord

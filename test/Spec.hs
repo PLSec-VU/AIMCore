@@ -7,6 +7,8 @@
 module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
+import Cache4KSpec (cache4KTests)
+import CompositionSpec (compositionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -23,6 +25,8 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
+import qualified Proof.Cache.Induction
+import qualified Proof.Cache.Induction4K
 import qualified Proof.Functional.Induction
 import qualified Proof.Leakage.Induction
 #endif
@@ -92,7 +96,17 @@ sanityTests =
       testCase "k = 2 leakage step is valid" $
         lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing
+        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing,
+      testGroup
+        "the core is patient"
+        [ testCase name $ lookup name Proof.Cache.Induction.results @?= Just Nothing
+          | name <- ["stallStep", "waitStep"]
+        ],
+      testGroup
+        "the 4 KiB cache has a server proof"
+        [ testCase name $ lookup name Proof.Cache.Induction4K.results @?= Just Nothing
+          | name <- ["cacheArrays", "srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
+        ]
     ]
   where
     verdict :: String -> Maybe String
@@ -112,6 +126,8 @@ tests =
       proofTests,
       isaConformanceTests,
       instructionTests,
+      compositionTests,
+      cache4KTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup
@@ -299,6 +315,7 @@ instance Arbitrary Control where
       <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
+      <*> pure False
     where
       genMaybeRegFwd = do
         hasFwd <- arbitrary
@@ -336,6 +353,7 @@ instance Arbitrary Core.State where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> pure False
 
 -- | Half the time a valid instruction encoding, half the time an arbitrary data
 -- word. Whether the core treats it as an instruction is up to the state's
@@ -347,4 +365,4 @@ instance Arbitrary Input where
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    pure $ Input mem
+    pure $ Input mem True

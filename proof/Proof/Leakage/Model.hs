@@ -31,6 +31,7 @@ module Proof.Leakage.Model
   ( -- * Observation
     Obs (..),
     obsOf,
+    obsReq,
 
     -- * Leakage
     Leak (..),
@@ -68,9 +69,17 @@ instance Semigroup Obs where
 instance Monoid Obs where
   mempty = NoAccess
 
--- | The observation a cycle's 'Core.Output' produces.
+-- | The observation a cycle's 'Core.Output' produces: that of its request.
 obsOf :: Output -> Obs
-obsOf o = case outMem o of
+obsOf o = obsReq (outMem o)
+
+-- | The observation of a request on the bus: the request without its data.
+--
+-- This is also what a cache in front of the core leaks about each request it
+-- receives ("Proof.Cache.Server4K"), which is what lets the core's leakage proof
+-- and the cache's compose.
+obsReq :: Request -> Obs
+obsReq req = case req of
   Nothing -> NoAccess
   Just (MemFetch addr) -> Fetch addr
   Just (MemRead addr size) -> DataRead addr size
