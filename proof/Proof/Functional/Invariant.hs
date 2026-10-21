@@ -20,11 +20,8 @@
 -- from drifting.
 --
 -- The invariant describes the core attached to memory that answers every
--- request in the next cycle ('Proof.Machine.stepSys'), so the bus is always
--- ready ('Core.inputMemReady'), and the load-in-flight flag
--- ('Core.stateLoadInFlight') is pinned to the writeback stage: a load is in
--- flight exactly while it sits there. A flag set with anything else in
--- writeback would freeze the pipeline, since only a load's writeback clears it.
+-- request in the next cycle ('Proof.Machine.stepSys'), so the bus always holds
+-- an answer ('Core.inputMem' is 'Just').
 module Proof.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
@@ -186,7 +183,6 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     runningCase =
       Case "running" $
         [ ("running", stateHalt st == Nothing),
-          ("load in flight iff a load is in wb", stateLoadInFlight st == isLoad (stateWbInstr st)),
           ("memory answered", isJust (inputMem inp)),
           ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
           ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
@@ -225,7 +221,6 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
         [ ("isa instruction is of this kind", isKind isaInstr),
           ("halt state matches", stateHalt st == Just expected),
           ("wb == Nop Halted", stateWbInstr st == Nop Halted),
-          ("no load in flight", P.not (stateLoadInFlight st)),
           ("memory answered", isJust (inputMem inp)),
           ("me == Nop Halted", stateMeInstr st == Nop Halted),
           ("ex == Nop Halted", stateExInstr st == Nop Halted),
@@ -259,7 +254,6 @@ runningCaseAt ::
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
 runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
   stateHalt st == Nothing
-    && stateLoadInFlight st == isLoad (stateWbInstr st)
     && isJust (inputMem inp)
     && not (isEnvInstr (stateWbInstr st))
     && not (isEnvInstr (stateMeInstr st))
@@ -302,7 +296,6 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st inp mem) =
   isKind (decode' (memReadWord ipc imem))
     && stateHalt st == Just expected
     && stateWbInstr st == Nop Halted
-    && not (stateLoadInFlight st)
     && isJust (inputMem inp)
     && stateMeInstr st == Nop Halted
     && stateExInstr st == Nop Halted

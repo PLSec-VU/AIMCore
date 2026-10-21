@@ -38,7 +38,7 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Core.Instruction hiding (decode)
 import Memory.Types
 import Core.RegFile
@@ -124,9 +124,7 @@ data StateG r = State
     -- | Control/forwarding lines.
     stateCtrl :: Control,
     -- | CPU halt state.
-    stateHalt :: Maybe HaltState,
-    -- | True when a load is in flight.
-    stateLoadInFlight :: Bool
+    stateHalt :: Maybe HaltState
   }
 
 -- | The synthesisable state: the register file is a 'Vec'.
@@ -168,8 +166,8 @@ data Control = Control
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
-    -- | True when a load was in flight at the start of the cycle.
-    ctrlMeHadInFlight :: Bool
+    -- | True when a load is in flight.
+    ctrlWbLoadInFlight :: Bool
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -211,8 +209,7 @@ initAt pc rf =
       stateWbRes = 0,
       stateRegFile = rf,
       stateCtrl = initCtrl,
-      stateHalt = Nothing,
-      stateLoadInFlight = False
+      stateHalt = Nothing
     }
 
 init :: forall r. (RegFileOps r) => StateG r
@@ -231,16 +228,18 @@ initCtrl =
       ctrlMeStoreAddrSize = Nothing,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
-      ctrlMeHadInFlight = False
+      ctrlWbLoadInFlight = False
     }
 
--- | The fetch stage. Frozen, like decode and execute, while a load is in
--- flight: a stall then leaves every pipeline register as it was.
+-- | Fetch stage. Holds while a load is in flight (see 'writeback'), like the
+-- other stages before writeback: a stall then leaves every pipeline register
+-- as it was.
 fetch :: CPUM r ()
 fetch = do
-  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
-  unless hadInFlight fetchFresh
+  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
+  unless loadInFlight fetchFresh
 
+-- | Fetch stage, in a cycle where the pipeline advances.
 fetchFresh :: CPUM r ()
 fetchFresh = do
   pc <- gets stateFePc
@@ -271,12 +270,13 @@ fetchFresh = do
         stateDeExpInstr = not stall
       }
 
--- | Decode stage.
+-- | Decode stage. Holds while a load is in flight (see 'writeback').
 decode :: CPUM r ()
 decode = do
-  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
-  unless hadInFlight decodeFresh
+  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
+  unless loadInFlight decodeFresh
 
+-- | Decode stage, in a cycle where the pipeline advances.
 decodeFresh :: CPUM r ()
 decodeFresh = do
   input <- ask
@@ -335,12 +335,13 @@ decodeFresh = do
   when (ir' == Nop LoadHazardFirstCycle) $ do
     setLines $ \c -> c {ctrlDeLoadHazard = Just pc}
 
--- | Execute stage.
+-- | Execute stage. Holds while a load is in flight (see 'writeback').
 execute :: forall r. (RegFileOps r) => CPUM r ()
 execute = do
-  hadInFlight <- gets (ctrlMeHadInFlight . stateCtrl)
-  unless hadInFlight executeFresh
+  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
+  unless loadInFlight executeFresh
 
+-- | Execute stage, in a cycle where the pipeline advances.
 executeFresh :: forall r. (RegFileOps r) => CPUM r ()
 executeFresh = do
   ir <- gets stateExInstr
@@ -496,16 +497,13 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
--- | Memory stage.
+-- | Memory stage. Holds while a load is in flight (see 'writeback').
 memory :: CPUM r ()
 memory = do
-  wasInFlight <- gets stateLoadInFlight
-  setLines $ \c -> c {ctrlMeHadInFlight = wasInFlight}
-  if wasInFlight
-    then setLines $ \c -> c {ctrlMeMemInstr = True}
-    else memoryFresh
+  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
+  unless loadInFlight memoryFresh
 
--- | Process a fresh memory instruction.
+-- | Memory stage, in a cycle where the pipeline advances.
 memoryFresh :: CPUM r ()
 memoryFresh = do
   ir <- gets stateMeInstr
@@ -525,7 +523,6 @@ memoryFresh = do
     Core.Instruction.IType (Load size _) _ _ _ -> do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readRAM addr size
-      modify $ \s -> s {stateLoadInFlight = True}
     Core.Instruction.SType size _ _ _ -> do
       setLines $ \c ->
         c {ctrlMeMemInstr = True, ctrlMeStoreAddrSize = Just (addr, size)}
@@ -538,9 +535,21 @@ memoryFresh = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     _ -> pure ()
 
--- | Writeback stage.
+-- | Writeback stage. A load whose answer has not arrived yet ('inputMem' is
+-- 'Nothing') waits, and raises 'ctrlWbLoadInFlight' so that the other stages
+-- hold too; otherwise the instruction completes ('writebackFresh').
 writeback :: forall r. (RegFileOps r) => CPUM r ()
 writeback = do
+  ir <- gets stateWbInstr
+  input <- asks inputMem
+
+  if isLoad ir && isNothing input
+    then setLines $ \c -> c {ctrlWbLoadInFlight = True}
+    else writebackFresh
+
+-- | Writeback stage, in a cycle where the instruction in it completes.
+writebackFresh :: forall r. (RegFileOps r) => CPUM r ()
+writebackFresh = do
   ir <- gets stateWbInstr
   res <- gets stateWbRes
 
@@ -554,12 +563,12 @@ writeback = do
     Core.Instruction.IType (Load size sign) rd _ _ -> do
       input <- asks inputMem
       case input of
+        -- this case should not arise
         Nothing -> pure ()
         Just w -> do
           let val = loadExtend size sign w
           setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
           writeRF rd val
-          modify $ \s -> s {stateLoadInFlight = False}
     Core.Instruction.JType rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
@@ -583,25 +592,16 @@ readPC :: (MonadWriter Output m) => Address -> m ()
 readPC addr =
   tell $
     (mempty :: Output)
-      { outMem =
-          pure $
-            MemFetch addr
-      }
+      { outMem = pure $ MemFetch addr }
 
 readRAM :: (MonadWriter Output m) => Address -> Size -> m ()
 readRAM addr size =
   tell $
     (mempty :: Output)
-      { outMem =
-          pure $
-            MemRead addr size
-      }
+      { outMem = pure $ MemRead addr size }
 
 writeRAM :: (MonadWriter Output m) => Address -> Size -> Word -> m ()
 writeRAM addr size val =
   tell $
     (mempty :: Output)
-      { outMem =
-          pure $
-            MemWrite addr size val
-      }
+      { outMem = pure $ MemWrite addr size val }
