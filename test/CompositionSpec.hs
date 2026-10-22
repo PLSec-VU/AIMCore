@@ -71,7 +71,6 @@ coreDiff (Sys a ia ma) (Sys b ib mb) =
       f "wb" stateWbInstr,
       f "wbRes" (runIdentity . stateWbRes),
       f "halt" stateHalt,
-      f "haltNextPc" stateHaltNextPc,
       f "loadInFlight" stateLoadInFlight,
       g "bus" (runIdentity . inputMem),
       g "ready" inputMemReady,

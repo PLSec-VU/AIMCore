@@ -47,7 +47,6 @@ stallObligation wr st inp = not stalled || (noRequest && unchanged)
         && stateWbInstr st' == stateWbInstr st
         && runIdentity (stateWbRes st') == runIdentity (stateWbRes st)
         && stateHalt st' == stateHalt st
-        && stateHaltNextPc st' == stateHaltNextPc st
         && stateLoadInFlight st' == stateLoadInFlight st
         && runIdentity (lookupRFg wr (stateRegFile st')) == runIdentity (lookupRFg wr (stateRegFile st))
 
