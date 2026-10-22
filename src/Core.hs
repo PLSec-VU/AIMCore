@@ -119,9 +119,7 @@ data StateG r = State
     -- | Control/forwarding lines.
     stateCtrl :: Control,
     -- | CPU halt state.
-    stateHalt :: Maybe HaltState,
-    -- | In case of a halt, the address of the next instruction.
-    stateHaltNextPc :: Address
+    stateHalt :: Maybe HaltState
   }
 
 -- | The synthesisable state: the register file is a 'Vec'.
@@ -204,8 +202,7 @@ initAt pc rf =
       stateWbRes = 0,
       stateRegFile = rf,
       stateCtrl = initCtrl,
-      stateHalt = Nothing,
-      stateHaltNextPc = 0
+      stateHalt = Nothing
     }
 
 init :: forall r. (RegFileOps r) => StateG r
@@ -386,10 +383,10 @@ execute = do
       modify $ \s -> s {stateMeRes = res}
     Instruction.IType (Env Call) _ _ _ -> do
       pc <- gets stateExPc
-      modify $ \s -> s {stateHaltNextPc = pc + 4}
+      modify $ \s -> s {stateMeRes = pack $ pc + 4}
     Instruction.IType (Env Break) _ _ _ -> do
       pc <- gets stateExPc
-      modify $ \s -> s {stateHaltNextPc = pc + 4}
+      modify $ \s -> s {stateMeRes = pack $ pc + 4}
     Instruction.Nop _ -> pure ()
   where
     getFirstArg :: RegIdx -> CPUM r Word
@@ -532,11 +529,9 @@ writeback = do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
     Instruction.IType (Env Call) _ _ _ -> do
-      cont <- gets stateHaltNextPc
-      modify $ \s -> s {stateHalt = Just (Syscall cont), stateHaltNextPc = 0}
+      modify $ \s -> s {stateHalt = Just (Syscall $ unpack res)}
     Instruction.IType (Env Break) _ _ _ -> do
-      cont <- gets stateHaltNextPc
-      modify $ \s -> s {stateHalt = Just (EBreak cont), stateHaltNextPc = 0}
+      modify $ \s -> s {stateHalt = Just (EBreak $ unpack res)}
     _ -> setLines $ \c -> c {ctrlWbRegFwd = Nothing}
   where
     writeRF :: RegIdx -> Word -> CPUM r ()

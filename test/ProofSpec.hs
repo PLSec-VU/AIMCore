@@ -642,8 +642,7 @@ wrapCESys =
           stateMeAddr = 0xFFFFFFFD, -- second byte of the decode-stage word
           stateRegFile = RegFn (const 0),
           stateCtrl = initCtrl,
-          stateHalt = Nothing,
-          stateHaltNextPc = 0
+          stateHalt = Nothing
         }
     )
     (Input wrapDeWord)
@@ -841,8 +840,7 @@ genArbSys = do
                stateMeAddr = ma,
                stateRegFile = RegFn rfF,
                stateCtrl = initCtrl,
-               stateHalt = Nothing,
-               stateHaltNextPc = 0
+               stateHalt = Nothing
              })
           (Input w1)
           (MemFn memf)
@@ -925,8 +923,7 @@ genRunning2 label genEx = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing,
-                stateHaltNextPc = 0
+                stateHalt = Nothing
               }
           )
           inp
@@ -986,8 +983,7 @@ genSteady2 = do
                 stateMeAddr = base + 64,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing,
-                stateHaltNextPc = 0
+                stateHalt = Nothing
               }
           )
           (Input loaded)
@@ -1031,8 +1027,7 @@ genSteady1 = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfF,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing,
-                stateHaltNextPc = 0
+                stateHalt = Nothing
               }
           )
           (Input loaded)
@@ -1251,8 +1246,7 @@ genTakenTransfer useJalr = do
                 stateMeAddr = ma,
                 stateRegFile = RegFn rfun,
                 stateCtrl = initCtrl,
-                stateHalt = Nothing,
-                stateHaltNextPc = 0
+                stateHalt = Nothing
               }
           )
           inp
@@ -1366,8 +1360,7 @@ mk3 base exI meI wbI nextI wbMem = do
               stateMeAddr = ma,
               stateRegFile = RegFn rfF,
               stateCtrl = initCtrl,
-              stateHalt = Nothing,
-              stateHaltNextPc = 0
+              stateHalt = Nothing
             }
         )
         (Input (if wbMem then loaded else w1))

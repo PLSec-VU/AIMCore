@@ -336,7 +336,6 @@ instance Arbitrary Core.State where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
-      <*> arbitrary
 
 -- | Half the time a valid instruction encoding, half the time an arbitrary data
 -- word. Whether the core treats it as an instruction is up to the state's
