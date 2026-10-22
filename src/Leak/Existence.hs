@@ -1,7 +1,7 @@
 module Leak.Existence (Fiber, simulatorFor) where
 
-import Pantomime
-import Pantomime.Clash.NonInterference (SimulatorExistNI (..))
+import SymFC
+import SymFC.Clash.NonInterference (SimulatorExistNI (..))
 
 -- | Fiber is a function such that:
 --

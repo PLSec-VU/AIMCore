@@ -45,6 +45,7 @@ import Memory.Types
 import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
+import Data.Functor.Classes (Eq1)
 
 topEntity ::
   forall f.
@@ -69,6 +70,8 @@ deriving instance (Show (f Word)) => Show (Input f)
 deriving instance Generic (Input f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
+
+deriving instance Eq1 f => Eq (Input f)
 
 -- | A memory access
 data MemAccess f = MemAccess

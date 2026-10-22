@@ -1,5 +1,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE GADTs #-}
 
 -- | A register file embedded as an SMT array.
 --
@@ -41,17 +42,15 @@ module Proof.SMT.Array
 where
 
 import Access
-import qualified Clash.Prelude
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Data.Coerce (Coercible, coerce)
-import Data.Kind (Type)
-import qualified Pantomime.BuiltIn as P
-import qualified Pantomime.Clash as Clash
+import Data.Coerce (coerce)
+import qualified SymFC.BuiltIn as P
+import qualified SymFC.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
 import RegFile (RegFileOps (..))
 import Types
-import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
+import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
 
 -- | The Haskell-side register file: 32 entries, so the index is exactly a
 -- 'RegIdx' with no offset arithmetic. Slot 0 is present but never used --
@@ -91,13 +90,16 @@ storeRA (RegArr v) i x = RegArr (replace i x v)
 -- at the boundary with 'Clash.BitVecP'.
 loadRAE ::
   forall arr (bvI :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible RegArrSMT arr) =>
-  (Coercible Clash.BitVec bvI) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr RegArrSMT =>
+  Embeddable bvI Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvI 5 ->
   bvV 32
-loadRAE = coerce go
+loadRAE
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvI
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: RegArrSMT -> Clash.BitVec 5 -> Clash.BitVec 32
     go (RegArrSMT arr) (Clash.BitVecP k) = Clash.BitVecP (P.aselect arr k)
@@ -105,14 +107,17 @@ loadRAE = coerce go
 -- | Embedding of 'storeRA' as an array store.
 storeRAE ::
   forall arr (bvI :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible RegArrSMT arr) =>
-  (Coercible Clash.BitVec bvI) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr RegArrSMT =>
+  Embeddable bvI Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvI 5 ->
   bvV 32 ->
   arr
-storeRAE = coerce go
+storeRAE
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvI
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: RegArrSMT -> Clash.BitVec 5 -> Clash.BitVec 32 -> RegArrSMT
     go (RegArrSMT arr) (Clash.BitVecP k) (Clash.BitVecP v) =
@@ -130,8 +135,8 @@ zeroRA :: RegArr
 zeroRA = RegArr (Clash.Prelude.repeat 0)
 
 -- | Embedding of 'zeroRA' as a constant array.
-zeroRAE :: forall arr. (Coercible RegArrSMT arr) => arr
-zeroRAE = coerce (RegArrSMT (P.aconst 0))
+zeroRAE :: forall arr. Embeddable arr RegArrSMT => arr
+zeroRAE | Embedding <- embedding @arr = coerce (RegArrSMT (P.aconst 0))
 
 -- | The array-backed register file, wrapped so it fits 'RegFileOps'.
 --
@@ -163,12 +168,14 @@ instance RegFileOps RegArrF where
 -- | @shiftL@ on a 'Word' as @bvshl@.
 sllWordE ::
   forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
-  (Coercible Clash.BitVec bvX) =>
-  (Coercible Clash.BitVec bvN) =>
+  Embeddable bvX Clash.BitVec =>
+  Embeddable bvN Clash.BitVec =>
   bvX 32 ->
   bvN 5 ->
   bvX 32
-sllWordE = coerce go
+sllWordE
+  | Embedding <- embedding @bvX
+  , Embedding <- embedding @bvN = coerce go
   where
     go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
     go (Clash.BitVecP x) (Clash.BitVecP n) =
@@ -177,12 +184,14 @@ sllWordE = coerce go
 -- | @shiftR@ on a 'Word' as @bvlshr@.
 srlWordE ::
   forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
-  (Coercible Clash.BitVec bvX) =>
-  (Coercible Clash.BitVec bvN) =>
+  Embeddable bvX Clash.BitVec =>
+  Embeddable bvN Clash.BitVec =>
   bvX 32 ->
   bvN 5 ->
   bvX 32
-srlWordE = coerce go
+srlWordE
+  | Embedding <- embedding @bvX
+  , Embedding <- embedding @bvN = coerce go
   where
     go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
     go (Clash.BitVecP x) (Clash.BitVecP n) =
@@ -191,12 +200,14 @@ srlWordE = coerce go
 -- | Arithmetic @shiftR@ on a 'Word' as @bvashr@.
 sraWordE ::
   forall (bvX :: Nat -> Type) (bvN :: Nat -> Type).
-  (Coercible Clash.BitVec bvX) =>
-  (Coercible Clash.BitVec bvN) =>
+  Embeddable bvX Clash.BitVec =>
+  Embeddable bvN Clash.BitVec =>
   bvX 32 ->
   bvN 5 ->
   bvX 32
-sraWordE = coerce go
+sraWordE
+  | Embedding <- embedding @bvX
+  , Embedding <- embedding @bvN = coerce go
   where
     go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
     go (Clash.BitVecP x) (Clash.BitVecP n) =
@@ -230,27 +241,33 @@ storeM (MemArr v) a b = MemArr (replace a b v)
 
 loadME ::
   forall arr (bvA :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible MemArrSMT arr) =>
-  (Coercible Clash.BitVec bvA) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr MemArrSMT =>
+  Embeddable bvA Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvA 32 ->
   bvV 8
-loadME = coerce go
+loadME
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvA
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: MemArrSMT -> Clash.BitVec 32 -> Clash.BitVec 8
     go (MemArrSMT arr) (Clash.BitVecP a) = Clash.BitVecP (P.aselect arr a)
 
 storeME ::
   forall arr (bvA :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible MemArrSMT arr) =>
-  (Coercible Clash.BitVec bvA) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr MemArrSMT =>
+  Embeddable bvA Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvA 32 ->
   bvV 8 ->
   arr
-storeME = coerce go
+storeME
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvA
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: MemArrSMT -> Clash.BitVec 32 -> Clash.BitVec 8 -> MemArrSMT
     go (MemArrSMT arr) (Clash.BitVecP a) (Clash.BitVecP v) =

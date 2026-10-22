@@ -48,6 +48,8 @@ import Memory.Types (MemBytes, MemOps (..))
 import RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified SymFC.BuiltIn as SymFC
+import SymFC.Clash () -- Import for orphan instances.
 
 type PC = Address
 
@@ -199,6 +201,9 @@ data IsaStateG r m = IsaState
     isaRegFile :: r Identity,
     isaMem :: m
   }
+  deriving Generic
+
+instance (SymFC.Symbolic m, SymFC.Symbolic (r Identity)) => SymFC.Symbolic (IsaStateG r m) where
 
 -- | The concrete architectural state the QuickCheck harness uses.
 type IsaState = IsaStateG RegFile MemBytes

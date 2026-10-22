@@ -82,10 +82,11 @@ dependencies:
 - exceptions
 - entropy
 - binary
-- pantomime
-- pantomime-clash
-- pantomime-base
+- sym-fc
+- sym-fc-clash
+- sym-fc-base
 - template-haskell
+- constraints
 
 ghc-options:
 - -Wall
@@ -99,7 +100,7 @@ ghc-options:
 - -Wredundant-constraints
 - -fexpose-all-unfoldings
 - -fplugin GHC.TypeLits.Normalise
-- -fplugin Pantomime
+- -fplugin SymFC
 
 library:
   source-dirs:

@@ -1,5 +1,3 @@
-{-# LANGUAGE StandaloneDeriving #-}
-
 module Leak.SecretPC.Leak
   ( circuit,
     init,
@@ -11,7 +9,6 @@ where
 
 import Access
 import Core (Input (..))
-import Data.Functor.Identity
 import Prelude hiding (Word, init)
 
 type In = Input PubSec
@@ -19,8 +16,6 @@ type In = Input PubSec
 type State = ()
 
 type Out = Input PubSec
-
-deriving instance Eq Out
 
 circuit :: State -> In -> (State, Out)
 circuit _ input =

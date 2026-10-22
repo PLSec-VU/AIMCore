@@ -27,7 +27,7 @@ import Data.Composition
 import Data.Monoid (First (..), getFirst)
 import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
-import qualified Pantomime.Clash.NonInterference as P
+import qualified SymFC.Clash.NonInterference as P
 import RegFile
 import qualified Simulate
 import Memory.Types
