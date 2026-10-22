@@ -1,3 +1,4 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 module Instruction
   ( Instruction (..),
     decode,
@@ -28,6 +29,8 @@ import Control.Monad
 import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined)
+import SymFC.BuiltIn qualified as SymFC
+import SymFC.Clash ()
 
 -- | All arithmetic and logic operations.
 data Arith
@@ -53,6 +56,8 @@ data Arith
     SLTU
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
+instance SymFC.Symbolic Arith
+
 -- | Comparison operations.
 data Comparison
   = -- | Equals
@@ -69,11 +74,15 @@ data Comparison
     GEU
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
+instance SymFC.Symbolic Comparison
+
 -- | Sign extension of a load operation.
 data Sign
   = Signed
   | Unsigned
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+
+instance SymFC.Symbolic Sign
 
 -- | The base for an upper type operation: lui or auipc.
 data UBase
@@ -81,11 +90,15 @@ data UBase
   | Zero
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
 
+instance SymFC.Symbolic UBase
+
 -- | Environment operation: ecall or ebreak.
 data Env
   = Call
   | Break
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+
+instance SymFC.Symbolic Env
 
 -- | Types of operations using the immediate encoding.
 data IOperation
@@ -94,6 +107,8 @@ data IOperation
   | Env Env
   | Jump
   deriving (Eq, Show, Generic, NFDataX)
+
+instance SymFC.Symbolic IOperation
 
 -- | Decoded instructions
 data Instruction
@@ -111,11 +126,11 @@ data Instruction
     JType RegIdx JImm
   deriving (Eq, Show, Generic, NFDataX)
 
+instance SymFC.Symbolic Instruction
+
 {-# INLINE decode' #-}
 decode' :: Word -> Instruction
-decode' word = case decode word of
-  Just instr -> instr
-  Nothing -> nop
+decode' = fromMaybe nop . decode
 
 -- | Decode a word to an instruction.
 --

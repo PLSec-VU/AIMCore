@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Leak.SecretPC.PC
   ( obs,
@@ -23,53 +24,52 @@ import Core (Control (..), Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
 import Data.Bifunctor (second)
 import Data.Composition
-import Data.Functor.Identity (Identity)
-import Data.Maybe (isJust)
 import Data.Monoid (First (..), getFirst)
-import Instruction (Instruction)
 import qualified Leak.Existence as Existence
 import qualified Leak.SecretPC.Leak as Leak
-import qualified Pantomime as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
 import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import SymFC.Clash.NonInterference qualified as Clash
+import SymFC.BuiltIn qualified as SymFC
 
 type SimState = Core.State PubSec
 
-{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State PubSec -> Input PubSec -> Bool
-theory =
-  P.pantomime
-    P.Pantomime
-      { observation = obs',
-        implementation = implementation,
-        leakage = leak,
-        simulator = sim,
-        projection = proj
-      }
+-- {-# ANN theory (Theory $ Base.embeddings <> Clash.embeddings) #-}
+theory :: SymFC.Sym SymFC.Bool
+theory = do
+  let s = undefined
+  let i = undefined
+  pure $ pantomime s i
+
+pantomime :: Core.State PubSec -> Input PubSec -> SymFC.Bool
+pantomime = Clash.simulationNI Clash.SimulationNI
+  { observation = obs'
+  , implementation = implementation
+  , leakage = leak
+  , simulator = sim
+  , projection = proj
+  }
 
 implementation :: Core.State PubSec -> Input PubSec -> (Core.State PubSec, Output PubSec)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State PubSec) () SimState (Input PubSec) Leak.Out (Maybe Address)
-circuits =
-  P.NonInterference
-    { P.implementation = second obs' .: implementation,
-      P.leakage = leak,
-      P.projection = proj
-    }
+circuits :: Clash.SimulatorExistNI (Core.State PubSec) () SimState (Input PubSec) Leak.Out (Maybe Address)
+circuits = Clash.SimulatorExistNI
+  { implementation = second obs' .: implementation
+  , leakage = leak
+  , projection = proj
+  }
 
-{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State PubSec -> Input PubSec -> Bool
-tickStateCorrespondence = P.tickStateCorrespondence circuits
+-- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+tickStateCorrespondence :: Core.State PubSec -> Input PubSec -> SymFC.Bool
+tickStateCorrespondence = Clash.tickStateCorrespondence circuits
 
-{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> Bool
-projectionCoherence = P.projectionCoherence circuits
+-- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+projectionCoherence :: Core.State PubSec -> Input PubSec -> Core.State PubSec -> Input PubSec -> SymFC.Bool
+projectionCoherence = Clash.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)

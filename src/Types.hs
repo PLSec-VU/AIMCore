@@ -15,6 +15,7 @@ where
 import Clash.Prelude hiding (Word)
 import GHC.TypeNats
 import Prelude hiding (Word, concatMap)
+import qualified SymFC.BuiltIn as SymFC
 
 -- | Index into register file.
 type RegIdx = Unsigned 5
@@ -46,6 +47,8 @@ data Size
   | Half
   | Word
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+
+instance SymFC.Symbolic Size
 
 vecWordToByte ::
   forall f n.

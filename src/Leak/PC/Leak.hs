@@ -28,6 +28,7 @@ import Interp
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified SymFC.BuiltIn as SymFC
 
 type LeakM = RWS (Input Identity) Out State
 
@@ -77,7 +78,9 @@ data State = State
     stateJumpAddr :: Maybe Address,
     stateFirstCycle :: Bool
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance SymFC.Symbolic State
 
 init :: State
 init =

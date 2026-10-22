@@ -1,6 +1,6 @@
 module Leak.Existence (Fiber, simulatorFor) where
 
-import Pantomime
+import SymFC.Clash.NonInterference
 
 -- | Fiber is a function such that:
 --
@@ -23,10 +23,10 @@ type Fiber si i ss l = (ss , l) -> (si , i)
 -- and a fiber function, we can construct a simulator
 -- as per lemma 3.18 in the paper.
 simulatorFor
-  :: NonInterference si sl ss i l o
+  :: SimulatorExistNI si sl ss i l o
   -> Fiber si i ss l
   -> (ss , l) -> (ss , o)
-simulatorFor NonInterference{..} fiber (ss , l) =
+simulatorFor SimulatorExistNI {..} fiber (ss , l) =
   let (si , i) = fiber (ss , l)
       (si', o) = implementation si i
       (_, ss') = projection si'

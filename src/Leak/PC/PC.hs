@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Leak.PC.PC
   ( obs,
@@ -24,53 +25,123 @@ import Control.Monad.RWS
 import Control.Monad.State
 import Core (Input (..), MemAccess (..), Output (..), initInput)
 import qualified Core
-import Data.Bifunctor (second)
+import Data.Bifunctor (second, Bifunctor (bimap))
 import Data.Composition
 import Data.Functor.Identity
 import Data.Maybe (isJust)
 import Data.Monoid
-import Instruction (Instruction)
+import Instruction (Instruction, decode, encode')
 import qualified Leak.PC.Leak as Leak
 import qualified Leak.PC.Sim as Sim
-import qualified Pantomime as P
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
+import qualified SymFC.Clash.NonInterference as Clash
 import RegFile
 import qualified Simulate
 import Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
+import qualified SymFC.BuiltIn as SymFC
+import SymFC (SymFC (..))
+import SymFC.Base qualified as Base
+import SymFC.Clash qualified as Clash
+import Data.Function (on)
 
-{-# ANN theory (P.Theory $ Base.axioms <> Clash.axioms) #-}
-theory :: Core.State Identity -> Input Identity -> Bool
-theory =
-  P.pantomime
-    P.Pantomime
-      { observation = obs',
-        implementation = implementation,
-        leakage = leak,
-        simulator = sim,
-        projection = proj
-      }
+{-# ANN theory (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+theory :: SymFC.Sym ()
+theory = do
+  s <- SymFC.fresh
+  i <- SymFC.fresh
+  let pantomime = Clash.simulationNIBy eqO eqSS eqSL
+  result <- SymFC.valid $ pantomime circuitsNI s i
+  case result of
+    SymFC.None -> pure ()
+    _ -> SymFC.halt
+
+-- TODO: These 'eqX' functions are here just because the unfolding for
+-- @Eq1 Maybe@ is not exposed in 'base'. We can remove them once we add in
+-- embeddings for typeclasses.
+eqO :: Maybe Address -> Maybe Address -> Bool
+eqO = eqM
+
+eqSS :: Sim.State -> Sim.State -> Bool
+eqSS lhs rhs =
+  on (==) Sim.stateFePc lhs rhs
+    && on (==) Sim.stateDePc lhs rhs
+    && on (==) Sim.stateExPc lhs rhs
+    && on eqLI Sim.stateExInstr lhs rhs
+    && on eqLI Sim.stateMemInstr lhs rhs
+    && on eqLI Sim.stateWbInstr lhs rhs
+    && on eqM Sim.stateJumpAddr lhs rhs
+    && on (==) Sim.stateStallFetch lhs rhs
+    && on (==) Sim.stateStallDecode lhs rhs
+    && on (==) Sim.stateHalt lhs rhs
+    && on (==) Sim.stateFirstCycle lhs rhs
+
+eqLI :: Leak.Instr -> Leak.Instr -> Bool
+eqLI lhs rhs =
+  on (==) Leak.instrBase lhs rhs
+    && on eqDeps Leak.instrDeps lhs rhs
+
+eqDeps :: (Maybe RegIdx, Maybe RegIdx) -> (Maybe RegIdx, Maybe RegIdx) -> Bool
+eqDeps lhs rhs = on eqM fst lhs rhs && on eqM snd lhs rhs
+
+eqSL :: Leak.State -> Leak.State -> Bool
+eqSL lhs rhs =
+  Leak.stateFePc lhs == Leak.stateFePc rhs
+    && on (==) Leak.stateDePc lhs rhs
+    && on (==) Leak.stateExPc lhs rhs
+    && on (==) Leak.stateExInstr lhs rhs
+    && on (==) Leak.stateMemInstr lhs rhs
+    && on (==) Leak.stateMemRes lhs rhs
+    && on (==) Leak.stateWbInstr lhs rhs
+    && on (==) Leak.stateWbRes lhs rhs
+    && on (==) Leak.stateStallFetch lhs rhs
+    && on (==) Leak.stateStallDecode lhs rhs
+    && on (==) Leak.stateHalt lhs rhs
+    && on eqM Leak.stateMeRegFwd lhs rhs
+    && on eqM Leak.stateWbRegFwd lhs rhs
+    && on eqM Leak.stateJumpAddr lhs rhs
+    && on (==) Leak.stateFirstCycle lhs rhs
+
+eqM :: Eq a => Maybe a -> Maybe a -> Bool
+eqM = \cases
+  (Just lhs) (Just rhs) -> lhs == rhs
+  Nothing Nothing -> True
+  _ _ -> False
+
+circuitsNI
+  :: Clash.SimulationNI
+      (Core.State Identity)
+      Leak.State
+      Sim.State
+      (Input Identity)
+      Leak.Out
+      (Output Identity)
+      (Maybe Address)
+circuitsNI = Clash.SimulationNI
+  { observation = obs'
+  , implementation = implementation
+  , leakage = leak
+  , simulator = sim
+  , projection = proj
+  }
 
 implementation :: Core.State Identity -> Input Identity -> (Core.State Identity, Output Identity)
 implementation = Core.circuit
 
-circuits :: P.NonInterference (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
-circuits =
-  P.NonInterference
-    { P.implementation = second obs' .: implementation,
-      P.leakage = leak,
-      P.projection = proj
-    }
+circuits :: Clash.SimulatorExistNI (Core.State Identity) Leak.State Sim.State (Input Identity) Leak.Out (Maybe Address)
+circuits = Clash.SimulatorExistNI
+  { implementation = second obs' .: implementation
+  , leakage = leak
+  , projection = proj
+  }
 
-{-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-tickStateCorrespondence :: Core.State Identity -> Input Identity -> Bool
-tickStateCorrespondence = P.tickStateCorrespondence circuits
+-- {-# ANN tickStateCorrespondence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+tickStateCorrespondence :: Core.State Identity -> Input Identity -> SymFC.Bool
+tickStateCorrespondence = Clash.tickStateCorrespondence circuits
 
-{-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
-projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> Bool
-projectionCoherence = P.projectionCoherence circuits
+-- {-# ANN projectionCoherence (P.Theory $ Base.axioms <> Clash.axioms) #-}
+projectionCoherence :: Core.State Identity -> Input Identity -> Core.State Identity -> Input Identity -> SymFC.Bool
+projectionCoherence = Clash.projectionCoherence circuits
 
 stateless :: (a -> b) -> () -> a -> ((), b)
 stateless f _ x = ((), f x)

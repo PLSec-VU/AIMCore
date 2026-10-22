@@ -58,7 +58,9 @@ dependencies:
 - bytestring
 - exceptions
 - entropy
-- pantomime
+- sym-fc
+- sym-fc-base
+- sym-fc-clash
 
 ghc-options:
 - -Wall
@@ -72,7 +74,7 @@ ghc-options:
 - -Wredundant-constraints
 - -fexpose-all-unfoldings
 - -fplugin GHC.TypeLits.Normalise
-- -fplugin Pantomime
+- -fplugin SymFC
 
 library:
   source-dirs: src

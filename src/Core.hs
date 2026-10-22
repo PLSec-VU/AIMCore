@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Core (
   initInput,
@@ -16,7 +17,7 @@ module Core (
   execute,
   memory,
   writeback,
-  CPUM (..),
+  CPUM,
   MemAccess (..),
   Control (..),
   alu,
@@ -34,9 +35,12 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Monoid
 import Instruction hiding (decode)
 import Types
-import qualified Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
+import SymFC.BuiltIn qualified as SymFC
+import SymFC.Base () -- import 'Symbolic' instances
+import SymFC.Clash () -- import 'Symbolic' instances
+import Data.Functor.Classes (Eq1)
 
 topEntity ::
   (Access f, Generic (f Word), NFDataX (f Word)) =>
@@ -63,9 +67,11 @@ data Input f = Input
 
 deriving instance (Show (f Word)) => Show (Input f)
 
-deriving instance (Generic (f Word)) => Generic (Input f)
+deriving instance Generic (Input f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Input f)
+
+instance SymFC.Symbolic (f Word) => SymFC.Symbolic (Input f)
 
 -- | A memory access
 data MemAccess f = MemAccess
@@ -80,9 +86,11 @@ data MemAccess f = MemAccess
 
 deriving instance (Show (f Word)) => Show (MemAccess f)
 
-deriving instance (Generic (f Word)) => Generic (MemAccess f)
+deriving instance Generic (MemAccess f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (MemAccess f)
+
+deriving instance Eq1 f => Eq (MemAccess f)
 
 -- | The output of the CPU.
 data Output f = Output
@@ -104,9 +112,11 @@ data Output f = Output
 
 deriving instance (Show (f Word)) => Show (Output f)
 
-deriving instance (Generic (f Word)) => Generic (Output f)
+deriving instance Generic (Output f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Output f)
+
+deriving instance Eq1 f => Eq (Output f)
 
 instance Semigroup (Output f) where
   Output mem rs1 rs2 rd syscall hlt <> Output mem' rs1' rs2' rd' syscall' hlt' =
@@ -118,6 +128,8 @@ instance Monoid (Output f) where
 -- | CPU halt state
 data HaltState = Running | EBreak | SecurityViolation
   deriving (Show, Eq, Generic)
+
+instance SymFC.Symbolic HaltState
 
 instance NFDataX HaltState
 
@@ -151,9 +163,11 @@ deriving instance (Show (f Word)) => Show (State f)
 
 deriving instance (Eq (f Word)) => Eq (State f)
 
-deriving instance (Generic (f Word)) => Generic (State f)
+deriving instance Generic (State f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (State f)
+
+instance SymFC.Symbolic (f Word) => SymFC.Symbolic (State f)
 
 -- | Control lines.
 data Control f = Control
@@ -184,9 +198,11 @@ deriving instance (Show (f Word)) => Show (Control f)
 
 deriving instance (Eq (f Word)) => Eq (Control f)
 
-deriving instance (Generic (f Word)) => Generic (Control f)
+deriving instance Generic (Control f)
 
 deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (Control f)
+
+instance SymFC.Symbolic (f Word) => SymFC.Symbolic (Control f)
 
 type CPUM f = RWS (Input f) (Output f) (State f)
 
@@ -286,7 +302,7 @@ init =
     }
 
 -- | Initial control lines.
-initCtrl :: (Access f) => Control f
+initCtrl :: Control f
 initCtrl =
   Control
     { ctrlFirstCycle = True
@@ -298,7 +314,7 @@ initCtrl =
     }
 
 -- | The control lines need to be reset every tick.
-withCtrlReset :: (Access f) => CPUM f () -> CPUM f (Control f)
+withCtrlReset :: CPUM f () -> CPUM f (Control f)
 withCtrlReset m = do
   firstCycle <- gets $ ctrlFirstCycle . stateCtrl
   modify $ \s -> s{stateCtrl = initCtrl{ctrlFirstCycle = firstCycle}}
@@ -308,17 +324,17 @@ withCtrlReset m = do
   pure ctrl
 
 -- | Stop the CPU.
-halt :: (Access f) => CPUM f ()
+halt :: CPUM f ()
 halt =
   modify $ \s -> s{stateHalt = EBreak}
 
 -- | Set security violation flag.
-setSecurityViolation :: (Access f) => CPUM f ()
+setSecurityViolation :: CPUM f ()
 setSecurityViolation =
   modify $ \s -> s{stateHalt = SecurityViolation}
 
 -- | The fetch stage.
-fetch :: (Access f) => CPUM f ()
+fetch :: CPUM f ()
 fetch = do
   ctrl <- gets stateCtrl
   pc <- gets stateFePc
@@ -508,7 +524,8 @@ alu _ op lhs rhs = case op of
   SLT -> set <$> ((<) <$> (sign <$> lhs) <*> (sign <$> rhs))
   SLTU -> set <$> ((<) <$> lhs <*> rhs)
  where
-  shiftBits s = fromIntegral $ slice d4 d0 s
+  -- shiftBits s = fromIntegral $ slice d4 d0 s
+  shiftBits _s = 0
   sign = unpack @(Signed 32)
   set b = if b then 1 else 0
 
@@ -622,7 +639,7 @@ writeback = do
   writeRF idx val =
     tell $ mempty{outRd = pure (idx, val)}
 
-readPC :: (Access f, MonadWriter (Output f) m) => Address -> m ()
+readPC :: MonadWriter (Output f) m => Address -> m ()
 readPC addr =
   tell $
     mempty
@@ -636,7 +653,7 @@ readPC addr =
               }
       }
 
-readRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> m ()
+readRAM :: MonadWriter (Output f) m => Address -> Size -> m ()
 readRAM addr size =
   tell $
     mempty
@@ -650,7 +667,7 @@ readRAM addr size =
               }
       }
 
-writeRAM :: (Access f, MonadWriter (Output f) m) => Address -> Size -> f Word -> m ()
+writeRAM :: MonadWriter (Output f) m => Address -> Size -> f Word -> m ()
 writeRAM addr size val =
   tell $
     mempty
@@ -664,12 +681,12 @@ writeRAM addr size val =
               }
       }
 
-readSyscall :: (Access f, MonadWriter (Output f) m) => m ()
+readSyscall :: MonadWriter (Output f) m => m ()
 readSyscall =
   tell $
     mempty{outSyscall = pure True}
 
-setLines :: (Access f, MonadState (State f) m) => (Control f -> Control f) -> m ()
+setLines :: MonadState (State f) m => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s{stateCtrl = f $ stateCtrl s}
 
 {- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
