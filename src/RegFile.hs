@@ -1,9 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeAbstractions #-}
 
 module RegFile
   ( RegFile (..),
+    eqRF,
     initRF,
     lookupRF,
     modifyRF,
@@ -19,22 +21,28 @@ import Pretty
 import Types
 import Prelude hiding (Ordering (..), Word, repeat, undefined, (!!), (++))
 import qualified Prelude as P
-import Numeric (showHex)
 import Data.List (intercalate)
+import Data.Functor.Classes (Eq1, Show1)
+import Data.Coerce (coerce)
 
 -- | Register file used in this core.
 newtype RegFile f = RegFile (Vec ((2 ^ 5) - 1) (f Word))
 
-deriving instance (Generic (f Word), NFDataX (f Word)) => Generic (RegFile f)
-deriving instance (Generic (f Word), NFDataX (f Word)) => NFDataX (RegFile f)
-deriving instance (Eq (f Word)) => Eq (RegFile f)
+deriving instance Generic (RegFile f)
+deriving newtype instance NFDataX (f Word) => NFDataX (RegFile f)
+
+instance Eq1 f => Eq (RegFile f) where
+  (==) = eqRF
+
+eqRF :: Eq1 f => RegFile f -> RegFile f -> Bool
+eqRF @f = coerce $ (==) @(Vec ((2 ^ 5) - 1) (f Word))
 
 regIdxName :: RegIdx -> String
 regIdxName idx =
   ["zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"]
-    P.!! (fromIntegral idx)
+    P.!! fromIntegral idx
 
-instance (Show (f Word)) => Show (RegFile f) where
+instance (Show1 f) => Show (RegFile f) where
   show (RegFile rf) = intercalate ", " $
     Prelude.zipWith (\i x -> "%" <> regIdxName i <> "=" <> show x)
       [1..] (toList rf)
@@ -54,7 +62,7 @@ lookupRF 0 _ = pure 0
 lookupRF idx (RegFile rf) = rf !! (idx - 1)
 
 -- | Modify a register in the register file.
-modifyRF :: (Access f) => RegIdx -> f Word -> RegFile f -> RegFile f
+modifyRF :: RegIdx -> f Word -> RegFile f -> RegFile f
 modifyRF idx val (RegFile rf) = case idx of
   0 -> RegFile rf
   _ -> RegFile $ replace (idx - 1) val rf

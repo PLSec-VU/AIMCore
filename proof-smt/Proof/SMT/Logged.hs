@@ -9,13 +9,14 @@ module Proof.SMT.Logged
 where
 
 import Language.Haskell.TH.Syntax (Exp, Name, Q, nameBase, runIO)
-import qualified Pantomime
-import Prelude (String, pure, putStrLn, ($), (++))
+-- import qualified SymFC
+import Prelude (String, pure, putStrLn, ($), (++), undefined)
 
 pantomime :: Name -> Q Exp
 pantomime property = do
   marker "BEGIN"
-  result <- Pantomime.pantomime property
+  -- TODO: This should be changed!!!
+  result <- pure undefined
   marker "END"
   pure result
   where
