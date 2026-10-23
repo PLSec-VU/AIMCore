@@ -136,6 +136,7 @@ library:
     - Instruction
     - ISA
     - Memory.Types
+    - Memory.Ideal
     - Memory.Vec
     - Memory.ST
     - Memory.IO

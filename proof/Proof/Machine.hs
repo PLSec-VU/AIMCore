@@ -25,6 +25,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
+import Memory.Ideal (idealServe)
 import Memory.Types
 import RegFile
 import Types
@@ -65,17 +66,8 @@ stepSys = fst . stepSysOut
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output)
 stepSysOut (Sys s i m) =
   let (s', o) = Core.circuit s i
-      (i', m') = service (outMem o) m
+      (m', i') = idealServe m (outMem o)
    in (Sys s' i' m', o)
-  where
-    service (Just (MemFetch addr)) mem = (Input (memReadWord addr mem), mem)
-    -- A read. Note 'Memory.Vec.ramRead' ignores the size and always reads a
-    -- word; the size-dependent narrowing happens in 'Core.writeback' via
-    -- 'loadExtend'. We reproduce that here.
-    service (Just (MemRead addr _)) mem = (Input (memReadWord addr mem), mem)
-    -- A write.
-    service (Just (MemWrite addr size val)) mem = (Input 0, memWrite addr size val mem)
-    service Nothing mem = (Input 0, mem)
 
 stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
 stepSysN n s
