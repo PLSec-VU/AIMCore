@@ -1,6 +1,6 @@
 -- | What an attacker sees, and what one architectural instruction leaks.
 --
--- The leakage proof ("Proof.Leakage.Obligation") establishes that an attacker
+-- The leakage proof ("Proof.Core.Leakage.Obligation") establishes that an attacker
 -- watching the memory bus learns nothing beyond 'Leak'. Two definitions carry
 -- that statement:
 --
@@ -27,7 +27,7 @@
 -- Whether a program is constant-time is a property of its leakage trace,
 -- checked at the ISA level. The hazard bit is not data dependent:
 -- 'Core.Instruction.loadHazard' compares register /fields/, not their contents.
-module Proof.Leakage.Model
+module Proof.Core.Leakage.Model
   ( -- * Observation
     Obs (..),
     obsOf,

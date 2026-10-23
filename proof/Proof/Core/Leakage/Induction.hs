@@ -1,23 +1,23 @@
 -- | The leakage proof, checked symbolically.
 --
 -- 'baseCaseLeak' plus one property per driver delay: on a hop of that length,
--- the corresponding obligation in "Proof.Leakage.Obligation" holds. Split by
+-- the corresponding obligation in "Proof.Core.Leakage.Obligation" holds. Split by
 -- @k@ because the number of unrolled cycles has to be concrete -- Pantomime
 -- cannot recurse on a symbolic count -- and each property pins @driver == k@ so
 -- it carries one unrolling rather than four.
 --
--- Together with "Proof.Functional.Induction" these are the leakage theorem: the
+-- Together with "Proof.Core.Functional.Induction" these are the leakage theorem: the
 -- functional proof establishes that the invariant holds wherever the driver
 -- lands, which each step here assumes as a premise.
 --
 -- Each query runs both the core and the simulator over the hop and compares
 -- their per-cycle bus observations, the two drivers' hop lengths and the
 -- simulator invariant, so they are larger than the corresponding functional
--- ones. The statements live in "Proof.Leakage.Obligation"; this module only
+-- ones. The statements live in "Proof.Core.Leakage.Obligation"; this module only
 -- instantiates them.
 --
 -- The system state is passed as a 'KState' plus SMT-array register file and
--- memory (see "Proof.SMT.System"); the simulator state is passed directly,
+-- memory (see "Proof.Core.Functional.System"); the simulator state is passed directly,
 -- since it holds no register file or memory.
 --
 -- == Running them
@@ -25,7 +25,7 @@
 -- Under Bitwuzla, not Z3:
 --
 -- > SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack build
-module Proof.Leakage.Induction
+module Proof.Core.Leakage.Induction
   ( baseCaseLeak,
     indStepLeak,
     indStepLeak1,
@@ -39,12 +39,12 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
-import Proof.Leakage.Obligation
-import Proof.Leakage.Simulator
+import Proof.Core.Leakage.Obligation
+import Proof.Core.Leakage.Simulator
 import Proof.SMT.Array
 import Proof.SMT.Axioms (arrayAxioms)
 import Proof.SMT.Logged (pantomime)
-import Proof.SMT.System
+import Proof.Core.Functional.System
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

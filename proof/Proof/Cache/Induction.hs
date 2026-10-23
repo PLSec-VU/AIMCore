@@ -18,11 +18,11 @@ import Data.Functor.Identity
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Cache.Obligation (stallObligation, waitObligation)
-import Proof.Machine (SysG (..))
+import Proof.Core.Functional.Machine (SysG (..))
 import Proof.SMT.Array
 import Proof.SMT.Axioms (arrayAxioms)
 import Proof.SMT.Logged (pantomime)
-import Proof.SMT.System (KState, sysOf)
+import Proof.Core.Functional.System (KState, sysOf)
 import Types
 import Prelude hiding (Word)
 

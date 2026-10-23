@@ -27,8 +27,8 @@ import qualified Prelude
 #ifdef SMT_PROOF
 import qualified Proof.Cache.Induction
 import qualified Proof.Cache.Induction4K
-import qualified Proof.Functional.Induction
-import qualified Proof.Leakage.Induction
+import qualified Proof.Core.Functional.Induction
+import qualified Proof.Core.Leakage.Induction
 #endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
@@ -62,8 +62,8 @@ mkPureTest s (CPUTest prog expected) =
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the proofs themselves; see "Proof.Functional.Induction" and
--- "Proof.Leakage.Induction".
+-- The rest are the proofs themselves; see "Proof.Core.Functional.Induction" and
+-- "Proof.Core.Leakage.Induction".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -74,29 +74,29 @@ sanityTests =
         assertBool "expected a counterexample for 'bogus'" $
           isJust (verdict "bogus"),
       testCase "array embedding round-trips" $
-        lookup "arrRoundTrip" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "arrRoundTrip" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
-        lookup "shiftsSane" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "shiftsSane" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "base case: invariant holds after the reset hop" $
-        lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "baseCase" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
-        lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep1" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
-        lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep2" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep3" Proof.Core.Functional.Induction.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
-        lookup "baseCaseLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "baseCaseLeak" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $
-        lookup "indStepLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 1 leakage step is valid" $
-        lookup "indStepLeak1" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak1" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 2 leakage step is valid" $
-        lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak2" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testGroup
         "the core is patient"
         [ testCase name $ lookup name Proof.Cache.Induction.results @?= Just Nothing

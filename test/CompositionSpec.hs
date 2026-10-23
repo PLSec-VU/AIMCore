@@ -3,7 +3,7 @@
 -- | The core behind a cache: what holds for any cache, and the programs and
 -- traces the cache tests ("Cache4KSpec") are built from.
 --
--- The constant-time leakage proof ("Proof.Leakage.Induction") is about the core
+-- The constant-time leakage proof ("Proof.Core.Leakage.Induction") is about the core
 -- attached to memory that answers every request in the next cycle. Behind a
 -- cache a load that misses is answered only after the miss penalty, and in the
 -- meantime the core stalls. The core's side of what lets the ideal-memory result
@@ -33,11 +33,11 @@ import Core.ISA (IsaState, StepG (..), isaStep)
 import Core.Instruction
 import Memory.Types
 import Proof.Cache.Obligation (stallObligation, waitObligation)
-import Proof.Leakage.Model
-import Proof.Functional.Obligation (isaAt)
-import Proof.Leakage.Driver (simDriver)
-import Proof.Leakage.Simulator (SimInput, SimState, simCircuit, simInit)
-import Proof.Machine
+import Proof.Core.Leakage.Model
+import Proof.Core.Functional.Obligation (isaAt)
+import Proof.Core.Leakage.Driver (simDriver)
+import Proof.Core.Leakage.Simulator (SimInput, SimState, simCircuit, simInit)
+import Proof.Core.Functional.Machine
 import ProofSpec (genArbSys1)
 import Core.RegFile (RegFileOps)
 import Test.Tasty (TestTree, testGroup)
@@ -264,7 +264,7 @@ genWord :: Gen Word
 genWord = oneof [elements [0, 1, 0xFF, 0x1234, 0x80000000, 0xDEADBEEF], fromIntegral <$> (arbitrary :: Gen Int)]
 
 -- | The core's bus observations computed from the leakage alone, hop by hop, as
--- behind ideal memory: the leakage simulator ('Proof.Leakage.Simulator.simCircuit')
+-- behind ideal memory: the leakage simulator ('Proof.Core.Leakage.Simulator.simCircuit')
 -- run on the ISA's leakage trace.
 --
 -- The hops are those of 'ProofSpec.leakReport': the first gets no leakage, and

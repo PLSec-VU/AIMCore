@@ -13,12 +13,12 @@
 --
 -- Each property is checked by the plugin at compile time and spliced into
 -- 'results': 'Nothing' when valid, @'Just' counterexample@ when not. The
--- statements themselves live in "Proof.Functional.Obligation", shared with the QuickCheck
+-- statements themselves live in "Proof.Core.Functional.Obligation", shared with the QuickCheck
 -- harness so the two cannot drift.
 --
 -- The pipeline state is passed as a 'KState' plus SMT-array register file and
--- memory; see "Proof.SMT.System".
-module Proof.Functional.Induction
+-- memory; see "Proof.Core.Functional.System".
+module Proof.Core.Functional.Induction
   ( arrRoundTrip,
     shiftsSane,
     baseCase,
@@ -34,11 +34,11 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
-import Proof.Functional.Obligation
+import Proof.Core.Functional.Obligation
 import Proof.SMT.Array
 import Proof.SMT.Axioms (arrayAxioms)
 import Proof.SMT.Logged (pantomime)
-import Proof.SMT.System
+import Proof.Core.Functional.System
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

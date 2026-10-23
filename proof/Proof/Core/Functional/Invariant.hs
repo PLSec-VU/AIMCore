@@ -4,7 +4,7 @@
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
 -- one for the running core, and two for the halted core. The reset state is
--- not among them: 'Proof.Functional.Induction.baseCase' steps it two cycles,
+-- not among them: 'Proof.Core.Functional.Induction.baseCase' steps it two cycles,
 -- into the running case, instead.
 --
 -- Two forms of the same predicate live here:
@@ -20,9 +20,9 @@
 -- from drifting.
 --
 -- The invariant describes the core attached to memory that answers every
--- request in the next cycle ('Proof.Machine.stepSys'), so the bus always holds
+-- request in the next cycle ('Proof.Core.Functional.Machine.stepSys'), so the bus always holds
 -- an answer ('Core.inputMem' is 'Just').
-module Proof.Functional.Invariant
+module Proof.Core.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
     Case (..),
@@ -41,7 +41,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Core.Instruction
 import Memory.Types
 import Core.ISA (IsaStateG (..), IsaState)
-import Proof.Machine
+import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -273,7 +273,7 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
   where
     -- The same flush the container form applies, read at the witness. Writing
     -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWrite'
-    -- for no gain: 'Proof.Functional.Obligation.isaAt' already puts this flush
+    -- for no gain: 'Proof.Core.Functional.Obligation.isaAt' already puts this flush
     -- into every query, and the solver rewrites @select@ over a @store@ chain
     -- natively.
     (fm, frf) =

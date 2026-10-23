@@ -5,16 +5,16 @@ module ProofSpec (proofTests, progs, alignedWalk, invTrace, invReport, genProg, 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Core
-import Proof.Functional.Driver hiding (loadHazard, storeHazard)
+import Proof.Core.Functional.Driver hiding (loadHazard, storeHazard)
 import Core.ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Core.Instruction
-import Proof.Functional.Invariant
-import Proof.Machine
-import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isaAt)
-import Proof.Leakage.Driver (simDriver)
-import Proof.Leakage.Invariant (simInv)
-import Proof.Leakage.Model (Obs, leakOf, obsOf)
-import Proof.Leakage.Simulator (SimInput, SimState, simCircuit, simInit)
+import Proof.Core.Functional.Invariant
+import Proof.Core.Functional.Machine
+import Proof.Core.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isaAt)
+import Proof.Core.Leakage.Driver (simDriver)
+import Proof.Core.Leakage.Invariant (simInv)
+import Proof.Core.Leakage.Model (Obs, leakOf, obsOf)
+import Proof.Core.Leakage.Simulator (SimInput, SimState, simCircuit, simInit)
 import Memory.Types
 import Core.RegFile
 import Test.Tasty (TestTree, testGroup)
@@ -65,7 +65,7 @@ walkReport k prog =
 
 -- | The architectural state @prog@ starts in: execution begins at 'initPc', the
 -- register file is zeroed, and memory holds the program. The counterpart of
--- 'Proof.Machine.initSys' on the ISA side.
+-- 'Proof.Core.Functional.Machine.initSys' on the ISA side.
 initIsa :: Vec PROG_SIZE Word -> IsaState
 initIsa prog = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
 
@@ -94,7 +94,7 @@ baseReport prog =
 -- The reset state is not one of them. Its hop brings the first instruction into
 -- the execute stage without the ISA having executed anything, so the ISA state
 -- is unchanged across it and the trace starts after it, at the state
--- 'Proof.Functional.Induction.baseCase' is about. Every later hop advances the
+-- 'Proof.Core.Functional.Induction.baseCase' is about. Every later hop advances the
 -- ISA by one step.
 invTrace :: Int -> Vec PROG_SIZE Word -> [(Int, IsaState, Sys)]
 invTrace k prog = go k 0 isa0 sys0 True
@@ -145,7 +145,7 @@ invReport k prog =
 -- | The leakage simulator run alongside the core, hop by hop, on a concrete
 -- program. Returns the first discrepancy, or @""@ if there is none.
 --
--- The concrete counterpart of "Proof.Leakage.Induction", in the way 'invTrace'
+-- The concrete counterpart of "Proof.Core.Leakage.Induction", in the way 'invTrace'
 -- is of the functional one. Both machines start from their initial states and
 -- take the first hop with no leakage, as in the leakage base case. After that,
 -- each hop feeds the simulator @'leakOf' isa@ on its first cycle and nothing
@@ -298,11 +298,11 @@ proofTests :: TestTree
 proofTests =
   testGroup
     "Driver and invariant"
-    [ -- The base case, on the real 'Vec'-backed reset state. 'Proof.Functional.Induction.baseCase'
+    [ -- The base case, on the real 'Vec'-backed reset state. 'Proof.Core.Functional.Induction.baseCase'
       -- proves this for an arbitrary memory, but has to substitute the register
       -- file (Clash's 'repeat' is opaque to the symbolic executor), so the
       -- concrete check is what pins that the state it describes is the one
-      -- 'Proof.Machine.initSys' actually produces -- including 'Core.init''s reset
+      -- 'Proof.Core.Functional.Machine.initSys' actually produces -- including 'Core.init''s reset
       -- register file and the loaded program. It also checks the reset hop's
       -- length against the operational reading, since 'invTrace' does not
       -- sample the reset state.
@@ -390,7 +390,7 @@ proofTests =
       -- jump costs three cycles, so it has retired past writeback by the next
       -- aligned state -- and nothing else in the invariant rules it out, so this
       -- is the only thing constraining the @JType@ / @IType Jump@ clauses of
-      -- 'Proof.Functional.Invariant.flushMeStage'. It fails if those clauses
+      -- 'Proof.Core.Functional.Invariant.flushMeStage'. It fails if those clauses
       -- stop writing @rd@.
       testCase "inductive with a jump in the memory stage" $
         let bad = [e | sys <- sampleStates 200, Just e <- [inductiveStep (withJumpInMe sys)]]
@@ -543,7 +543,7 @@ proofTests =
 -- | The architectural state that makes the flush conjunct hold at @sys@ by
 -- construction. If @sys@ is an aligned running state, this is the ISA state the
 -- invariant claims it corresponds to.
--- Shared with 'Proof.Functional.Induction.indStep0' via "Proof.Functional.Obligation", so the two cannot drift.
+-- Shared with 'Proof.Core.Functional.Induction.indStep0' via "Proof.Core.Functional.Obligation", so the two cannot drift.
 isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
 isaFromSys sys = isaAt (stateExPc (sysState sys)) sys
 
@@ -661,7 +661,7 @@ wrapCESys =
 --
 -- 'stateCtrl' is left at 'initCtrl' soundly: 'Core.pipe' overwrites it at the
 -- start of the cycle, before any stage reads it, so the incoming value cannot
--- affect 'Proof.Machine.stepSys'.
+-- affect 'Proof.Core.Functional.Machine.stepSys'.
 
 -- | Instruction generators that build in the premise's constraints, rather than
 -- generating freely and filtering. Filtering discarded ~6 examples per hit,
@@ -850,7 +850,7 @@ genArbSys = do
 -- invariant admits: a memory instruction in writeback, which occupied the bus
 -- last cycle, so no instruction was fetched and @fePc == exPc + 4@. The reset
 -- state also gets a two-cycle hop, but it is not in the invariant; see
--- 'Proof.Functional.Induction.baseCase'.
+-- 'Proof.Core.Functional.Induction.baseCase'.
 genArbSys1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
 genArbSys1 = genSteady1
 
@@ -1258,7 +1258,7 @@ genTakenTransfer useJalr = do
             | a - target P.< 4 = byteAt wT (a - target)
             | P.otherwise = 0
 
-  -- Probe the forwarded operands; 'Proof.Functional.Driver.exArg' never reads the execute
+  -- Probe the forwarded operands; 'Proof.Core.Functional.Driver.exArg' never reads the execute
   -- stage, so a provisional instruction there makes the probe exact.
   let probe = mkSys 0 rfF
       v1 = exArg probe rs1

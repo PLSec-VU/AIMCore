@@ -1,7 +1,7 @@
 -- | What lets results about the core behind ideal memory carry over to the core
 -- behind a cache.
 --
--- Behind ideal memory ('Proof.Machine.stepSys') every request is answered in the
+-- Behind ideal memory ('Proof.Core.Functional.Machine.stepSys') every request is answered in the
 -- next cycle. Behind a cache ('Proof.Cache.Server4K.stepCachedOut') a read
 -- that misses is answered only after the miss penalty, and in the meantime the
 -- bus is not ready and the core stalls. 'stallObligation' says such a stall is a stutter
@@ -28,7 +28,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- request and changes nothing in the core but its control lines, which
 -- 'Core.withCtrlReset' overwrites before any stage reads them. The register file
 -- is compared at one witness register, as in
--- 'Proof.Functional.Invariant.invAtFree'.
+-- 'Proof.Core.Functional.Invariant.invAtFree'.
 stallObligation :: (RegFileOps r) => RegIdx -> StateG r Identity -> Input Identity -> Bool
 stallObligation wr st inp = not stalled || (noRequest && unchanged)
   where

@@ -119,7 +119,7 @@ storeRAE = coerce go
 
 -- | The all-zero register file.
 --
--- 'Proof.Leakage.Simulator.censor' installs this on every state it builds, so
+-- 'Proof.Core.Leakage.Simulator.censor' installs this on every state it builds, so
 -- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
 -- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
 -- under the term axiom, which is keyed on this name -- hence OPAQUE, for the

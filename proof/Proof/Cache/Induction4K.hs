@@ -20,7 +20,7 @@ import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Cache.Server4K (srvInit, srvLeak, srvRefine, stallsOnReads)
 import Memory.Cache4KServer (CacheSrv (..))
 import Proof.SMT.Array (MemArr)
-import Proof.SMT.CacheAxioms (cacheAxioms)
+import Proof.Cache.Axioms (cacheAxioms)
 import Proof.SMT.Logged (pantomime)
 import Clash.Prelude (BitVector)
 import Types

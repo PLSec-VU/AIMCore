@@ -10,7 +10,7 @@
 -- feeding the simulator that instruction's leakage keeps the two machines in
 -- step. The functional proof supplies the invariant for the next hop, so it is
 -- not re-proved here. 'simInv' carries the rest from hop to hop.
-module Proof.Leakage.Obligation
+module Proof.Core.Leakage.Obligation
   ( baseCaseLeakObligation,
     indStepLeakObligation,
     indStepLeakObligation1,
@@ -22,14 +22,14 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Memory.Types (MemOps (..))
-import Proof.Functional.Driver
-import Proof.Functional.Invariant (invAtFree)
-import Proof.Functional.Obligation
-import Proof.Leakage.Driver
-import Proof.Leakage.Invariant
-import Proof.Leakage.Model
-import Proof.Leakage.Simulator
-import Proof.Machine
+import Proof.Core.Functional.Driver
+import Proof.Core.Functional.Invariant (invAtFree)
+import Proof.Core.Functional.Obligation
+import Proof.Core.Leakage.Driver
+import Proof.Core.Leakage.Invariant
+import Proof.Core.Leakage.Model
+import Proof.Core.Leakage.Simulator
+import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -42,7 +42,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- gets no leakage, the simulator's driver gives the same hop length as the
 -- core's, the two make the same bus observations, and 'simInv' holds
 -- afterwards. The register file and memory are arbitrary, as in
--- 'Proof.Functional.Obligation.baseCaseObligation'.
+-- 'Proof.Core.Functional.Obligation.baseCaseObligation'.
 baseCaseLeakObligation ::
   (RegFileOps r, MemOps m) => r -> m -> Address -> Bool
 baseCaseLeakObligation rf mem pc =

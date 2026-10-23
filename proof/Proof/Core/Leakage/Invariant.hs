@@ -1,6 +1,6 @@
 -- | The invariant relating the leakage simulator to the core: the leakage
--- counterpart of "Proof.Functional.Invariant".
-module Proof.Leakage.Invariant
+-- counterpart of "Proof.Core.Functional.Invariant".
+module Proof.Core.Leakage.Invariant
   ( simInv
   )
 where
@@ -9,9 +9,9 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Maybe (isJust, isNothing)
 import Core.Instruction hiding (Halted)
-import Proof.Leakage.Model
-import Proof.Leakage.Simulator
-import Proof.Machine
+import Proof.Core.Leakage.Model
+import Proof.Core.Leakage.Simulator
+import Proof.Core.Functional.Machine
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | The relation between the simulator and the core that the leakage proof

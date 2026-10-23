@@ -1,35 +1,29 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- | The \"system\" that the driver and the invariant talk about.
+-- | The system the core's proofs reason about: the core together with ideal
+-- memory.
 --
 -- 'Core.circuit' is only the pipeline: memory lives outside it. The core emits
--- a 'MemAccess' on its 'Output' and receives the response on the next
--- 'Input'. So a single system step is one 'Core.circuit' step plus the memory
--- service that 'Simulate.simulator' performs, and the state the proof reasons
--- about is the triple
+-- a 'MemAccess' on its 'Output' and receives the response on the next 'Input'.
+-- So a single system step is one 'Core.circuit' step plus ideal memory's answer
+-- ('idealServe'), and the state the proofs reason about is the triple
 --
--- > (Core.State f, Input f, Mem)
---
--- which is exactly the shape the driver and invariant notes use.
-module Proof.Machine
+-- > (Core.State, Input, memory)
+module Proof.Core.Functional.Machine
   ( SysG (..),
     Sys,
     stepSys,
     stepSysOut,
     stepSysN,
     initSys,
-    running,
-    readMemWord,
-    idealServe,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Maybe (isNothing)
-import Memory.Ideal (idealServe)
 import Memory.Types
+import Memory.Ideal (idealServe)
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -52,7 +46,7 @@ deriving instance (Show r, Show m) => Show (SysG r m)
 instance (Eq r, Eq m) => Eq (SysG r m) where
   Sys s1 i1 m1 == Sys s2 i2 m2 =
     s1 == s2
-      && (inputMem i1) == (inputMem i2)
+      && inputMem i1 == inputMem i2
       && m1 == m2
 
 -- | One system step: run the pipeline for a cycle, then service whatever
@@ -88,9 +82,3 @@ initSys prog =
       sysInput = initInput,
       sysMem = mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
     }
-
-running :: SysG r m -> Bool
-running = isNothing . stateHalt . sysState
-
-readMemWord :: Address -> MemBytes -> Word
-readMemWord = readWord

@@ -8,7 +8,7 @@
 -- shows that, fed the ISA's leakage, it produces the same observations as the
 -- core, so everything an attacker on the bus sees is a function of the leakage
 -- alone.
-module Proof.Leakage.Simulator
+module Proof.Core.Leakage.Simulator
   ( SimInput,
     SimOutput,
     SimExInstrType (..),
@@ -27,7 +27,7 @@ import Control.Monad.RWS
 import Data.Maybe (fromMaybe, isJust)
 import Core.Instruction (storeHazard)
 import Memory.Types
-import Proof.Leakage.Model
+import Proof.Core.Leakage.Model
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

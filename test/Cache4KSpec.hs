@@ -12,14 +12,15 @@ import Clash.Sized.Vector (unsafeFromList)
 import CompositionSpec (coreDiff, ctTrace, genByteProg, genCTProg, genData, genSecretFreeProg, genWord, sameModuloCtrl, simHops, withData)
 import Core
 import Data.Functor.Identity (Identity (..))
+import Data.Maybe (isNothing)
 import Core.Instruction
 import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Types
 import Proof.Cache.Server4K
-import Proof.Functional.Obligation (isaAt)
-import Proof.Leakage.Model
-import Proof.Machine
+import Proof.Core.Functional.Obligation (isaAt)
+import Proof.Core.Leakage.Model
+import Proof.Core.Functional.Machine
 import Core.RegFile (RegFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -197,6 +198,10 @@ genWitness q = do
   ws <- frequency [(1, pure (setOf a)), (1, fromIntegral <$> choose (0 :: Int, 255))]
   ww <- frequency [(1, pure (wordOf a)), (1, fromIntegral <$> choose (0 :: Int, 3))]
   pure (wa, ws, ww)
+
+-- | Has the core not halted yet?
+running :: SysG r m -> Bool
+running = isNothing . stateHalt . sysState
 
 -- | The address of the last byte of an access.
 lastByteOf :: Address -> Size -> Address

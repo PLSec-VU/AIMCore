@@ -37,9 +37,10 @@ import Core (Input (..), MemAccess (..), Output (..), Request, circuit)
 import Data.Functor.Identity
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
-import Proof.Leakage.Model (Obs (..), obsReq)
+import Proof.Core.Leakage.Model (Obs (..), obsReq)
 import Memory.Cache4KServer
-import Proof.Machine (SysG (..), idealServe)
+import Proof.Core.Functional.Machine (SysG (..))
+import Memory.Ideal (idealServe)
 import Core.RegFile (RegFileOps)
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))

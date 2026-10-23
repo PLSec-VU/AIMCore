@@ -1,11 +1,11 @@
 -- | The proof obligations, in one place.
 --
--- Both the symbolic properties ("Proof.Functional.Induction") and the QuickCheck harness
+-- Both the symbolic properties ("Proof.Core.Functional.Induction") and the QuickCheck harness
 -- ("ProofSpec") go through these definitions, so the two cannot drift apart.
 -- The only thing they are allowed to differ in is how the system state is
 -- built: symbolic scalars on one side, a generator on the other. That is the
 -- input space, not the property.
-module Proof.Functional.Obligation
+module Proof.Core.Functional.Obligation
   ( isaAt,
     baseCaseObligation,
     indStepObligation,
@@ -18,11 +18,11 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Maybe (fromMaybe)
 import qualified Core
-import Proof.Functional.Driver (driver)
+import Proof.Core.Functional.Driver (driver)
 import Core.ISA (IsaStateG (..), StepG (..), isaStep)
-import Proof.Functional.Invariant
+import Proof.Core.Functional.Invariant
 import Memory.Types (MemOps (..))
-import Proof.Machine
+import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -137,7 +137,7 @@ indStepObligation wr wa ipc sys =
 --
 -- The driver also gives the reset state a two-cycle hop, but no obligation
 -- covers it: the invariant does not admit the reset state, and
--- 'Proof.Functional.Induction.baseCase' states that hop directly.
+-- 'Proof.Core.Functional.Induction.baseCase' states that hop directly.
 indStepObligation1 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
 indStepObligation1 wr wa ipc sys =

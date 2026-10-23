@@ -110,15 +110,15 @@ library:
       exposed-modules:
         - Proof.Cache.Induction
         - Proof.Cache.Induction4K
-        - Proof.Functional.Induction
-        - Proof.Leakage.Induction
+        - Proof.Core.Functional.Induction
+        - Proof.Core.Leakage.Induction
         - Proof.SMT.Array
         - Proof.SMT.Axioms
-        - Proof.SMT.CacheArray
-        - Proof.SMT.CacheAxioms
+        - Proof.Cache.Array
+        - Proof.Cache.Axioms
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
-        - Proof.SMT.System
+        - Proof.Core.Functional.System
       cpp-options: -DSMT_PROOF
   # Listed explicitly, with no automatic discovery: the solver modules above
   # live in proof/ too, and must only be built with the smt-proof flag.
@@ -126,15 +126,15 @@ library:
   exposed-modules:
     - Proof.Cache.Obligation
     - Proof.Cache.Server4K
-    - Proof.Machine
-    - Proof.Functional.Driver
-    - Proof.Functional.Invariant
-    - Proof.Functional.Obligation
-    - Proof.Leakage.Model
-    - Proof.Leakage.Simulator
-    - Proof.Leakage.Driver
-    - Proof.Leakage.Invariant
-    - Proof.Leakage.Obligation
+    - Proof.Core.Functional.Machine
+    - Proof.Core.Functional.Driver
+    - Proof.Core.Functional.Invariant
+    - Proof.Core.Functional.Obligation
+    - Proof.Core.Leakage.Model
+    - Proof.Core.Leakage.Simulator
+    - Proof.Core.Leakage.Driver
+    - Proof.Core.Leakage.Invariant
+    - Proof.Core.Leakage.Obligation
     - Core
     - Elf.ElfLoader
     - Elf.Syscall

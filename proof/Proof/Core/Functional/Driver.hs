@@ -1,4 +1,4 @@
--- | The driver: how many cycles 'Proof.Machine.stepSys' should advance the core
+-- | The driver: how many cycles 'Proof.Core.Functional.Machine.stepSys' should advance the core
 -- before its state is compared against the ISA again. Its stated invariant is
 -- operational -- \"step until the instruction in the execute phase is no longer
 -- a no-op\" -- so this module provides both:
@@ -13,7 +13,7 @@
 -- values, which in turn depend on the register file, on the memory-stage and
 -- writeback-stage forwarding lines, and (for a load in writeback) on
 -- 'inputMem'.
-module Proof.Functional.Driver
+module Proof.Core.Functional.Driver
   ( driver,
     driverCaseName,
     driverRef,
@@ -31,7 +31,7 @@ import Data.Maybe (fromMaybe)
 import Core.Instruction hiding (loadHazard, storeHazard)
 import qualified Core.Instruction
 import Memory.Types (MemOps (..))
-import Proof.Machine
+import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -169,7 +169,7 @@ isBubble _ = False
 
 -- | The operational reading of the driver's stated invariant: step until the
 -- execute stage holds something that is not a no-op. Returns the number of
--- 'Proof.Machine.stepSys' steps taken, or 'Nothing' if @fuel@ ran out (which is what
+-- 'Proof.Core.Functional.Machine.stepSys' steps taken, or 'Nothing' if @fuel@ ran out (which is what
 -- happens once the core has halted, since the execute stage then holds
 -- @Nop Halted@ forever).
 --
