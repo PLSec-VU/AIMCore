@@ -19,9 +19,9 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/aimcore#readme>
 
-# The modules under proof-smt/ discharge their properties through an SMT solver
-# while GHC compiles them, so building them needs a solver on PATH and takes as
-# long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
+# The modules listed under the smt-proof flag in the library discharge their
+# properties through an SMT solver while GHC compiles them, so building them
+# needs a solver on PATH and takes as long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
 # pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
 # useful time, while bitwuzla discharges each in under a minute:
 #
@@ -107,7 +107,6 @@ library:
     - proof
   when:
     - condition: flag(smt-proof)
-      source-dirs: proof-smt
       exposed-modules:
         - Proof.Functional.Induction
         - Proof.Leakage.Induction
@@ -117,6 +116,9 @@ library:
         - Proof.SMT.Sanity
         - Proof.SMT.System
       cpp-options: -DSMT_PROOF
+  # Listed explicitly, with no automatic discovery: the solver modules above
+  # live in proof/ too, and must only be built with the smt-proof flag.
+  other-modules: []
   exposed-modules:
     - Proof.Machine
     - Proof.Functional.Driver
