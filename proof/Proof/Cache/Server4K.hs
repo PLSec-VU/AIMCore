@@ -4,10 +4,11 @@
 -- | The server proof for the 4 KiB cache ("Memory.Cache4K"), served by
 -- 'Memory.Cache4KServer.serve'.
 --
--- The artifacts: the hop of a request ('hop'), the invariant (no miss
--- pending, every valid line holds memory's words), the flush 'srvMem', the
--- censor 'srvTag' (the tag array), and the simulator 'simStep', derived from the
--- cache itself.
+-- The artifacts: the hop of a request ('Proof.Cache.Functional.Driver.driver'
+-- cycles of 'Proof.Cache.Functional.Machine.serveN'),
+-- the invariant (no miss pending, every valid line holds memory's words), the
+-- flush 'srvMem', the censor 'srvTag' (the tag array), and the simulator
+-- 'simStep', derived from the cache itself.
 --
 -- The cache holds 1024 words, so the invariant is stated at one word,
 -- 'srvInvAt', and the obligations quantify over that word, as the functional
@@ -16,8 +17,7 @@
 -- the invariant at every word, so 'srvRefine' for every witness gives the
 -- obligation for the whole invariant.
 module Proof.Cache.Server4K
-  ( hop,
-    coherentAt,
+  ( coherentAt,
     srvInvAt,
     srvTag,
     simStep,
@@ -39,34 +39,14 @@ import Memory.Cache4K
 import Memory.Types (MemOps (..))
 import Proof.Core.Leakage.Model (Obs (..), obsReq)
 import Memory.Cache4KServer
+import Proof.Cache.Functional.Driver (driver)
+import Proof.Cache.Functional.Machine (serveN)
 import Proof.Core.Functional.Machine (SysG (..))
 import Memory.Ideal (idealServe)
 import Core.RegFile (RegFileOps)
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
-
--- | The hop of a request: the request, then no request until the response is
--- ready. Returns the state after the hop, the number @k@ of responses that were
--- not ready (the ready bits of the hop are @k@ times 'False', then 'True'), and
--- the last response.
---
--- Unrolled to six cycles, enough for 'penalty'.
-hop :: (MemOps m) => CacheSrv m -> Request -> (CacheSrv m, Cycles, Input Identity)
-hop y q
-  | inputMemReady x1 = (y1, 0, x1)
-  | inputMemReady x2 = (y2, 1, x2)
-  | inputMemReady x3 = (y3, 2, x3)
-  | inputMemReady x4 = (y4, 3, x4)
-  | inputMemReady x5 = (y5, 4, x5)
-  | otherwise = (y6, 5, x6)
-  where
-    (y1, x1) = serve y q
-    (y2, x2) = serve y1 Nothing
-    (y3, x3) = serve y2 Nothing
-    (y4, x4) = serve y3 Nothing
-    (y5, x5) = serve y4 Nothing
-    (y6, x6) = serve y5 Nothing
 
 -- | Coherence at word @wi@ of set @s@: if the line there is valid, the word is
 -- the one memory holds at its address. The cache is coherent if this holds at
@@ -118,7 +98,11 @@ reqOf o = case o of
 simStep :: TagArr -> Obs -> (TagArr, Cycles)
 simStep t o = (srvTag y', k)
   where
-    (y', k, _) = hop (CacheSrv (Cache4K t dataZero) Nothing NoMem) (reqOf o)
+    y0 = CacheSrv (Cache4K t dataZero) Nothing NoMem
+    q = reqOf o
+    n = driver y0 q
+    k = fromIntegral n
+    (y', _) = serveN n y0 q
 
 -- | The simulator as it shows on the bus: the observed request, then one cycle
 -- without a request per response that is not ready.
@@ -148,7 +132,7 @@ srvRefine wa ws ww y q =
            && memReadByte wa (srvMem y') == memReadByte wa mI
        )
   where
-    (y', _, x) = hop y q
+    (y', x) = serveN (driver y q) y q
     (mI, xI) = idealServe (srvMem y) q
     accessed = case q of
       Just (MemAccess _ addr _ _) -> srvInvAt (setOf addr) (wordOf addr) y
@@ -159,9 +143,10 @@ srvRefine wa ws ww y q =
 -- from the tags and the observation of the request.
 srvLeak :: (MemOps m) => SetIdx -> CacheSrv m -> Request -> Bool
 srvLeak ws y q =
-  not (noMiss y) || (k == kS && tagRead ws (srvTag y') == tagRead ws tS)
+  not (noMiss y) || (k == fromIntegral kS && tagRead ws (srvTag y') == tagRead ws tS)
   where
-    (y', k, _) = hop y q
+    k = driver y q
+    (y', _) = serveN k y q
     (tS, kS) = simStep (srvTag y) (obsReq q)
 
 -- | The cache answers late only to a data read. With the core's patience

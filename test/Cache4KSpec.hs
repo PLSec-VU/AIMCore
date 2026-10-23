@@ -17,6 +17,8 @@ import Core.Instruction
 import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Types
+import Proof.Cache.Functional.Driver (driver)
+import Proof.Cache.Functional.Machine (serveN)
 import Proof.Cache.Server4K
 import Proof.Core.Functional.Obligation (isaAt)
 import Proof.Core.Leakage.Model
@@ -107,7 +109,10 @@ hops :: [Request] -> [(Cycles, Word)]
 hops = go (CacheSrv emptyCache4K Nothing memU)
   where
     go _ [] = []
-    go y (q : qs) = let (y', k, x) = hop y q in (k, runIdentity (inputMem x)) : go y' qs
+    go y (q : qs) =
+      let k = driver y q
+          (y', x) = serveN k y q
+       in (fromIntegral k, runIdentity (inputMem x)) : go y' qs
 
 runTests :: TestTree
 runTests =

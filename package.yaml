@@ -126,6 +126,8 @@ library:
   exposed-modules:
     - Proof.Cache.Obligation
     - Proof.Cache.Server4K
+    - Proof.Cache.Functional.Machine
+    - Proof.Cache.Functional.Driver
     - Proof.Core.Functional.Machine
     - Proof.Core.Functional.Driver
     - Proof.Core.Functional.Invariant

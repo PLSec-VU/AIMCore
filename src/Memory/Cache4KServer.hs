@@ -13,6 +13,7 @@
 module Memory.Cache4KServer
   ( Cycles,
     CacheSrv (..),
+    CacheSrvState (..),
     penalty,
     serve,
   )
@@ -61,7 +62,7 @@ serve (CacheSrv c mem s) req = case s of
     Just (MemFetch addr) ->
       (CacheSrv c mem CacheSrvReady, Input $ Just $ memReadWord addr mem)
     Just (MemRead addr size) ->
-      let off = case size of                         
+      let off = case size of
             Byte -> 0
             Half -> 1
             Word -> 3
@@ -70,7 +71,7 @@ serve (CacheSrv c mem s) req = case s of
           penalty1stLine = if hit1stLine then 0 else penalty
           c1 = if hit1stLine then c else cacheFill addr mem c
 
-          hit2ndLine = cacheHit (addr + off) c1             
+          hit2ndLine = cacheHit (addr + off) c1
           penalty2ndLine = if hit2ndLine then 0 else penalty
           c2 = if hit2ndLine then c1 else cacheFill (addr + off) mem c1
 
