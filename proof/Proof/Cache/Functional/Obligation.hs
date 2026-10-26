@@ -1,4 +1,3 @@
-{-# LANGUAGE InstanceSigs #-}
 -- | The cache's proof obligations, in one place: the cache's counterpart of
 -- "Proof.Core.Functional.Obligation".
 --
@@ -15,9 +14,7 @@
 -- obligation per hop length, named after it for @'penalty' = 4@. Split by
 -- length because Pantomime unrolls recursion only when its count is concrete.
 module Proof.Cache.Functional.Obligation
-  ( CoherentOps (..),
-    mkDataMem,
-    cachedOf,
+  ( cachedOf,
     baseCaseObligation,
     indStepObligation0,
     indStepObligation4,
@@ -33,42 +30,12 @@ import Memory.Types (MemOps (..))
 import Proof.Cache.Functional.Driver (driver)
 import Proof.Cache.Functional.Invariant (cacheInvAt)
 import Proof.Cache.Functional.Machine (CachedSysG (..), stepCached)
+import Proof.Cache.Server.Functional.Obligation (CoherentOps (..))
 import Proof.Cache.SMT.Raw (RawData (..))
 import Proof.Core.Functional.Machine (SysG (..), stepSys)
-import Proof.SMT.Array (MemArr)
 import Core.RegFile (RegFileOps)
-import Types (Address, RegIdx, Word)
+import Types (Address, RegIdx)
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
-
--- | Memories a coherent cache can be built from. A class, as memory's
--- operations are ('MemOps'), so that the obligations stay polymorphic in memory
--- and the solver only meets the monomorphic 'mkDataMem'.
-class (MemOps m) => CoherentOps m where
-  -- | The data array of a coherent cache with tags @t@ in front of @mem@: a
-  -- valid line holds memory's words at the address its tag gives, an invalid
-  -- line the words of @raw@.
-  mkData :: m -> TagArr -> RawData -> DataArr
-
-instance CoherentOps MemArr where
-  mkData :: MemArr -> TagArr -> RawData -> DataArr
-  mkData = mkDataMem
-
--- | 'mkData' on the solver's memory. The solver does not run this body:
--- 'Proof.Cache.SMT.Axioms.coherentAxioms' replaces it by
--- 'Proof.Cache.SMT.Coherent.mkDataC'.
-{-# OPAQUE mkDataMem #-}
-mkDataMem :: MemArr -> TagArr -> RawData -> DataArr
-mkDataMem mem t (RawData raw) = DataArr (imap word raw)
-  where
-    word :: Index 1024 -> Word -> Word
-    word i w
-      | entryValid e = memReadWord (wordAddr (entryTag e) si wi 0) mem
-      | otherwise = w
-      where
-        idx = fromIntegral i :: BitVector 10
-        si = slice d9 d2 idx
-        wi = slice d1 d0 idx
-        e = tagRead si t
 
 -- | The cached system for the ideal system @sys@: the same core and input, and
 -- in front of its memory a cache in state @st@ with tags @t@ that is coherent

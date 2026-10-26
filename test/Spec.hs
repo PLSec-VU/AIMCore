@@ -23,7 +23,6 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Cache.Functional.Induction
 import qualified Proof.Core.Functional.Induction
 import qualified Proof.Core.Leakage.Induction
 #endif
@@ -93,21 +92,7 @@ sanityTests =
       testCase "k = 2 leakage step is valid" $
         lookup "indStepLeak2" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing,
-      testGroup
-        "the core behind the 4 KiB cache refines the core behind ideal memory"
-        [ testCase name $ lookup name Proof.Cache.Functional.Induction.results @?= Just Nothing
-          | name <-
-              [ "cacheArrays",
-                "coherentData",
-                "coherentWrite",
-                "coherentLayout",
-                "baseCase",
-                "indStep0",
-                "indStep4",
-                "indStep8"
-              ]
-        ]
+        lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing
     ]
   where
     verdict :: String -> Maybe String

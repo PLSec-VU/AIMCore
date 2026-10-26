@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs #-}
 -- | The cache's proof obligations, in one place: the cache's counterpart of
 -- "Proof.Core.Functional.Obligation".
 --
@@ -14,7 +15,9 @@
 -- obligation per hop length, named after it for @'penalty' = 4@. Split by
 -- length because Pantomime unrolls recursion only when its count is concrete.
 module Proof.Cache.Server.Functional.Obligation
-  ( baseCaseObligation,
+  ( CoherentOps (..),
+    mkDataMem,
+    baseCaseObligation,
     indStepObligation0,
     indStepObligation4,
     indStepObligation8,
@@ -23,14 +26,46 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core (Input (..), Request)
-import Memory.Cache4K (Cache4K, SetIdx, WordIdx)
+import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Ideal (idealServe)
 import Memory.Types (MemOps (..))
 import Proof.Cache.Server.Functional.Driver (driver)
 import Proof.Cache.Server.Functional.Invariant (srvInvAt)
-import Types (Address)
+import Proof.Cache.SMT.Raw (RawData (..))
+import Proof.SMT.Array (MemArr)
+import Types (Address, Word)
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
+
+-- | Memories a coherent cache can be built from. A class, as memory's
+-- operations are ('MemOps'), so that the obligations stay polymorphic in memory
+-- and the solver only meets the monomorphic 'mkDataMem'.
+class (MemOps m) => CoherentOps m where
+  -- | The data array of a coherent cache with tags @t@ in front of @mem@: a
+  -- valid line holds memory's words at the address its tag gives, an invalid
+  -- line the words of @raw@.
+  mkData :: m -> TagArr -> RawData -> DataArr
+
+instance CoherentOps MemArr where
+  mkData :: MemArr -> TagArr -> RawData -> DataArr
+  mkData = mkDataMem
+
+-- | 'mkData' on the solver's memory. The solver does not run this body:
+-- 'Proof.Cache.SMT.Axioms.coherentAxioms' replaces it by
+-- 'Proof.Cache.SMT.Coherent.mkDataC'.
+{-# OPAQUE mkDataMem #-}
+mkDataMem :: MemArr -> TagArr -> RawData -> DataArr
+mkDataMem mem t (RawData raw) = DataArr (imap word raw)
+  where
+    word :: Index 1024 -> Word -> Word
+    word i w
+      | entryValid e = memReadWord (wordAddr (entryTag e) si wi 0) mem
+      | otherwise = w
+      where
+        idx = fromIntegral i :: BitVector 10
+        si = slice d9 d2 idx
+        wi = slice d1 d0 idx
+        e = tagRead si t
 
 -- | The base case: the server at start, in front of any memory, satisfies the
 -- invariant against that memory.

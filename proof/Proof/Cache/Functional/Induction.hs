@@ -37,6 +37,7 @@ import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Cache.SMT.Axioms (cacheAxioms, coherentAxioms)
 import Proof.Cache.SMT.Raw (RawData, rawRead)
 import Proof.Cache.Functional.Obligation
+import Proof.Cache.Server.Functional.Obligation (CoherentOps (..))
 import Proof.Core.Functional.System (KState, sysOf)
 import Proof.SMT.Array (MemArr, RegArr, RegArrF (..))
 import Proof.SMT.Logged (pantomime)

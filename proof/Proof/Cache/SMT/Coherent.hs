@@ -51,7 +51,7 @@ dataWriteC i v a = coerce (DataC (rawWrite i v ws) (rawWrite i 1 written) mem ta
   where
     DataC ws written mem tags raw = coerce a
 
--- | The embedding of 'Proof.Cache.Functional.Obligation.mkDataMem': nothing
+-- | The embedding of 'Proof.Cache.Server.Functional.Obligation.mkDataMem': nothing
 -- written yet.
 mkDataC :: forall arr. (Coercible DataC arr) => MemArr -> TagArr -> RawData -> arr
 mkDataC mem t raw = coerce (DataC rawZero rawZero mem t raw)
