@@ -8,7 +8,7 @@
 module Proof.Core.Functional.Obligation
   ( isaAt,
     baseCaseObligation,
-    indStepObligation,
+    indStepObligation0,
     indStepObligation1,
     indStepObligation2,
     indStepObligation3,
@@ -45,19 +45,19 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- @stateExPc@ when running and @stateHalt@ once halted. Deriving it from either
 -- one would make the other case unsatisfiable as a premise.
 isaAt :: (RegFileOps r, MemOps m) => Address -> SysG r m -> IsaStateG r m
-isaAt ipc (Sys st inp mem) =
+isaAt ipc (Sys core inp mem) =
   IsaState {isaPc = ipc, isaRegFile = frf, isaMem = fm}
   where
     (fm, frf) =
       flushMeStage
-        (Core.stateMeInstr st)
-        ((Core.stateMeRes st))
-        (Core.stateMeAddr st)
+        (Core.stateMeInstr core)
+        (Core.stateMeRes core)
+        (Core.stateMeAddr core)
         ( flushWbStage
-            (Core.stateWbInstr st)
-            ((Core.stateWbRes st))
+            (Core.stateWbInstr core)
+            (Core.stateWbRes core)
             (fromMaybe 0 (Core.inputMem inp))
-            (mem, Core.stateRegFile st)
+            (mem, Core.stateRegFile core)
         )
 
 -- | The base case: the invariant holds once the initial state has taken its
@@ -91,8 +91,8 @@ isaAt ipc (Sys st inp mem) =
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
 baseCaseObligation ::
-  (RegFileOps r, MemOps m) => r -> m -> RegIdx -> Address -> Address -> Bool
-baseCaseObligation rf mem wr wa pc =
+  (RegFileOps r, MemOps m) => Address -> r -> m -> RegIdx -> Address -> Bool
+baseCaseObligation pc rf mem wr wa =
   driver sys == 1 && invAtFree wr wa isa sys2
   where
     isa = IsaState {isaPc = pc, isaRegFile = rf, isaMem = mem}
@@ -115,9 +115,9 @@ baseCaseObligation rf mem wr wa pc =
 -- core stands still -- the halted cases of the invariant require the
 -- architectural register file and memory to equal the core's, so carrying the
 -- same @isa@ across the step asserts that neither changed.
-indStepObligation ::
+indStepObligation0 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation wr wa ipc sys =
+indStepObligation0 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys

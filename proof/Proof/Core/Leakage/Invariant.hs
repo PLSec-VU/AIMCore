@@ -32,21 +32,21 @@ simInv ::
   SimState ->
   SysG r m ->
   Bool
-simInv sim (Sys st _ _) =
-  simStateFePc sim == stateFePc st
-    && simStateDePc sim == stateDePc st
-    && simStateDeExpInstr sim == stateDeExpInstr st
+simInv sim (Sys core _ _) =
+  simStateFePc sim == stateFePc core
+    && simStateDePc sim == stateDePc core
+    && simStateDeExpInstr sim == stateDeExpInstr core
     && exStage
     && meStage
   where
     exStage = case simStateExInstrType sim of
-      DecodedInstr -> isNothing (stateHalt st)
-      Halted -> isJust (stateHalt st)
+      DecodedInstr -> isNothing (stateHalt core)
+      Halted -> isJust (stateHalt core)
       _ -> False
 
-    meStage = case (simStateMeInstr sim, stateMeInstr st) of
+    meStage = case (simStateMeInstr sim, stateMeInstr core) of
       (LLoad size addr _, Core.Instruction.IType (Load size' _) _ _ _) ->
-        size == size' && addr == stateMeAddr st
+        size == size' && addr == stateMeAddr core
       (LStore size addr, Core.Instruction.SType size' _ _ _) ->
-        size == size' && addr == stateMeAddr st
+        size == size' && addr == stateMeAddr core
       (leak, ir) -> not (isMemLeak leak) && not (Core.Instruction.isMemInstr ir)

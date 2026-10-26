@@ -8,8 +8,8 @@
 -- cache a load that misses is answered only after the miss penalty, and in the
 -- meantime the core stalls. The core's side of what lets the ideal-memory result
 -- carry over is checked here: after a data read the core waits
--- ('Proof.Cache.Obligation.waitObligation'), and a stall cycle is a stutter step
--- ('Proof.Cache.Obligation.stallObligation').
+-- ('Proof.CachedCore.Obligation.waitObligation'), and a stall cycle is a stutter step
+-- ('Proof.CachedCore.Obligation.stallObligation').
 module CompositionSpec
   ( compositionTests,
     sameModuloCtrl,
@@ -32,7 +32,7 @@ import Data.Functor.Identity (Identity (..))
 import Core.ISA (IsaState, StepG (..), isaStep)
 import Core.Instruction
 import Memory.Types
-import Proof.Cache.Obligation (stallObligation, waitObligation)
+import Proof.CachedCore.Obligation (stallObligation, waitObligation)
 import Proof.Core.Leakage.Model
 import Proof.Core.Functional.Obligation (isaAt)
 import Proof.Core.Leakage.Driver (simDriver)
@@ -271,7 +271,7 @@ genWord = oneof [elements [0, 1, 0xFF, 0x1234, 0x80000000, 0xDEADBEEF], fromInte
 -- every later one gets @'leakOf' isa@ on its first cycle, after which the ISA
 -- steps. A halted ISA stands still.
 simHops :: Sys -> [[Obs]]
-simHops sys0 = go Nothing (isaAt (stateFePc (sysState sys0)) sys0) simInit
+simHops sys0 = go Nothing (isaAt (stateFePc (sysCore sys0)) sys0) simInit
   where
     go :: SimInput -> IsaState -> SimState -> [[Obs]]
     go inp a sim =

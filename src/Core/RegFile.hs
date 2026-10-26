@@ -18,7 +18,6 @@ import Pretty
 import Types
 import Prelude hiding (Ordering (..), Word, repeat, undefined, (!!), (++))
 import qualified Prelude as P
-import Numeric (showHex)
 import Data.List (intercalate)
 
 -- | Register file used in this core.

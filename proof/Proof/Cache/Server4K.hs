@@ -4,8 +4,8 @@
 -- | The server proof for the 4 KiB cache ("Memory.Cache4K"), served by
 -- 'Memory.Cache4KServer.serve'.
 --
--- The artifacts: the hop of a request ('Proof.Cache.Functional.Driver.driver'
--- cycles of 'Proof.Cache.Functional.Machine.serveN'),
+-- The artifacts: the hop of a request ('Proof.Cache.Server.Functional.Driver.driver'
+-- cycles after it),
 -- the invariant (no miss pending, every valid line holds memory's words), the
 -- flush 'srvMem', the censor 'srvTag' (the tag array), and the simulator
 -- 'simStep', derived from the cache itself.
@@ -17,9 +17,7 @@
 -- the invariant at every word, so 'srvRefine' for every witness gives the
 -- obligation for the whole invariant.
 module Proof.Cache.Server4K
-  ( coherentAt,
-    srvInvAt,
-    srvTag,
+  ( srvTag,
     simStep,
     simBus,
     srvInit,
@@ -39,36 +37,14 @@ import Memory.Cache4K
 import Memory.Types (MemOps (..))
 import Proof.Core.Leakage.Model (Obs (..), obsReq)
 import Memory.Cache4KServer
-import Proof.Cache.Functional.Driver (driver)
-import Proof.Cache.Functional.Machine (serveN)
+import Proof.Cache.Server.Functional.Driver (driver)
+import Proof.Cache.Server.Functional.Invariant (noMiss, srvInvAt)
 import Proof.Core.Functional.Machine (SysG (..))
 import Memory.Ideal (idealServe)
 import Core.RegFile (RegFileOps)
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
-
--- | Coherence at word @wi@ of set @s@: if the line there is valid, the word is
--- the one memory holds at its address. The cache is coherent if this holds at
--- every set and word.
-coherentAt :: (MemOps m) => m -> SetIdx -> WordIdx -> Cache4K -> Bool
-coherentAt mem s wi c =
-  not (entryValid e) || dataRead (s ++# wi) (dataArr c) == w
-  where
-    e = tagRead s (tagArr c)
-    w = memReadWord (wordAddr (entryTag e) s wi 0) mem
-
--- | The invariant at word @w@ of set @s@: no miss is pending, and if the line
--- is valid, its word @w@ is memory's.
-srvInvAt :: (MemOps m) => SetIdx -> WordIdx -> CacheSrv m -> Bool
-srvInvAt s w (CacheSrv c pending mem) = case pending of
-  Nothing -> coherentAt mem s w c
-  Just _ -> False
-
-noMiss :: CacheSrv m -> Bool
-noMiss y = case srvPending y of
-  Nothing -> True
-  Just _ -> False
 
 -- | The censor: the tags.
 srvTag :: CacheSrv m -> TagArr
@@ -150,7 +126,7 @@ srvLeak ws y q =
     (tS, kS) = simStep (srvTag y) (obsReq q)
 
 -- | The cache answers late only to a data read. With the core's patience
--- ('Proof.Cache.Obligation.waitObligation'), the core's leakage proof carries
+-- ('Proof.CachedCore.Obligation.waitObligation'), the core's leakage proof carries
 -- over to the core behind this cache too.
 stallsOnReads :: (MemOps m) => CacheSrv m -> Request -> Bool
 stallsOnReads y q = not (noMiss y) || inputMemReady x || isDataRead

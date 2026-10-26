@@ -17,12 +17,13 @@ import Core.Instruction
 import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Types
-import Proof.Cache.Functional.Driver (driver)
-import Proof.Cache.Functional.Machine (serveN)
+import Proof.Cache.Server.Functional.Driver (driver)
+import Proof.Cache.Server.Functional.Invariant (coherentAt, srvInvAt)
 import Proof.Cache.Server4K
 import Proof.Core.Functional.Obligation (isaAt)
 import Proof.Core.Leakage.Model
 import Proof.Core.Functional.Machine
+import ProofSpec (initSys)
 import Core.RegFile (RegFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -204,9 +205,18 @@ genWitness q = do
   ww <- frequency [(1, pure (wordOf a)), (1, fromIntegral <$> choose (0 :: Int, 3))]
   pure (wa, ws, ww)
 
+-- | Serve a request, then @n@ cycles without one. A harness helper: the proofs
+-- write their cycles out.
+serveN :: (MemOps m) => Int -> CacheSrv m -> Request -> (CacheSrv m, Input)
+serveN n srv req = go n (serve srv req)
+  where
+    go k (y', x)
+      | k <= 0 = (y', x)
+      | otherwise = go (k - 1) (serve y' Nothing)
+
 -- | Has the core not halted yet?
 running :: SysG r m -> Bool
-running = isNothing . stateHalt . sysState
+running = isNothing . stateHalt . sysCore
 
 -- | The address of the last byte of an access.
 lastByteOf :: Address -> Size -> Address

@@ -25,7 +25,8 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Cache.Induction
+import qualified Proof.CachedCore.Induction
+import qualified Proof.Cache.Server.Functional.Induction
 import qualified Proof.Cache.Induction4K
 import qualified Proof.Core.Functional.Induction
 import qualified Proof.Core.Leakage.Induction
@@ -99,13 +100,18 @@ sanityTests =
         lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testGroup
         "the core is patient"
-        [ testCase name $ lookup name Proof.Cache.Induction.results @?= Just Nothing
+        [ testCase name $ lookup name Proof.CachedCore.Induction.results @?= Just Nothing
           | name <- ["stallStep", "waitStep"]
         ],
       testGroup
         "the 4 KiB cache has a server proof"
         [ testCase name $ lookup name Proof.Cache.Induction4K.results @?= Just Nothing
-          | name <- ["cacheArrays", "srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
+          | name <- ["srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
+        ],
+      testGroup
+        "the 4 KiB cache answers as ideal memory"
+        [ testCase name $ lookup name Proof.Cache.Server.Functional.Induction.results @?= Just Nothing
+          | name <- ["cacheArrays", "baseCase", "indStep0", "indStep4", "indStep8"]
         ]
     ]
   where

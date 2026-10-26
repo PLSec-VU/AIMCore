@@ -140,7 +140,7 @@ invCasesAt ::
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> [Case]
 invCasesAt wr wa =
   invCasesGen
-    (\a b -> (lookupRFg wr a) == (lookupRFg wr b))
+    (\a b -> lookupRFg wr a == lookupRFg wr b)
     (\a b -> memReadByte wa a == memReadByte wa b)
 
 -- | The cases of the invariant, parameterised over how register files and
@@ -156,7 +156,7 @@ invCasesGen ::
   IsaStateG r m ->
   SysG r m ->
   [Case]
-invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
+invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
   [ runningCase,
     haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
     haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
@@ -168,7 +168,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     -- and it is a large decision tree.
     isaInstr = decode' (memReadWord ipc imem)
 
-    dePcWord = memReadWord (stateDePc st) mem
+    dePcWord = memReadWord (stateDePc core) mem
 
     -- The note's four running cases, collapsed.
     --
@@ -182,33 +182,33 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     -- therefore stated directly as \"not an environment instruction\".
     runningCase =
       Case "running" $
-        [ ("running", stateHalt st == Nothing),
+        [ ("running", stateHalt core == Nothing),
           ("memory answered", isJust (inputMem inp)),
-          ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
-          ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
-          ("exPc == isaPc", stateExPc st == ipc),
-          ("ex == decode (mem[isaPc])", stateExInstr st == isaInstr),
-          ("dePc == exPc + 4", stateDePc st == stateExPc st + 4),
-          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr st) (stateMeInstr st))),
+          ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr core))),
+          ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr core))),
+          ("exPc == isaPc", stateExPc core == ipc),
+          ("ex == decode (mem[isaPc])", stateExInstr core == isaInstr),
+          ("dePc == exPc + 4", stateDePc core == stateExPc core + 4),
+          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr core) (stateMeInstr core))),
           ( "(isaMem, isaRegFile) == flush",
             let (fm, frf) =
                   flushMeStage
-                    (stateMeInstr st)
-                    ((stateMeRes st))
-                    (stateMeAddr st)
-                    (flushWbStage (stateWbInstr st) ((stateWbRes st)) inputWord (mem, stateRegFile st))
+                    (stateMeInstr core)
+                    (stateMeRes core)
+                    (stateMeAddr core)
+                    (flushWbStage (stateWbInstr core) (stateWbRes core) inputWord (mem, stateRegFile core))
              in eqMem imem fm && eqRF irf frf
           )
         ]
-          P.++ if isMemInstr (stateWbInstr st)
+          P.++ if isMemInstr (stateWbInstr core)
             then
-              [ ("not deExpInstr", P.not (stateDeExpInstr st)),
-                ("fePc == exPc + 4", stateFePc st == stateExPc st + 4)
+              [ ("not deExpInstr", P.not (stateDeExpInstr core)),
+                ("fePc == exPc + 4", stateFePc core == stateExPc core + 4)
               ]
             else
-              [ ("deExpInstr", stateDeExpInstr st),
+              [ ("deExpInstr", stateDeExpInstr core),
                 ("inputMem == mem[dePc]", inputWord == dePcWord),
-                ("fePc == exPc + 8", stateFePc st == stateExPc st + 8)
+                ("fePc == exPc + 8", stateFePc core == stateExPc core + 8)
               ]
 
     -- The halt carries the address the core would resume at, which 'Core.execute'
@@ -219,12 +219,12 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
       Case
         name
         [ ("isa instruction is of this kind", isKind isaInstr),
-          ("halt state matches", stateHalt st == Just expected),
-          ("wb == Nop Halted", stateWbInstr st == Nop Halted),
+          ("halt state matches", stateHalt core == Just expected),
+          ("wb == Nop Halted", stateWbInstr core == Nop Halted),
           ("memory answered", isJust (inputMem inp)),
-          ("me == Nop Halted", stateMeInstr st == Nop Halted),
-          ("ex == Nop Halted", stateExInstr st == Nop Halted),
-          ("isaRegFile == stateRegFile", eqRF irf (stateRegFile st)),
+          ("me == Nop Halted", stateMeInstr core == Nop Halted),
+          ("ex == Nop Halted", stateExInstr core == Nop Halted),
+          ("isaRegFile == stateRegFile", eqRF irf (stateRegFile core)),
           ("isaMem == stateMem", eqMem imem mem)
         ]
 
@@ -252,24 +252,24 @@ data HaltKind = HaltBreak | HaltCall
 runningCaseAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
-  stateHalt st == Nothing
+runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
+  stateHalt core == Nothing
     && isJust (inputMem inp)
-    && not (isEnvInstr (stateWbInstr st))
-    && not (isEnvInstr (stateMeInstr st))
-    && stateExPc st == ipc
-    && stateExInstr st == decode' (memReadWord ipc imem)
-    && stateDePc st == stateExPc st + 4
-    && not (loadHazard (stateExInstr st) (stateMeInstr st))
-    && ( if isMemInstr (stateWbInstr st)
-           then not (stateDeExpInstr st) && stateFePc st == stateExPc st + 4
+    && not (isEnvInstr (stateWbInstr core))
+    && not (isEnvInstr (stateMeInstr core))
+    && stateExPc core == ipc
+    && stateExInstr core == decode' (memReadWord ipc imem)
+    && stateDePc core == stateExPc core + 4
+    && not (loadHazard (stateExInstr core) (stateMeInstr core))
+    && ( if isMemInstr (stateWbInstr core)
+           then not (stateDeExpInstr core) && stateFePc core == stateExPc core + 4
            else
-             stateDeExpInstr st
-               && inputMem inp == Just (memReadWord (stateDePc st) mem)
-               && stateFePc st == stateExPc st + 8
+             stateDeExpInstr core
+               && inputMem inp == Just (memReadWord (stateDePc core) mem)
+               && stateFePc core == stateExPc core + 8
        )
     && memReadByte wa imem == memReadByte wa fm
-    && (lookupRFg wr irf) == (lookupRFg wr frf)
+    && lookupRFg wr irf == lookupRFg wr frf
   where
     -- The same flush the container form applies, read at the witness. Writing
     -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWrite'
@@ -278,29 +278,29 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
     -- natively.
     (fm, frf) =
       flushMeStage
-        (stateMeInstr st)
-        ((stateMeRes st))
-        (stateMeAddr st)
+        (stateMeInstr core)
+        (stateMeRes core)
+        (stateMeAddr core)
         ( flushWbStage
-            (stateWbInstr st)
-            ((stateWbRes st))
+            (stateWbInstr core)
+            (stateWbRes core)
             (fromMaybe 0 (inputMem inp))
-            (mem, stateRegFile st)
+            (mem, stateRegFile core)
         )
 
 -- | One halted case.
 haltedCaseAt ::
   (RegFileOps r, MemOps m) =>
   HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st inp mem) =
+haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys core inp mem) =
   isKind (decode' (memReadWord ipc imem))
-    && stateHalt st == Just expected
-    && stateWbInstr st == Nop Halted
+    && stateHalt core == Just expected
+    && stateWbInstr core == Nop Halted
     && isJust (inputMem inp)
-    && stateMeInstr st == Nop Halted
-    && stateExInstr st == Nop Halted
+    && stateMeInstr core == Nop Halted
+    && stateExInstr core == Nop Halted
     && memReadByte wa imem == memReadByte wa mem
-    && (lookupRFg wr irf) == (lookupRFg wr (stateRegFile st))
+    && lookupRFg wr irf == lookupRFg wr (stateRegFile core)
   where
     isKind = case kind of
       HaltBreak -> isBreak

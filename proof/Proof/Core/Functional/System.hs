@@ -47,7 +47,7 @@ data KState = KState
 sysOf :: KState -> Core.Input -> RegArr -> MemArr -> SysG RegArrF MemArr
 sysOf ss i ra ma =
   Sys
-    { sysState =
+    { sysCore =
         Core.State
           { Core.stateFePc = kFePc ss,
             Core.stateDePc = kDePc ss,

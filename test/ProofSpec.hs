@@ -1,6 +1,6 @@
 {-# LANGUAGE PackageImports #-}
 
-module ProofSpec (proofTests, progs, alignedWalk, invTrace, invReport, genProg, genArbSys, genArbSys1, genArbSys2, genArbSys3, genTakenTransfer) where
+module ProofSpec (proofTests, progs, initSys, alignedWalk, invTrace, invReport, genProg, genArbSys, genArbSys1, genArbSys2, genArbSys3, genTakenTransfer) where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
@@ -10,7 +10,7 @@ import Core.ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Core.Instruction
 import Proof.Core.Functional.Invariant
 import Proof.Core.Functional.Machine
-import Proof.Core.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isaAt)
+import Proof.Core.Functional.Obligation (indStepObligation0, indStepObligation1, indStepObligation2, isaAt)
 import Proof.Core.Leakage.Driver (simDriver)
 import Proof.Core.Leakage.Invariant (simInv)
 import Proof.Core.Leakage.Model (Obs, leakOf, obsOf)
@@ -26,12 +26,18 @@ import "aimcore" Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
 
+-- | @n@ system steps. A harness helper: the proofs write their steps out.
+stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
+stepSysN n s
+  | n <= 0 = s
+  | otherwise = stepSysN (n - 1) (stepSys s)
+
 -- | A state the driver is meant to be evaluated in: the execute stage holds a
 -- real instruction. The startup state (@Nop FirstCycle@) is the one bubble the
 -- driver has an explicit case for. Note @Nop DecodeFail@ is /not/ a bubble --
 -- see 'Proof.Machine.isBubble'.
 aligned :: Sys -> Bool
-aligned s = not (isBubble (stateExInstr (sysState s))) || stateExInstr (sysState s) == Nop FirstCycle
+aligned s = not (isBubble (stateExInstr (sysCore s))) || stateExInstr (sysCore s) == Nop FirstCycle
 
 -- | Walk the machine from aligned state to aligned state, taking
 -- @driver s + 1@ cycles each hop.
@@ -42,7 +48,7 @@ alignedWalk k prog = go k 0 (initSys prog)
     go j i s =
       let n = driver s + 1
           s' = stepSysN n s
-       in (i, n, s') : if stateHalt (sysState s') == Nothing then go (j - 1) (i + n) s' else []
+       in (i, n, s') : if stateHalt (sysCore s') == Nothing then go (j - 1) (i + n) s' else []
 
 -- | Hops that do not land on an aligned state.
 walkReport :: Int -> Vec PROG_SIZE Word -> String
@@ -54,18 +60,27 @@ walkReport k prog =
           " took ",
           show n,
           " cycles -> ex=",
-          show (stateExInstr (sysState s')),
+          show (stateExInstr (sysCore s')),
           " exPc=",
-          show (stateExPc (sysState s'))
+          show (stateExPc (sysCore s'))
         ]
       | (i, n, s') <- alignedWalk k prog,
         not (aligned s'),
-        stateHalt (sysState s') == Nothing
+        stateHalt (sysCore s') == Nothing
     ]
+
+-- | The system as it starts up, with @prog@ loaded at 'initPc'.
+initSys :: Vec PROG_SIZE Word -> Sys
+initSys prog =
+  Sys
+    { sysCore = Core.init,
+      sysInput = initInput,
+      sysMem = mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
+    }
 
 -- | The architectural state @prog@ starts in: execution begins at 'initPc', the
 -- register file is zeroed, and memory holds the program. The counterpart of
--- 'Proof.Core.Functional.Machine.initSys' on the ISA side.
+-- 'initSys' on the ISA side.
 initIsa :: Vec PROG_SIZE Word -> IsaState
 initIsa prog = IsaState initPc initRF (mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog)
 
@@ -113,7 +128,7 @@ invTrace k prog = go k 0 isa0 sys0 True
               IsaHalted -> [(c', isa, sys')]
               Next isa' ->
                 (c', isa', sys')
-                  : if stateHalt (sysState sys') == Nothing then go (j - 1) c' isa' sys' False else []
+                  : if stateHalt (sysCore sys') == Nothing then go (j - 1) c' isa' sys' False else []
 
 -- | The first point at which the invariant fails, with an explanation.
 invReport :: Int -> Vec PROG_SIZE Word -> String
@@ -129,15 +144,15 @@ invReport k prog =
           " isaInstr=",
           show (isaInstrAt isa),
           "\n  ex=",
-          show (stateExInstr (sysState sys)),
+          show (stateExInstr (sysCore sys)),
           " exPc=",
-          show (stateExPc (sysState sys)),
+          show (stateExPc (sysCore sys)),
           " me=",
-          show (stateMeInstr (sysState sys)),
+          show (stateMeInstr (sysCore sys)),
           " wb=",
-          show (stateWbInstr (sysState sys)),
+          show (stateWbInstr (sysCore sys)),
           "\n  halt=",
-          show (stateHalt (sysState sys)),
+          show (stateHalt (sysCore sys)),
           "\n",
           explain isa sys
         ]
@@ -176,7 +191,7 @@ leakReport k prog =
             Nothing -> case isaStep isa of
               IsaHalted -> ""
               Next isa'
-                | stateHalt (sysState sys') == Nothing -> go (j - 1) (c + n) isa' sys' sim'
+                | stateHalt (sysCore sys') == Nothing -> go (j - 1) (c + n) isa' sys' sim'
                 | otherwise -> ""
 
     -- Both machines for @n@ cycles; the simulator gets @inp@ on the first only.
@@ -342,12 +357,12 @@ proofTests =
       -- is no next non-bubble for the operational reading to find.
       testCase "driver agrees with its operational reading" $
         let bad =
-              [ (driver sys, ref, stateExInstr (sysState sys))
+              [ (driver sys, ref, stateExInstr (sysCore sys))
                 | prog <- allProgs 500,
                   (_, _, sys) <- invTrace 40 prog,
-                  stateHalt (sysState sys) == Nothing,
+                  stateHalt (sysCore sys) == Nothing,
                   aligned sys,
-                  P.not (isEnvInstr (stateExInstr (sysState sys))),
+                  P.not (isEnvInstr (stateExInstr (sysCore sys))),
                   let ref = driverRef 12 sys,
                   ref /= Just (driver sys + 1)
               ]
@@ -456,14 +471,14 @@ proofTests =
                 sys' = stepSys sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
-                  ( "me=" P.++ show (stateMeInstr (sysState sys))
-                      P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
-                      P.++ "\nex=" P.++ show (stateExInstr (sysState sys))
-                      P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
+                  ( "me=" P.++ show (stateMeInstr (sysCore sys))
+                      P.++ "\nwb=" P.++ show (stateWbInstr (sysCore sys))
+                      P.++ "\nex=" P.++ show (stateExInstr (sysCore sys))
+                      P.++ "\nexPc=" P.++ show (stateExPc (sysCore sys))
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' sys'))))
                   )
-                  (indStepObligation wr wa (stateExPc (sysState sys)) sys),
+                  (indStepObligation0 wr wa (stateExPc (sysCore sys)) sys),
       -- k = 1: the two-cycle hop, a memory instruction in writeback. The test
       -- below asserts generated states actually satisfy the premise, since one
       -- this specific is easy to miss entirely and still see a green property.
@@ -475,22 +490,22 @@ proofTests =
                 s2 = stepSysN 2 sys
                 isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
              in counterexample
-                  ( "me=" P.++ show (stateMeInstr (sysState sys))
-                      P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
-                      P.++ "\nex=" P.++ show (stateExInstr (sysState sys))
-                      P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
-                      P.++ " fePc=" P.++ show (stateFePc (sysState sys))
+                  ( "me=" P.++ show (stateMeInstr (sysCore sys))
+                      P.++ "\nwb=" P.++ show (stateWbInstr (sysCore sys))
+                      P.++ "\nex=" P.++ show (stateExInstr (sysCore sys))
+                      P.++ "\nexPc=" P.++ show (stateExPc (sysCore sys))
+                      P.++ " fePc=" P.++ show (stateFePc (sysCore sys))
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' s2))))
                   )
-                  (indStepObligation1 wr wa (stateExPc (sysState sys)) sys),
+                  (indStepObligation1 wr wa (stateExPc (sysCore sys)) sys),
       testCase "k=1 generator satisfies the premise" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 4000 genArbSys1) (mkQCGen 7) 30]
             admitted =
               [ ()
                 | s <- sample,
                   driver s P.== 1,
-                  invAtFree 1 0 (isaAt (stateExPc (sysState s)) s) s
+                  invAtFree 1 0 (isaAt (stateExPc (sysCore s)) s) s
               ]
          in assertBool "no generated state satisfied the k=1 premise" (P.not (P.null admitted)),
       -- k = 2: jumps and the all-memory steady shape return to a running
@@ -502,20 +517,20 @@ proofTests =
             counterexample
               ( "case=" P.++ label
                   P.++ " driverCase=" P.++ driverCaseName sys
-                  P.++ "\nme=" P.++ show (stateMeInstr (sysState sys))
-                  P.++ "\nwb=" P.++ show (stateWbInstr (sysState sys))
-                  P.++ "\nex=" P.++ show (stateExInstr (sysState sys))
-                  P.++ "\nexPc=" P.++ show (stateExPc (sysState sys))
+                  P.++ "\nme=" P.++ show (stateMeInstr (sysCore sys))
+                  P.++ "\nwb=" P.++ show (stateWbInstr (sysCore sys))
+                  P.++ "\nex=" P.++ show (stateExInstr (sysCore sys))
+                  P.++ "\nexPc=" P.++ show (stateExPc (sysCore sys))
                   P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
               )
-              (indStepObligation2 wr wa (stateExPc (sysState sys)) sys),
+              (indStepObligation2 wr wa (stateExPc (sysCore sys)) sys),
       testCase "k=2 generator reaches env, jump, and steady cases" $
         let sample =
               [ (label, driverCaseName s)
                 | (label, s, wr, wa) <-
                     unGen (vectorOf 4000 genArbSys2) (mkQCGen 29) 30,
                   driver s P.== 2,
-                  invAtFree wr wa (isaAt (stateExPc (sysState s)) s) s
+                  invAtFree wr wa (isaAt (stateExPc (sysCore s)) s) s
               ]
             has label = P.any ((P.== label) . P.fst) sample
          in do
@@ -524,10 +539,10 @@ proofTests =
               assertBool "no steady k=2 state satisfied the premise" (has "steady"),
       testCase "jumps never occupy me/wb at a checked state" $
         let bad =
-              [ (shape (stateMeInstr (sysState sys)), shape (stateWbInstr (sysState sys)))
+              [ (shape (stateMeInstr (sysCore sys)), shape (stateWbInstr (sysCore sys)))
                 | prog <- allProgs 2000,
                   (_, _, sys) <- invTrace 40 prog,
-                  isJumpShape (stateMeInstr (sysState sys)) || isJumpShape (stateWbInstr (sysState sys))
+                  isJumpShape (stateMeInstr (sysCore sys)) || isJumpShape (stateWbInstr (sysCore sys))
               ]
          in if P.null bad then pure () else assertFailure (show (P.take 5 bad))
     ]
@@ -545,7 +560,7 @@ proofTests =
 -- invariant claims it corresponds to.
 -- Shared with 'Proof.Core.Functional.Induction.indStep0' via "Proof.Core.Functional.Obligation", so the two cannot drift.
 isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
-isaFromSys sys = isaAt (stateExPc (sysState sys)) sys
+isaFromSys sys = isaAt (stateExPc (sysCore sys)) sys
 
 -- | Take one driven step and report whether the invariant survived. Returns
 -- 'Nothing' when @sys@ does not satisfy the invariant to begin with (such a
@@ -570,9 +585,9 @@ sampleStates n =
   [ sys
     | prog <- allProgs n,
       (_, _, sys) <- invTrace 40 prog,
-      stateHalt (sysState sys) == Nothing,
+      stateHalt (sysCore sys) == Nothing,
       aligned sys,
-      P.not (isEnvInstr (stateExInstr (sysState sys)))
+      P.not (isEnvInstr (stateExInstr (sysCore sys)))
   ]
 
 -- | Put a jump in the memory stage. The invariant permits this -- a jump is not
@@ -580,7 +595,7 @@ sampleStates n =
 -- never actually occur, so nothing else in the invariant rules it out.
 withJumpInMe :: Sys -> Sys
 withJumpInMe s =
-  s {sysState = (sysState s) {stateMeInstr = JType 5 0, stateMeRes = 0x1234}}
+  s {sysCore = (sysCore s) {stateMeInstr = JType 5 0, stateMeRes = 0x1234}}
 
 -- The fifth counterexample, explained: address wraparound ---------------------
 --
@@ -626,7 +641,7 @@ wrapMem = MemFn bytes
 wrapCESys :: SysG RegFn MemFn
 wrapCESys =
   Sys
-    ( (sysState (initSys (mkProg prog1)))
+    ( (sysCore (initSys (mkProg prog1)))
         { stateFePc = 0x00000000,
           stateDePc = 0xFFFFFFFC,
           stateDeExpInstr = True,
@@ -827,7 +842,7 @@ genArbSys = do
   wa <- unpack <$> genW
   let sys =
         Sys
-          ((sysState (initSys (mkProg prog1)))
+          ((sysCore (initSys (mkProg prog1)))
              { stateFePc = base + 8,
                stateDePc = base + 4,
                stateDeExpInstr = True,
@@ -910,7 +925,7 @@ genRunning2 label genEx = do
   wa <- unpack <$> genW
   let sys =
         Sys
-          ( (sysState (initSys (mkProg prog1)))
+          ( (sysCore (initSys (mkProg prog1)))
               { stateFePc = fePc,
                 stateDePc = base + 4,
                 stateDeExpInstr = P.not wbMem,
@@ -970,7 +985,7 @@ genSteady2 = do
   wa <- unpack <$> genW
   let sys =
         Sys
-          ( (sysState (initSys (mkProg prog1)))
+          ( (sysCore (initSys (mkProg prog1)))
               { stateFePc = base + 4,
                 stateDePc = base + 4,
                 stateDeExpInstr = False,
@@ -1014,7 +1029,7 @@ genSteady1 = do
   wa <- unpack <$> genW
   let sys =
         Sys
-          ( (sysState (initSys (mkProg prog1)))
+          ( (sysCore (initSys (mkProg prog1)))
               { stateFePc = base + 4,
                 stateDePc = base + 4,
                 stateDeExpInstr = False,
@@ -1111,8 +1126,8 @@ coverage n = tally (P.concatMap observations (allProgs n))
     observations prog =
       P.concat
         [ [ "driver:" P.++ driverCaseName sys,
-            "me:" P.++ shape (stateMeInstr (sysState sys)),
-            "wb:" P.++ shape (stateWbInstr (sysState sys))
+            "me:" P.++ shape (stateMeInstr (sysCore sys)),
+            "wb:" P.++ shape (stateWbInstr (sysCore sys))
           ]
           | (_, _, sys) <- invTrace 40 prog
         ]
@@ -1233,7 +1248,7 @@ genTakenTransfer useJalr = do
 
       mkSys w0 rfun =
         Sys
-          ( (sysState (initSys (mkProg prog1)))
+          ( (sysCore (initSys (mkProg prog1)))
               { stateFePc = fePc,
                 stateDePc = base + 4,
                 stateDeExpInstr = P.not wbMem,
@@ -1347,7 +1362,7 @@ mk3 base exI meI wbI nextI wbMem = do
         | P.otherwise = 0
   P.pure
     ( Sys
-        ( (sysState (initSys (mkProg prog1)))
+        ( (sysCore (initSys (mkProg prog1)))
             { stateFePc = if wbMem then base + 4 else base + 8,
               stateDePc = base + 4,
               stateDeExpInstr = P.not wbMem,

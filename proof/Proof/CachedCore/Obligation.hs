@@ -7,7 +7,7 @@
 -- bus is not ready and the core stalls. 'stallObligation' says such a stall is a stutter
 -- step, so the cached run is the ideal run with stall cycles inserted, provided
 -- the cache answers every read with the data ideal memory would give.
-module Proof.Cache.Obligation
+module Proof.CachedCore.Obligation
   ( stallObligation,
     waitObligation,
   )

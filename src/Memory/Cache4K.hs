@@ -55,15 +55,15 @@ import Prelude hiding (Ordering (..), Word, init, log, not, repeat, undefined, (
 newtype TagArr = TagArr (Vec 256 (BitVector 21))
   deriving (Eq, Show)
 
--- | The tag entry of set @s@.
+-- | The tag entry of set @si@.
 {-# OPAQUE tagRead #-}
 tagRead :: BitVector 8 -> TagArr -> BitVector 21
-tagRead s (TagArr v) = v !! s
+tagRead si (TagArr v) = v !! si
 
--- | Set the tag entry of set @s@ to @e@.
+-- | Set the tag entry of set @si@ to @e@.
 {-# OPAQUE tagWrite #-}
 tagWrite :: BitVector 8 -> BitVector 21 -> TagArr -> TagArr
-tagWrite s e (TagArr v) = TagArr (replace s e v)
+tagWrite si e (TagArr v) = TagArr (replace si e v)
 
 -- | No line valid.
 {-# OPAQUE tagEmpty #-}
@@ -106,23 +106,23 @@ type ByteIdx = BitVector 2
 
 -- | The tag of an address.
 tagOf :: Address -> Tag
-tagOf a = slice d31 d12 (pack a)
+tagOf addr = slice d31 d12 (pack addr)
 
 -- | The set of an address.
 setOf :: Address -> SetIdx
-setOf a = slice d11 d4 (pack a)
+setOf addr = slice d11 d4 (pack addr)
 
 -- | The word of an address within its line.
 wordOf :: Address -> WordIdx
-wordOf a = slice d3 d2 (pack a)
+wordOf addr = slice d3 d2 (pack addr)
 
 -- | The byte of an address within its word.
 byteOf :: Address -> ByteIdx
-byteOf a = slice d1 d0 (pack a)
+byteOf addr = slice d1 d0 (pack addr)
 
--- | The address of byte @bi@ of word @wi@ of the line with tag @t@ in set @s@.
+-- | The address of byte @bi@ of word @wi@ of the line with tag @t@ in set @si@.
 wordAddr :: Tag -> SetIdx -> WordIdx -> ByteIdx -> Address
-wordAddr t s wi bi = unpack (t ++# s ++# wi ++# bi)
+wordAddr t si wi bi = unpack (t ++# si ++# wi ++# bi)
 
 -- The cache ---------------------------------------------------------------------
 
@@ -149,16 +149,16 @@ entryTag e = slice d19 d0 e
 
 -- | Does the line of an address hold its block?
 cacheHit :: Address -> Cache4K -> Bool
-cacheHit a c = entryValid e && entryTag e == tagOf a
+cacheHit addr c = entryValid e && entryTag e == tagOf addr
   where
-    e = tagRead (setOf a) (tagArr c)
+    e = tagRead (setOf addr) (tagArr c)
 
 -- | Load the line of an address from memory: the four words of its block, and
 -- the line's tag entry made valid with the address's tag.
 cacheFill :: (MemOps m) => Address -> m -> Cache4K -> Cache4K
-cacheFill a mem c = Cache4K tags' dat4
+cacheFill addr mem c = Cache4K tags' dat4
   where
-    tags' = tagWrite (setOf a) ((1 :: BitVector 1) ++# tagOf a) (tagArr c)
+    tags' = tagWrite (setOf addr) ((1 :: BitVector 1) ++# tagOf addr) (tagArr c)
 
     dat1 = dataWrite (i 0) (rd 0) (dataArr c)
     dat2 = dataWrite (i 1) (rd 1) dat1
@@ -166,9 +166,9 @@ cacheFill a mem c = Cache4K tags' dat4
     dat4 = dataWrite (i 3) (rd 3) dat3
 
     i :: WordIdx -> BitVector 10
-    i wi = setOf a ++# wi
+    i wi = setOf addr ++# wi
     rd :: WordIdx -> Word
-    rd wi = memReadWord (wordAddr (tagOf a) (setOf a) wi 0) mem
+    rd wi = memReadWord (wordAddr (tagOf addr) (setOf addr) wi 0) mem
 
 -- | Byte @bi@ of a word.
 cacheReadByteInWord :: ByteIdx -> Word -> Byte
@@ -180,24 +180,24 @@ cacheReadByteInWord bi w = case bi of
 
 -- | The cached byte at an address, meaningful on a hit.
 cacheReadByte :: Address -> Cache4K -> Byte
-cacheReadByte a c =
-  let w = dataRead (setOf a ++# wordOf a) (dataArr c)
-  in cacheReadByteInWord (byteOf a) w
+cacheReadByte addr c =
+  let w = dataRead (setOf addr ++# wordOf addr) (dataArr c)
+  in cacheReadByteInWord (byteOf addr) w
 
 -- | What a read of @size@ at an address gets from the cache: its bytes, the
 -- byte at the address lowest, zero above, as memory answers
 -- ('Memory.Types.readResp'). Byte by byte, so a read may cross a word or line
 -- boundary. Meaningful when the lines of all its bytes hit.
 cacheRead :: Address -> Size -> Cache4K -> Word
-cacheRead a size c = case size of
+cacheRead addr size c = case size of
   Byte -> zeroExtend b0
   Half -> zeroExtend (b1 ++# b0)
   Word -> b3 ++# b2 ++# b1 ++# b0
   where
-    b0 = cacheReadByte a c
-    b1 = cacheReadByte (a + 1) c
-    b2 = cacheReadByte (a + 2) c
-    b3 = cacheReadByte (a + 3) c
+    b0 = cacheReadByte addr c
+    b1 = cacheReadByte (addr + 1) c
+    b2 = cacheReadByte (addr + 2) c
+    b3 = cacheReadByte (addr + 3) c
 
 -- | A word with byte @bi@ replaced by @b@.
 cacheWriteByteInWord :: ByteIdx -> Byte -> Word -> Word
@@ -210,11 +210,11 @@ cacheWriteByteInWord bi b w = case bi of
 -- | Put a byte into the cached word of its address, if its line holds the
 -- address's block; otherwise leave the cache alone (no allocation).
 cacheWriteByte :: Address -> Byte -> Cache4K -> Cache4K
-cacheWriteByte a b c
-  | cacheHit a c = c {dataArr = dataWrite i (cacheWriteByteInWord (byteOf a) b w) (dataArr c)}
+cacheWriteByte addr b c
+  | cacheHit addr c = c {dataArr = dataWrite i (cacheWriteByteInWord (byteOf addr) b w) (dataArr c)}
   | otherwise = c
   where
-    i = setOf a ++# wordOf a
+    i = setOf addr ++# wordOf addr
     w = dataRead i (dataArr c)
 
 -- | What a write does to the cache. Memory always takes the write
@@ -223,12 +223,12 @@ cacheWriteByte a b c
 -- its cached word if its line hits, so a write may cross a word or line
 -- boundary.
 cacheWrite :: Address -> Size -> Word -> Cache4K -> Cache4K
-cacheWrite a size w c = case size of
+cacheWrite addr size w c = case size of
   Byte -> c1
   Half -> c2
   Word -> c4
   where
-    c1 = cacheWriteByte a (slice d7 d0 w) c
-    c2 = cacheWriteByte (a + 1) (slice d15 d8 w) c1
-    c3 = cacheWriteByte (a + 2) (slice d23 d16 w) c2
-    c4 = cacheWriteByte (a + 3) (slice d31 d24 w) c3
+    c1 = cacheWriteByte addr (slice d7 d0 w) c
+    c2 = cacheWriteByte (addr + 1) (slice d15 d8 w) c1
+    c3 = cacheWriteByte (addr + 2) (slice d23 d16 w) c2
+    c4 = cacheWriteByte (addr + 3) (slice d31 d24 w) c3

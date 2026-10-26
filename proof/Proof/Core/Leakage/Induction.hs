@@ -53,9 +53,9 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- | The first hop from the initial state, for any start PC, register file and
 -- memory.
 {-# ANN baseCaseLeak (Theory arrayAxioms) #-}
-baseCaseLeak :: RegArr -> MemArr -> Address -> Pantomime.Bool
-baseCaseLeak ra ma pc =
-  Pantomime.boolean $ baseCaseLeakObligation (RegArrF ra) ma pc
+baseCaseLeak :: Address -> RegArr -> MemArr -> Pantomime.Bool
+baseCaseLeak pc ra ma =
+  Pantomime.boolean $ baseCaseLeakObligation pc (RegArrF ra) ma
 
 -- The inductive steps ----------------------------------------------------------
 

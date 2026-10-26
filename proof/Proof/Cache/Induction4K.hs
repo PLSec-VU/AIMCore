@@ -1,10 +1,9 @@
 -- | The server proof for the 4 KiB cache ("Proof.Cache.Server4K"), checked
 -- symbolically, over every tag array, data array, memory and request, with the
--- witnesses quantified. 'cacheArrays' checks the array embeddings, which are
--- trusted, against facts a broken one would get wrong.
+-- witnesses quantified. The array embeddings are checked in
+-- 'Proof.Cache.Server.Functional.Induction.cacheArrays'.
 module Proof.Cache.Induction4K
-  ( cacheArrays,
-    srvInitP,
+  ( srvInitP,
     srvRefineP,
     srvLeakP,
     stallsOnReadsP,
@@ -20,20 +19,11 @@ import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Cache.Server4K (srvInit, srvLeak, srvRefine, stallsOnReads)
 import Memory.Cache4KServer (CacheSrv (..))
 import Proof.SMT.Array (MemArr)
-import Proof.Cache.Axioms (cacheAxioms)
+import Proof.Cache.SMT.Axioms (cacheAxioms)
 import Proof.SMT.Logged (pantomime)
 import Clash.Prelude (BitVector)
 import Types
 import Prelude hiding (Word)
-
-{-# ANN cacheArrays (Theory cacheAxioms) #-}
-cacheArrays :: TagArr -> DataArr -> SetIdx -> BitVector 21 -> BitVector 10 -> Word -> Pantomime.Bool
-cacheArrays t d s e i w =
-  Pantomime.boolean $
-    tagRead s (tagWrite s e t) == e
-      && dataRead i (dataWrite i w d) == w
-      && tagRead s tagEmpty == 0
-      && dataRead i dataZero == 0
 
 {-# ANN srvInitP (Theory cacheAxioms) #-}
 srvInitP :: SetIdx -> WordIdx -> MemArr -> Pantomime.Bool
@@ -55,8 +45,7 @@ stallsOnReadsP t d ma q = Pantomime.boolean $ stallsOnReads (CacheSrv (Cache4K t
 -- property is valid.
 results :: [(String, Maybe String)]
 results =
-  [ ("cacheArrays", $(pantomime 'cacheArrays)),
-    ("srvInitP", $(pantomime 'srvInitP)),
+  [ ("srvInitP", $(pantomime 'srvInitP)),
     ("srvRefineP", $(pantomime 'srvRefineP)),
     ("srvLeakP", $(pantomime 'srvLeakP)),
     ("stallsOnReadsP", $(pantomime 'stallsOnReadsP))

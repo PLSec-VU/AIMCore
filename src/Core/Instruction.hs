@@ -36,7 +36,6 @@ import Data.Binary (Binary)
 import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined, (&&), (||))
-import Pantomime.Expr (Literal(Bool))
 
 -- | All arithmetic and logic operations.
 data Arith

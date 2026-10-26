@@ -108,14 +108,15 @@ library:
   when:
     - condition: flag(smt-proof)
       exposed-modules:
-        - Proof.Cache.Induction
+        - Proof.CachedCore.Induction
+        - Proof.Cache.Server.Functional.Induction
         - Proof.Cache.Induction4K
         - Proof.Core.Functional.Induction
         - Proof.Core.Leakage.Induction
-        - Proof.SMT.Array
         - Proof.SMT.Axioms
-        - Proof.Cache.Array
-        - Proof.Cache.Axioms
+        - Proof.Cache.SMT.Array
+        - Proof.Cache.SMT.Axioms
+        - Proof.Cache.SMT.Coherent
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
         - Proof.Core.Functional.System
@@ -124,10 +125,17 @@ library:
   # live in proof/ too, and must only be built with the smt-proof flag.
   other-modules: []
   exposed-modules:
-    - Proof.Cache.Obligation
+    - Proof.CachedCore.Obligation
     - Proof.Cache.Server4K
-    - Proof.Cache.Functional.Machine
+    - Proof.Cache.Server.Functional.Driver
+    - Proof.Cache.Server.Functional.Invariant
+    - Proof.Cache.Server.Functional.Obligation
     - Proof.Cache.Functional.Driver
+    - Proof.Cache.Functional.Invariant
+    - Proof.Cache.Functional.Machine
+    - Proof.Cache.Functional.Obligation
+    - Proof.Cache.SMT.Raw
+    - Proof.SMT.Array
     - Proof.Core.Functional.Machine
     - Proof.Core.Functional.Driver
     - Proof.Core.Functional.Invariant

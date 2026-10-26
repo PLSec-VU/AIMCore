@@ -153,6 +153,6 @@ leakOf isa@(IsaState pc rf _) =
     Nop _ -> LArith
   where
     ir = isaInstrAt isa
-    regv i = (lookupRFg i rf)
+    regv i = lookupRFg i rf
     off imm = unpack $ signExtend imm
     addr rs1 imm = unpack $ regv rs1 + signExtend imm

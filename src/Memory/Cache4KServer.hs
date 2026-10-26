@@ -14,6 +14,7 @@ module Memory.Cache4KServer
   ( Cycles,
     CacheSrv (..),
     CacheSrvState (..),
+    initCacheSrv,
     penalty,
     serve,
   )
@@ -37,7 +38,7 @@ penalty = 4
 -- | The address of the last byte of an access. An access touches at most two
 -- lines: the lines of its first and last byte.
 data CacheSrvState = CacheSrvReady | CacheSrvStall Cycles Word
-  deriving Show
+  deriving (Show, Eq)
 
 -- | A cache in front of memory, as a server: the cache, a read waiting for
 -- memory, and memory.
@@ -50,17 +51,23 @@ data CacheSrv m = CacheSrv
 
 deriving instance (Show m) => Show (CacheSrv m)
 
--- | One cycle of the cache in front of ideal memory.
+-- | The cache server at start: no line valid and no read waiting, in front of
+-- memory @mem@.
+initCacheSrv :: m -> CacheSrv m
+initCacheSrv mem = CacheSrv emptyCache4K mem CacheSrvReady
+
+-- | One cycle of the cache in front of ideal memory. The answer is 'Nothing'
+-- only while a read is not ready yet; a write and no request answer @Just 0@.
 serve :: (MemOps m) => CacheSrv m -> Request -> (CacheSrv m, Input)
-serve (CacheSrv c mem s) req = case s of
+serve (CacheSrv c mem st) req = case st of
   CacheSrvStall n w
     | n > 0 ->
         (CacheSrv c mem (CacheSrvStall (n - 1) w), Input Nothing)
     | otherwise ->
-        (CacheSrv c mem CacheSrvReady, Input $ Just w)
+        (CacheSrv c mem CacheSrvReady, Input (Just w))
   CacheSrvReady -> case req of
     Just (MemFetch addr) ->
-      (CacheSrv c mem CacheSrvReady, Input $ Just $ memReadWord addr mem)
+      (CacheSrv c mem CacheSrvReady, Input (Just (memReadWord addr mem)))
     Just (MemRead addr size) ->
       let off = case size of
             Byte -> 0
@@ -86,7 +93,7 @@ serve (CacheSrv c mem s) req = case s of
           (cacheWrite addr size val c)
           (memWrite addr size val mem)
           CacheSrvReady,
-        Input Nothing
-      )      
-    -- this case should never occur
-    _ -> (CacheSrv c mem CacheSrvReady, Input Nothing)
+        Input (Just 0)
+      )
+    -- No request.
+    _ -> (CacheSrv c mem CacheSrvReady, Input (Just 0))

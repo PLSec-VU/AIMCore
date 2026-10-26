@@ -73,9 +73,9 @@ shiftsSane x =
 -- The base case ----------------------------------------------------------------
 
 {-# ANN baseCase (Theory arrayAxioms) #-}
-baseCase :: RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-baseCase ra ma wr wa pc =
-  Pantomime.boolean $ baseCaseObligation (RegArrF ra) ma wr wa pc
+baseCase :: Address -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
+baseCase pc ra ma wr wa =
+  Pantomime.boolean $ baseCaseObligation pc (RegArrF ra) ma wr wa
 
 -- The inductive steps ----------------------------------------------------------
 
@@ -83,7 +83,7 @@ baseCase ra ma wr wa pc =
 {-# ANN indStep (Theory arrayAxioms) #-}
 indStep :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
 indStep ss i ra ma wr wa ipc =
-  Pantomime.boolean $ indStepObligation wr wa ipc (sysOf ss i ra ma)
+  Pantomime.boolean $ indStepObligation0 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
 {-# ANN indStep1 (Theory arrayAxioms) #-}

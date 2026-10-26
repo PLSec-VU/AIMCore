@@ -44,8 +44,8 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- afterwards. The register file and memory are arbitrary, as in
 -- 'Proof.Core.Functional.Obligation.baseCaseObligation'.
 baseCaseLeakObligation ::
-  (RegFileOps r, MemOps m) => r -> m -> Address -> Bool
-baseCaseLeakObligation rf mem pc =
+  (RegFileOps r, MemOps m) => Address -> r -> m -> Bool
+baseCaseLeakObligation pc rf mem =
   simDriver Nothing sim == 1
     && obs1 == obsOf out1
     && obs2 == obsOf out2

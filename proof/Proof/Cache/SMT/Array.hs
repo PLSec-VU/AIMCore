@@ -2,9 +2,9 @@
 
 -- | The arrays of "Memory.Cache4K" embedded as SMT arrays, as "Proof.SMT.Array"
 -- embeds the register file and memory: a monomorphic SMT newtype per array, and
--- an embedding per wrapper, which the term axioms in "Proof.Cache.Axioms"
+-- an embedding per wrapper, which the term axioms in "Proof.Cache.SMT.Axioms"
 -- put in place of the wrapper.
-module Proof.Cache.Array
+module Proof.Cache.SMT.Array
   ( TagArrSMT (..),
     tagReadE,
     tagWriteE,

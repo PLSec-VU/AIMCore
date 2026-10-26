@@ -15,8 +15,6 @@ module Proof.Core.Functional.Machine
     Sys,
     stepSys,
     stepSysOut,
-    stepSysN,
-    initSys,
   )
 where
 
@@ -25,12 +23,11 @@ import Core
 import Memory.Types
 import Memory.Ideal (idealServe)
 import Core.RegFile
-import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | Core state, the input it is about to consume, and memory.
 data SysG r m = Sys
-  { sysState :: Core.StateG r,
+  { sysCore :: Core.StateG r,
     sysInput :: Input,
     sysMem :: m
   }
@@ -40,9 +37,7 @@ type Sys = SysG RegFile MemBytes
 
 deriving instance (Show r, Show m) => Show (SysG r m)
 
--- | Structural equality. 'Input' has no 'Eq' instance in "Core" (adding one
--- there clashes with the existing @Eq Out@ in the Leak modules), so we compare
--- its fields directly.
+-- | Structural equality.
 instance (Eq r, Eq m) => Eq (SysG r m) where
   Sys s1 i1 m1 == Sys s2 i2 m2 =
     s1 == s2
@@ -64,21 +59,7 @@ stepSys = fst . stepSysOut
 -- The system is the core in a loop with 'idealServe': the core's request goes
 -- to memory, and memory's response is the core's input in the next cycle.
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output)
-stepSysOut (Sys s i m) =
-  let (s', o) = Core.circuit s i
-      (m', i') = idealServe m (outMem o)
-   in (Sys s' i' m', o)
-
-stepSysN :: (RegFileOps r, MemOps m) => Int -> SysG r m -> SysG r m
-stepSysN n s
-  | n <= 0 = s
-  | otherwise = stepSysN (n - 1) (stepSys s)
-
--- | The system as it starts up, with @prog@ loaded at 'initPc'.
-initSys :: Vec PROG_SIZE Word -> Sys
-initSys prog =
-  Sys
-    { sysState = Core.init,
-      sysInput = initInput,
-      sysMem = mkRAM @PROG_SIZE @RAM_SIZE_BYTES prog
-    }
+stepSysOut (Sys core inp mem) =
+  let (core', o) = Core.circuit core inp
+      (mem', inp') = idealServe mem (outMem o)
+   in (Sys core' inp' mem', o)

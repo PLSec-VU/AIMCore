@@ -56,7 +56,7 @@ topEntity = exposeClockResetEnable $ mealy (circuit @RegFile) (init @RegFile)
 -- | The input to the CPU: memory's answer to the previous request, or 'Nothing'
 -- while it is not ready yet.
 newtype Input = Input {inputMem :: Maybe Word}
-  deriving (Show, Generic, NFDataX)
+  deriving (Show, Eq, Generic, NFDataX)
 
 -- | A memory access.
 data MemAccess

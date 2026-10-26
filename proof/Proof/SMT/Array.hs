@@ -40,16 +40,13 @@ module Proof.SMT.Array
   )
 where
 
-import qualified Clash.Prelude
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Coerce (Coercible, coerce)
-import Data.Kind (Type)
 import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
 import Core.RegFile (RegFileOps (..))
 import Types
-import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | The Haskell-side register file: 32 entries, so the index is exactly a
