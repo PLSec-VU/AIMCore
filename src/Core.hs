@@ -190,6 +190,9 @@ pipe = do
   execute
   decode
   fetch
+  -- The lines only carry values within a tick, so none of them survives it:
+  -- a cycle in which the pipeline holds leaves the state exactly as it was.
+  modify $ \s -> s {stateCtrl = initCtrl}
 
 initInput :: Input
 initInput = Input (Just 0)
