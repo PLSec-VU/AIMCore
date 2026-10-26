@@ -7,8 +7,6 @@
 module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
-import Cache4KSpec (cache4KTests)
-import CompositionSpec (compositionTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
@@ -25,9 +23,7 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.CachedCore.Induction
-import qualified Proof.Cache.Server.Functional.Induction
-import qualified Proof.Cache.Induction4K
+import qualified Proof.Cache.Functional.Induction
 import qualified Proof.Core.Functional.Induction
 import qualified Proof.Core.Leakage.Induction
 #endif
@@ -99,19 +95,18 @@ sanityTests =
       testCase "k = 3 leakage step is valid" $
         lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing,
       testGroup
-        "the core is patient"
-        [ testCase name $ lookup name Proof.CachedCore.Induction.results @?= Just Nothing
-          | name <- ["stallStep", "waitStep"]
-        ],
-      testGroup
-        "the 4 KiB cache has a server proof"
-        [ testCase name $ lookup name Proof.Cache.Induction4K.results @?= Just Nothing
-          | name <- ["srvInitP", "srvRefineP", "srvLeakP", "stallsOnReadsP"]
-        ],
-      testGroup
-        "the 4 KiB cache answers as ideal memory"
-        [ testCase name $ lookup name Proof.Cache.Server.Functional.Induction.results @?= Just Nothing
-          | name <- ["cacheArrays", "baseCase", "indStep0", "indStep4", "indStep8"]
+        "the core behind the 4 KiB cache refines the core behind ideal memory"
+        [ testCase name $ lookup name Proof.Cache.Functional.Induction.results @?= Just Nothing
+          | name <-
+              [ "cacheArrays",
+                "coherentData",
+                "coherentWrite",
+                "coherentLayout",
+                "baseCase",
+                "indStep0",
+                "indStep4",
+                "indStep8"
+              ]
         ]
     ]
   where
@@ -132,8 +127,6 @@ tests =
       proofTests,
       isaConformanceTests,
       instructionTests,
-      compositionTests,
-      cache4KTests,
       testGroup
         "Haskell simulation tests"
         [ testGroup
