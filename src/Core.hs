@@ -166,8 +166,8 @@ data Control = Control
     -- | Forwards the `rd` register from the `writeback` stage to the `execute`
     -- stage.
     ctrlWbRegFwd :: Maybe (RegIdx, Word),
-    -- | True when a load is in flight.
-    ctrlWbLoadInFlight :: Bool
+    -- | True when memory has not answered yet: the pipeline holds.
+    ctrlMemNotReady :: Bool
   }
   deriving (Show, Eq, Generic, NFDataX)
 
@@ -228,16 +228,16 @@ initCtrl =
       ctrlMeStoreAddrSize = Nothing,
       ctrlMeRegFwd = Nothing,
       ctrlWbRegFwd = Nothing,
-      ctrlWbLoadInFlight = False
+      ctrlMemNotReady = False
     }
 
--- | Fetch stage. Holds while a load is in flight (see 'writeback'), like the
+-- | Fetch stage. Holds while memory has not answered (see 'writeback'), like the
 -- other stages before writeback: a stall then leaves every pipeline register
 -- as it was.
 fetch :: CPUM r ()
 fetch = do
-  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
-  unless loadInFlight fetchFresh
+  notReady <- gets (ctrlMemNotReady . stateCtrl)
+  unless notReady fetchFresh
 
 -- | Fetch stage, in a cycle where the pipeline advances.
 fetchFresh :: CPUM r ()
@@ -270,11 +270,11 @@ fetchFresh = do
         stateDeExpInstr = not stall
       }
 
--- | Decode stage. Holds while a load is in flight (see 'writeback').
+-- | Decode stage. Holds while memory has not answered (see 'writeback').
 decode :: CPUM r ()
 decode = do
-  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
-  unless loadInFlight decodeFresh
+  notReady <- gets (ctrlMemNotReady . stateCtrl)
+  unless notReady decodeFresh
 
 -- | Decode stage, in a cycle where the pipeline advances.
 decodeFresh :: CPUM r ()
@@ -335,11 +335,11 @@ decodeFresh = do
   when (ir' == Nop LoadHazardFirstCycle) $ do
     setLines $ \c -> c {ctrlDeLoadHazard = Just pc}
 
--- | Execute stage. Holds while a load is in flight (see 'writeback').
+-- | Execute stage. Holds while memory has not answered (see 'writeback').
 execute :: forall r. (RegFileOps r) => CPUM r ()
 execute = do
-  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
-  unless loadInFlight executeFresh
+  notReady <- gets (ctrlMemNotReady . stateCtrl)
+  unless notReady executeFresh
 
 -- | Execute stage, in a cycle where the pipeline advances.
 executeFresh :: forall r. (RegFileOps r) => CPUM r ()
@@ -497,11 +497,11 @@ branch op lhs rhs = case op of
   where
     sign = unpack @(Signed 32)
 
--- | Memory stage. Holds while a load is in flight (see 'writeback').
+-- | Memory stage. Holds while memory has not answered (see 'writeback').
 memory :: CPUM r ()
 memory = do
-  loadInFlight <- gets (ctrlWbLoadInFlight . stateCtrl)
-  unless loadInFlight memoryFresh
+  notReady <- gets (ctrlMemNotReady . stateCtrl)
+  unless notReady memoryFresh
 
 -- | Memory stage, in a cycle where the pipeline advances.
 memoryFresh :: CPUM r ()
@@ -535,16 +535,17 @@ memoryFresh = do
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     _ -> pure ()
 
--- | Writeback stage. A load whose answer has not arrived yet ('inputMem' is
--- 'Nothing') waits, and raises 'ctrlWbLoadInFlight' so that the other stages
--- hold too; otherwise the instruction completes ('writebackFresh').
+-- | Writeback stage. While memory has not answered ('inputMem' is 'Nothing'),
+-- the instruction waits, and raises 'ctrlMemNotReady' so that the other stages
+-- hold too: the whole pipeline keeps its state and makes no request, whatever
+-- the request memory delays. Otherwise the instruction completes
+-- ('writebackFresh').
 writeback :: forall r. (RegFileOps r) => CPUM r ()
 writeback = do
-  ir <- gets stateWbInstr
   input <- asks inputMem
 
-  if isLoad ir && isNothing input
-    then setLines $ \c -> c {ctrlWbLoadInFlight = True}
+  if isNothing input
+    then setLines $ \c -> c {ctrlMemNotReady = True}
     else writebackFresh
 
 -- | Writeback stage, in a cycle where the instruction in it completes.
