@@ -16,7 +16,7 @@ module Proof.SMT.Stepper
 import ISA (IsaStateG (..), StepG (..), isaStep)
 import Memory.Types (MemOps (..))
 import RegFile (RegFileOps (..))
-import Stepper (IsaSys, IsaSysStep)
+import Stepper (Fuel (..), IsaSys, IsaSysStep)
 import SymFC (SymFC (..))
 import SymFC.Base qualified as Base
 import SymFC.BuiltIn qualified as SymFC
@@ -112,8 +112,6 @@ chainUnrolledWrongValueFails :: SymFC.Sym ()
 chainUnrolledWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectCounterexample $ threeStepsUnrolled isa == chainSetsX3To 14 isa
-
-data Fuel = Done | More Fuel
 
 threeSteps :: Fuel
 threeSteps = More (More (More Done))

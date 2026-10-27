@@ -114,9 +114,14 @@ library:
         - Proof.Leakage.Induction
         - Proof.SMT.Array
         - Proof.SMT.Axioms
+        - Proof.SMT.Concrete
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
+        - Proof.SMT.Bench.Memcmp
         - Proof.SMT.Stepper
+        - Proof.SMT.Stepper.Memcmp
+        - Proof.SMT.Stepper.RelMem
+        - Proof.SMT.Stepper.Relational
         - Proof.SMT.System
       cpp-options: -DSMT_PROOF
   exposed-modules:
