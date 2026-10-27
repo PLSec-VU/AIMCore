@@ -116,6 +116,7 @@ library:
         - Proof.SMT.Axioms
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
+        - Proof.SMT.Stepper
         - Proof.SMT.System
       cpp-options: -DSMT_PROOF
   exposed-modules:
