@@ -84,6 +84,10 @@ sanityTests =
         lookup "indStep2P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
         lookup "indStep3P" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant implies the ISA's register file is the core's, flushed" $
+        lookup "regFileUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant implies the ISA's memory is the core's, flushed" $
+        lookup "memUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
         lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $

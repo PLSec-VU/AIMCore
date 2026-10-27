@@ -7,6 +7,10 @@
 -- input space, not the property.
 module Proof.Core.Functional.Obligation
   ( isaAt,
+    flushedRegFile,
+    flushedMem,
+    regFileUnderInv,
+    memUnderInv,
     baseCase,
     indStep0,
     indStep1,
@@ -45,20 +49,46 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- @stateExPc@ when running and @stateHalt@ once halted. Deriving it from either
 -- one would make the other case unsatisfiable as a premise.
 isaAt :: (RegFileOps r, MemOps m) => Address -> SysG r m -> IsaStateG r m
-isaAt ipc (Sys core inp mem) =
-  IsaState {isaPc = ipc, isaRegFile = frf, isaMem = fm}
-  where
-    (fm, frf) =
-      flushMeStage
-        (Core.stateMeInstr core)
-        (Core.stateMeRes core)
-        (Core.stateMeAddr core)
-        ( flushWbStage
-            (Core.stateWbInstr core)
-            (Core.stateWbRes core)
-            (fromMaybe 0 (Core.inputMem inp))
-            (mem, Core.stateRegFile core)
-        )
+isaAt ipc sys =
+  IsaState {isaPc = ipc, isaRegFile = flushedRegFile sys, isaMem = flushedMem sys}
+
+-- | The register file the core stands for: its own, with the writes still in
+-- the pipeline (the memory and writeback stages) applied.
+flushedRegFile :: (RegFileOps r, MemOps m) => SysG r m -> r
+flushedRegFile = snd . flushed
+
+-- | The memory the core stands for: its own, with the stores still in the
+-- pipeline (the memory and writeback stages) applied.
+flushedMem :: (RegFileOps r, MemOps m) => SysG r m -> m
+flushedMem = fst . flushed
+
+-- | The pipeline's pending writes applied to memory and the register file.
+flushed :: (RegFileOps r, MemOps m) => SysG r m -> (m, r)
+flushed (Sys core inp mem) =
+  flushMeStage
+    (Core.stateMeInstr core)
+    (Core.stateMeRes core)
+    (Core.stateMeAddr core)
+    ( flushWbStage
+        (Core.stateWbInstr core)
+        (Core.stateWbRes core)
+        (fromMaybe 0 (Core.inputMem inp))
+        (mem, Core.stateRegFile core)
+    )
+
+-- | The invariant relating the core to the ISA implies that the ISA's register
+-- file is the core's, flushed ('flushedRegFile'), at register @wr@.
+regFileUnderInv :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+regFileUnderInv wr wa isa sys =
+  not (invAt wr wa isa sys)
+    || lookupRFg wr (isaRegFile isa) == lookupRFg wr (flushedRegFile sys)
+
+-- | The invariant relating the core to the ISA implies that the ISA's memory is
+-- the core's, flushed ('flushedMem'), at byte @wa@.
+memUnderInv :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+memUnderInv wr wa isa sys =
+  not (invAt wr wa isa sys)
+    || memReadByte wa (isaMem isa) == memReadByte wa (flushedMem sys)
 
 -- | The base case: the invariant holds once the initial state has taken its
 -- first hop.

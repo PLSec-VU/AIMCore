@@ -26,12 +26,15 @@ module Proof.Core.Functional.Solver
     indStep1P,
     indStep2P,
     indStep3P,
+    regFileUnderInvP,
+    memUnderInvP,
     results,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
+import Core.ISA (IsaStateG (..))
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Core.Functional.Obligation
@@ -106,6 +109,24 @@ indStep3P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> M
 indStep3P wr wa ipc ss i ra ma =
   Pantomime.boolean $ indStep3 wr wa ipc (sysOf ss i ra ma)
 
+-- The invariant and the flush ---------------------------------------------------
+
+-- | The invariant relating the core to the ISA implies that the ISA's register
+-- file is the core's, flushed. The ISA state is free, not derived from the core.
+{-# ANN regFileUnderInvP (Theory arrayAxioms) #-}
+regFileUnderInvP ::
+  RegIdx -> Address -> Address -> RegArr -> MemArr -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+regFileUnderInvP wr wa ipc ira ima ss i ra ma =
+  Pantomime.boolean $ regFileUnderInv wr wa (IsaState ipc (RegArrF ira) ima) (sysOf ss i ra ma)
+
+-- | The invariant relating the core to the ISA implies that the ISA's memory is
+-- the core's, flushed.
+{-# ANN memUnderInvP (Theory arrayAxioms) #-}
+memUnderInvP ::
+  RegIdx -> Address -> Address -> RegArr -> MemArr -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+memUnderInvP wr wa ipc ira ima ss i ra ma =
+  Pantomime.boolean $ memUnderInv wr wa (IsaState ipc (RegArrF ira) ima) (sysOf ss i ra ma)
+
 results :: [(String, Maybe String)]
 results =
   [ ("arrRoundTripP", $(pantomime 'arrRoundTripP)),
@@ -114,5 +135,7 @@ results =
     ("indStep0P", $(pantomime 'indStep0P)),
     ("indStep1P", $(pantomime 'indStep1P)),
     ("indStep2P", $(pantomime 'indStep2P)),
-    ("indStep3P", $(pantomime 'indStep3P))
+    ("indStep3P", $(pantomime 'indStep3P)),
+    ("regFileUnderInvP", $(pantomime 'regFileUnderInvP)),
+    ("memUnderInvP", $(pantomime 'memUnderInvP))
   ]
