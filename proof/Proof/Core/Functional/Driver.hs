@@ -128,7 +128,7 @@ loadHazard (Sys core inp _) =
 
 -- | The driver's case table. The cases are checked in order. The driver is
 -- only ever run from states that satisfy the invariant
--- ('Proof.Core.Functional.Invariant.invAtFree'); elsewhere it need not agree
+-- ('Proof.Core.Functional.Invariant.invAt'); elsewhere it need not agree
 -- with 'driverRef'.
 driver :: (RegFileOps r) => SysG r m -> Int
 driver sys@(Sys core _ _)

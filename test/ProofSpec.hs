@@ -10,7 +10,7 @@ import Core.ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Core.Instruction
 import Proof.Core.Functional.Invariant
 import Proof.Core.Functional.Machine
-import Proof.Core.Functional.Obligation (indStepObligation0, indStepObligation1, indStepObligation2, isaAt)
+import Proof.Core.Functional.Obligation (indStep0, indStep1, indStep2, isaAt)
 import Proof.Core.Leakage.Driver (simDriver)
 import Proof.Core.Leakage.Invariant (simInv)
 import Proof.Core.Leakage.Model (Obs, leakOf, obsOf)
@@ -109,7 +109,7 @@ baseReport prog =
 -- The reset state is not one of them. Its hop brings the first instruction into
 -- the execute stage without the ISA having executed anything, so the ISA state
 -- is unchanged across it and the trace starts after it, at the state
--- 'Proof.Core.Functional.Induction.baseCase' is about. Every later hop advances the
+-- 'Proof.Core.Functional.Solver.baseCase' is about. Every later hop advances the
 -- ISA by one step.
 invTrace :: Int -> Vec PROG_SIZE Word -> [(Int, IsaState, Sys)]
 invTrace k prog = go k 0 isa0 sys0 True
@@ -160,7 +160,7 @@ invReport k prog =
 -- | The leakage simulator run alongside the core, hop by hop, on a concrete
 -- program. Returns the first discrepancy, or @""@ if there is none.
 --
--- The concrete counterpart of "Proof.Core.Leakage.Induction", in the way 'invTrace'
+-- The concrete counterpart of "Proof.Core.Leakage.Solver", in the way 'invTrace'
 -- is of the functional one. Both machines start from their initial states and
 -- take the first hop with no leakage, as in the leakage base case. After that,
 -- each hop feeds the simulator @'leakOf' isa@ on its first cycle and nothing
@@ -313,7 +313,7 @@ proofTests :: TestTree
 proofTests =
   testGroup
     "Driver and invariant"
-    [ -- The base case, on the real 'Vec'-backed reset state. 'Proof.Core.Functional.Induction.baseCase'
+    [ -- The base case, on the real 'Vec'-backed reset state. 'Proof.Core.Functional.Solver.baseCase'
       -- proves this for an arbitrary memory, but has to substitute the register
       -- file (Clash's 'repeat' is opaque to the symbolic executor), so the
       -- concrete check is what pins that the state it describes is the one
@@ -422,7 +422,7 @@ proofTests =
                   inv isa sys,
                   wr <- [0 .. 31],
                   wa <- [0, 16 .. 396],
-                  P.not (invAt wr wa isa sys)
+                  P.not (invAtList wr wa isa sys)
               ]
          in if P.null bad then pure () else assertFailure (show (P.take 5 bad)),
       -- The fold-free invariant is what the plugin runs on; it must agree with
@@ -435,7 +435,7 @@ proofTests =
                   (c, isa, sys) <- invTrace 40 prog,
                   wr <- [0 .. 31],
                   wa <- [0, 16 .. 396],
-                  invAt wr wa isa sys /= invAtFree wr wa isa sys
+                  invAtList wr wa isa sys /= invAt wr wa isa sys
               ]
          in if P.null bad then pure () else assertFailure (show (P.take 5 bad)),
       -- The fifth counterexample of the earlier proof: a store whose byte range
@@ -450,13 +450,13 @@ proofTests =
             isa = isaFromSys sys
             sys' = stepSysN (driver sys P.+ 1) sys
             isa' = case isaStep isa of Next x -> x; IsaHalted -> isa
-        assertBool "state satisfies the invariant" (invAtFree wr wa isa sys)
+        assertBool "state satisfies the invariant" (invAt wr wa isa sys)
         assertBool
           "decode stalls on the store hazard rather than taking a one-cycle hop"
           (driver sys P./= 0)
         assertBool
           "the driven hop preserves the invariant"
-          (invAtFree wr wa isa' sys'),
+          (invAt wr wa isa' sys'),
       testProperty "inductive step on arbitrary pipeline states" $
         -- 1e6 has been run by hand (60s, no counterexample); 20k keeps the
         -- suite fast.
@@ -478,7 +478,7 @@ proofTests =
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' sys'))))
                   )
-                  (indStepObligation0 wr wa (stateExPc (sysCore sys)) sys),
+                  (indStep0 wr wa (stateExPc (sysCore sys)) sys),
       -- k = 1: the two-cycle hop, a memory instruction in writeback. The test
       -- below asserts generated states actually satisfy the premise, since one
       -- this specific is easy to miss entirely and still see a green property.
@@ -498,14 +498,14 @@ proofTests =
                       P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
                       P.++ "\nfailing=" P.++ show (P.map P.fst (P.filter (P.not . P.snd) (P.concatMap caseConjuncts (invCasesAt wr wa isa' s2))))
                   )
-                  (indStepObligation1 wr wa (stateExPc (sysCore sys)) sys),
+                  (indStep1 wr wa (stateExPc (sysCore sys)) sys),
       testCase "k=1 generator satisfies the premise" $
         let sample = [s | (s, _, _) <- unGen (vectorOf 4000 genArbSys1) (mkQCGen 7) 30]
             admitted =
               [ ()
                 | s <- sample,
                   driver s P.== 1,
-                  invAtFree 1 0 (isaAt (stateExPc (sysCore s)) s) s
+                  invAt 1 0 (isaAt (stateExPc (sysCore s)) s) s
               ]
          in assertBool "no generated state satisfied the k=1 premise" (P.not (P.null admitted)),
       -- k = 2: jumps and the all-memory steady shape return to a running
@@ -523,14 +523,14 @@ proofTests =
                   P.++ "\nexPc=" P.++ show (stateExPc (sysCore sys))
                   P.++ " wr=" P.++ show wr P.++ " wa=" P.++ show wa
               )
-              (indStepObligation2 wr wa (stateExPc (sysCore sys)) sys),
+              (indStep2 wr wa (stateExPc (sysCore sys)) sys),
       testCase "k=2 generator reaches env, jump, and steady cases" $
         let sample =
               [ (label, driverCaseName s)
                 | (label, s, wr, wa) <-
                     unGen (vectorOf 4000 genArbSys2) (mkQCGen 29) 30,
                   driver s P.== 2,
-                  invAtFree wr wa (isaAt (stateExPc (sysCore s)) s) s
+                  invAt wr wa (isaAt (stateExPc (sysCore s)) s) s
               ]
             has label = P.any ((P.== label) . P.fst) sample
          in do
@@ -558,7 +558,7 @@ proofTests =
 -- | The architectural state that makes the flush conjunct hold at @sys@ by
 -- construction. If @sys@ is an aligned running state, this is the ISA state the
 -- invariant claims it corresponds to.
--- Shared with 'Proof.Core.Functional.Induction.indStep0' via "Proof.Core.Functional.Obligation", so the two cannot drift.
+-- Shared with 'Proof.Core.Functional.Solver.indStep0' via "Proof.Core.Functional.Obligation", so the two cannot drift.
 isaFromSys :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
 isaFromSys sys = isaAt (stateExPc (sysCore sys)) sys
 
@@ -865,7 +865,7 @@ genArbSys = do
 -- invariant admits: a memory instruction in writeback, which occupied the bus
 -- last cycle, so no instruction was fetched and @fePc == exPc + 4@. The reset
 -- state also gets a two-cycle hop, but it is not in the invariant; see
--- 'Proof.Core.Functional.Induction.baseCase'.
+-- 'Proof.Core.Functional.Solver.baseCase'.
 genArbSys1 :: Gen (SysG RegFn MemFn, RegIdx, Address)
 genArbSys1 = genSteady1
 

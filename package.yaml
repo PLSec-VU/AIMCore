@@ -108,8 +108,9 @@ library:
   when:
     - condition: flag(smt-proof)
       exposed-modules:
-        - Proof.Core.Functional.Induction
-        - Proof.Core.Leakage.Induction
+        - Proof.Cache.Functional.Solver
+        - Proof.Core.Functional.Solver
+        - Proof.Core.Leakage.Solver
         - Proof.SMT.Axioms
         - Proof.Cache.SMT.Array
         - Proof.Cache.SMT.Axioms
@@ -122,9 +123,10 @@ library:
   # live in proof/ too, and must only be built with the smt-proof flag.
   other-modules: []
   exposed-modules:
-    - Proof.Cache.Server.Functional.Driver
-    - Proof.Cache.Server.Functional.Invariant
-    - Proof.Cache.Server.Functional.Obligation
+    - Proof.Cache.Functional.Contract
+    - Proof.Cache.Functional.Driver
+    - Proof.Cache.Functional.Invariant
+    - Proof.Cache.Functional.Obligation
     - Proof.Cache.SMT.Raw
     - Proof.SMT.Array
     - Proof.Core.Functional.Machine

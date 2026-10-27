@@ -1,35 +1,30 @@
--- | The driver of the core behind the cache: how many cycles the cached system
--- ("Proof.Cache.Functional.Machine") takes beyond one cycle of the core with
--- ideal memory, before the two can be compared again -- the counterpart of
--- "Proof.Core.Functional.Driver".
+-- | The cache's driver: how many cycles after a request the cache's answer is
+-- final -- the cache's counterpart of "Proof.Core.Functional.Driver".
 --
---   * 'driver', a case table over the cache and the request the core makes, and
---   * 'driverRef', the operational reading, obtained by actually stepping.
+--   * 'driver', a case table over the cache and the request, and
+--   * 'driverRef', the operational reading, obtained by actually serving.
 module Proof.Cache.Functional.Driver
   ( driver,
     driverRef,
   )
 where
 
-import Core (MemAccess (..), Output (..))
-import qualified Core
+import Core (MemAccess (..), Request)
 import Memory.Cache4K (cacheHit, setOf)
 import Memory.Cache4KServer
 import Memory.Types (MemOps (..))
-import Proof.Cache.Functional.Machine (CachedSysG (..), stepCached)
-import Core.RegFile (RegFileOps)
 import Types
 
--- | The cycles after this one until the cache has answered the request the
--- core makes in this cycle: 'penalty' for every line a data read misses,
--- nothing for anything else. A read touches the lines of its first and last
--- byte; within four bytes those are different lines exactly when they are in
--- different sets. The driver is only ever run from systems that satisfy the
--- invariant ('Proof.Cache.Functional.Invariant.cacheInvAt'), whose cache is
--- ready, so the cache's state is not consulted; elsewhere it need not agree
--- with 'driverRef'.
-driver :: (RegFileOps r) => CachedSysG r m -> Cycles
-driver (CachedSys core inp srv) = case req of
+-- | The cycles after the request until the cache's answer is final: 'penalty'
+-- for every line a data read misses, nothing for anything else. A read touches
+-- the lines of its first and last byte; within four bytes those are different
+-- lines exactly when they are in different sets. The driver is only ever run
+-- from servers that satisfy the invariant
+-- ('Proof.Cache.Functional.Invariant.srvInvAt'), which are ready, so the
+-- server's state is not consulted; elsewhere it need not agree with
+-- 'driverRef'.
+driver :: CacheSrv m -> Request -> Cycles
+driver (CacheSrv c _ _) req = case req of
   Just (MemRead addr size) ->
     let off = case size of
           Byte -> 0
@@ -43,23 +38,17 @@ driver (CachedSys core inp srv) = case req of
         penalty2ndLine = if hit2ndLine then 0 else penalty
 
     in penalty1stLine + penalty2ndLine
-    where c = srvCache srv
   _ -> 0
-  where (_, Output req) = Core.circuit core inp
 
--- | The operational reading of 'driver': step the cached system until the cache
--- is ready again, and count every cycle of the hop, including the first. So,
--- from a system that satisfies the invariant,
--- @'driverRef' fuel csys0 == Just ('driver' csys0 + 1)@. 'Nothing' if the hop
--- takes more than @fuel@ cycles.
-driverRef :: (RegFileOps r, MemOps m) => Int -> CachedSysG r m -> Maybe Int
-driverRef fuel csys0 = go 1 (stepCached csys0)
+-- | The operational reading of 'driver': serve the request, then serve without
+-- one until the server is ready again, and count every cycle of the hop,
+-- including the request's. So, from a server that satisfies the invariant,
+-- @'driverRef' fuel srv0 req == Just ('driver' srv0 req + 1)@. 'Nothing' if the
+-- hop takes more than @fuel@ cycles.
+driverRef :: (MemOps m) => Int -> CacheSrv m -> Request -> Maybe Int
+driverRef fuel srv0 req = go 1 (fst (serve srv0 req))
   where
-    go n csys
-      | isReady (srvState (cachedSrv csys)) = Just n
+    go n srv
+      | srvState srv == CacheSrvReady = Just n
       | n >= fuel = Nothing
-      | otherwise = go (n + 1) (stepCached csys)
-
-    isReady :: CacheSrvState -> Bool
-    isReady CacheSrvReady = True
-    isReady _ = False
+      | otherwise = go (n + 1) (fst (serve srv Nothing))

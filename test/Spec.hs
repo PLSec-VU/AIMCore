@@ -23,8 +23,9 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Core.Functional.Induction
-import qualified Proof.Core.Leakage.Induction
+import qualified Proof.Cache.Functional.Solver
+import qualified Proof.Core.Functional.Solver
+import qualified Proof.Core.Leakage.Solver
 #endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
@@ -58,8 +59,8 @@ mkPureTest s (CPUTest prog expected) =
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the proofs themselves; see "Proof.Core.Functional.Induction" and
--- "Proof.Core.Leakage.Induction".
+-- The rest are the proofs themselves; see "Proof.Core.Functional.Solver" and
+-- "Proof.Core.Leakage.Solver".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -70,29 +71,46 @@ sanityTests =
         assertBool "expected a counterexample for 'bogus'" $
           isJust (verdict "bogus"),
       testCase "array embedding round-trips" $
-        lookup "arrRoundTrip" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "arrRoundTripP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
-        lookup "shiftsSane" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "shiftsSaneP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "base case: invariant holds after the reset hop" $
-        lookup "baseCase" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "baseCaseP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep0P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
-        lookup "indStep1" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep1P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
-        lookup "indStep2" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep2P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Core.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep3P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
-        lookup "baseCaseLeak" Proof.Core.Leakage.Induction.results @?= Just Nothing,
+        lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $
-        lookup "indStepLeak" Proof.Core.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak0P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 1 leakage step is valid" $
-        lookup "indStepLeak1" Proof.Core.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak1P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 2 leakage step is valid" $
-        lookup "indStepLeak2" Proof.Core.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak2P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Core.Leakage.Induction.results @?= Just Nothing
+        lookup "indStepLeak3P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
+      testGroup
+        "the 4 KiB cache answers as ideal memory, with delay"
+        [ testCase name $ lookup name Proof.Cache.Functional.Solver.results @?= Just Nothing
+          | name <-
+              [ "cacheArraysP",
+                "coherentDataP",
+                "coherentWriteP",
+                "coherentLayoutP",
+                "baseCaseP",
+                "indStep0P",
+                "indStep4P",
+                "indStep8P",
+                "readyUnderInvP",
+                "readyIdleNoWaitP",
+                "waitsAfterRequestP"
+              ]
+        ]
     ]
   where
     verdict :: String -> Maybe String

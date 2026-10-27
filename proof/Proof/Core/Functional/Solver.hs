@@ -18,14 +18,14 @@
 --
 -- The pipeline state is passed as a 'KState' plus SMT-array register file and
 -- memory; see "Proof.Core.Functional.System".
-module Proof.Core.Functional.Induction
-  ( arrRoundTrip,
-    shiftsSane,
-    baseCase,
-    indStep,
-    indStep1,
-    indStep2,
-    indStep3,
+module Proof.Core.Functional.Solver
+  ( arrRoundTripP,
+    shiftsSaneP,
+    baseCaseP,
+    indStep0P,
+    indStep1P,
+    indStep2P,
+    indStep3P,
     results,
   )
 where
@@ -50,16 +50,16 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 -- | The register-file array embedding: a read after a write at the same index
 -- gives the written value.
-{-# ANN arrRoundTrip (Theory arrayAxioms) #-}
-arrRoundTrip :: RegArr -> RegIdx -> Word -> Pantomime.Bool
-arrRoundTrip a i v = Pantomime.boolean $ loadRA (storeRA a i v) i == v
+{-# ANN arrRoundTripP (Theory arrayAxioms) #-}
+arrRoundTripP :: RegArr -> RegIdx -> Word -> Pantomime.Bool
+arrRoundTripP a i v = Pantomime.boolean $ loadRA (storeRA a i v) i == v
 
 -- | The shift embeddings: identities that would fail if the three shifts were
 -- mixed up, the zero-extension of the amount were wrong, or the arithmetic
 -- shift lost its sign.
-{-# ANN shiftsSane (Theory arrayAxioms) #-}
-shiftsSane :: Word -> Pantomime.Bool
-shiftsSane x =
+{-# ANN shiftsSaneP (Theory arrayAxioms) #-}
+shiftsSaneP :: Word -> Pantomime.Bool
+shiftsSaneP x =
   Pantomime.boolean $
     Core.sllWord x 0 == x
       && Core.srlWord x 0 == x
@@ -72,47 +72,47 @@ shiftsSane x =
 
 -- The base case ----------------------------------------------------------------
 
-{-# ANN baseCase (Theory arrayAxioms) #-}
-baseCase :: Address -> RegArr -> MemArr -> RegIdx -> Address -> Pantomime.Bool
-baseCase pc ra ma wr wa =
-  Pantomime.boolean $ baseCaseObligation pc (RegArrF ra) ma wr wa
+{-# ANN baseCaseP (Theory arrayAxioms) #-}
+baseCaseP :: RegIdx -> Address -> Address -> RegArr -> MemArr -> Pantomime.Bool
+baseCaseP wr wa pc ra ma =
+  Pantomime.boolean $ baseCase wr wa pc (RegArrF ra) ma
 
 -- The inductive steps ----------------------------------------------------------
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
-{-# ANN indStep (Theory arrayAxioms) #-}
-indStep :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-indStep ss i ra ma wr wa ipc =
-  Pantomime.boolean $ indStepObligation0 wr wa ipc (sysOf ss i ra ma)
+{-# ANN indStep0P (Theory arrayAxioms) #-}
+indStep0P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+indStep0P wr wa ipc ss i ra ma =
+  Pantomime.boolean $ indStep0 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
-{-# ANN indStep1 (Theory arrayAxioms) #-}
-indStep1 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-indStep1 ss i ra ma wr wa ipc =
-  Pantomime.boolean $ indStepObligation1 wr wa ipc (sysOf ss i ra ma)
+{-# ANN indStep1P (Theory arrayAxioms) #-}
+indStep1P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+indStep1P wr wa ipc ss i ra ma =
+  Pantomime.boolean $ indStep1 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 2@: the three-cycle hop (environment, taken jump, store hazard with a
 -- non-memory execute instruction, or memory instructions in both older stages).
 -- The hop on which the ISA enters a halt; a halted state then sits at k = 0.
-{-# ANN indStep2 (Theory arrayAxioms) #-}
-indStep2 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-indStep2 ss i ra ma wr wa ipc =
-  Pantomime.boolean $ indStepObligation2 wr wa ipc (sysOf ss i ra ma)
+{-# ANN indStep2P (Theory arrayAxioms) #-}
+indStep2P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+indStep2P wr wa ipc ss i ra ma =
+  Pantomime.boolean $ indStep2 wr wa ipc (sysOf ss i ra ma)
 
 -- | @k = 3@: the four-cycle hop (store hazard with a memory execute
 -- instruction, load hazard, or all three stages holding memory instructions).
-{-# ANN indStep3 (Theory arrayAxioms) #-}
-indStep3 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> Pantomime.Bool
-indStep3 ss i ra ma wr wa ipc =
-  Pantomime.boolean $ indStepObligation3 wr wa ipc (sysOf ss i ra ma)
+{-# ANN indStep3P (Theory arrayAxioms) #-}
+indStep3P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
+indStep3P wr wa ipc ss i ra ma =
+  Pantomime.boolean $ indStep3 wr wa ipc (sysOf ss i ra ma)
 
 results :: [(String, Maybe String)]
 results =
-  [ ("arrRoundTrip", $(pantomime 'arrRoundTrip)),
-    ("shiftsSane", $(pantomime 'shiftsSane)),
-    ("baseCase", $(pantomime 'baseCase)),
-    ("indStep", $(pantomime 'indStep)),
-    ("indStep1", $(pantomime 'indStep1)),
-    ("indStep2", $(pantomime 'indStep2)),
-    ("indStep3", $(pantomime 'indStep3))
+  [ ("arrRoundTripP", $(pantomime 'arrRoundTripP)),
+    ("shiftsSaneP", $(pantomime 'shiftsSaneP)),
+    ("baseCaseP", $(pantomime 'baseCaseP)),
+    ("indStep0P", $(pantomime 'indStep0P)),
+    ("indStep1P", $(pantomime 'indStep1P)),
+    ("indStep2P", $(pantomime 'indStep2P)),
+    ("indStep3P", $(pantomime 'indStep3P))
   ]

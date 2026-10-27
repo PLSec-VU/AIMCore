@@ -1,17 +1,17 @@
 -- | The proof obligations, in one place.
 --
--- Both the symbolic properties ("Proof.Core.Functional.Induction") and the QuickCheck harness
+-- Both the symbolic properties ("Proof.Core.Functional.Solver") and the QuickCheck harness
 -- ("ProofSpec") go through these definitions, so the two cannot drift apart.
 -- The only thing they are allowed to differ in is how the system state is
 -- built: symbolic scalars on one side, a generator on the other. That is the
 -- input space, not the property.
 module Proof.Core.Functional.Obligation
   ( isaAt,
-    baseCaseObligation,
-    indStepObligation0,
-    indStepObligation1,
-    indStepObligation2,
-    indStepObligation3,
+    baseCase,
+    indStep0,
+    indStep1,
+    indStep2,
+    indStep3,
   )
 where
 
@@ -90,10 +90,10 @@ isaAt ipc (Sys core inp mem) =
 -- ('Core.RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
-baseCaseObligation ::
-  (RegFileOps r, MemOps m) => Address -> r -> m -> RegIdx -> Address -> Bool
-baseCaseObligation pc rf mem wr wa =
-  driver sys == 1 && invAtFree wr wa isa sys2
+baseCase ::
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> r -> m -> Bool
+baseCase wr wa pc rf mem =
+  driver sys == 1 && invAt wr wa isa sys2
   where
     isa = IsaState {isaPc = pc, isaRegFile = rf, isaMem = mem}
     sys = Sys (Core.initAt pc rf) Core.initInput mem
@@ -115,9 +115,9 @@ baseCaseObligation pc rf mem wr wa =
 -- core stands still -- the halted cases of the invariant require the
 -- architectural register file and memory to equal the core's, so carrying the
 -- same @isa@ across the step asserts that neither changed.
-indStepObligation0 ::
+indStep0 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation0 wr wa ipc sys =
+indStep0 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -128,19 +128,19 @@ indStepObligation0 wr wa ipc sys =
     sys' = stepSys sys
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 0
 
-    conclusion = invAtFree wr wa isa' sys'
+    conclusion = invAt wr wa isa' sys'
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
 --
 -- The driver also gives the reset state a two-cycle hop, but no obligation
 -- covers it: the invariant does not admit the reset state, and
--- 'Proof.Core.Functional.Induction.baseCase' states that hop directly.
-indStepObligation1 ::
+-- 'Proof.Core.Functional.Solver.baseCase' states that hop directly.
+indStep1 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation1 wr wa ipc sys =
+indStep1 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -152,19 +152,19 @@ indStepObligation1 wr wa ipc sys =
     sys2 = stepSys sys1
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 1
 
-    conclusion = invAtFree wr wa isa' sys2
+    conclusion = invAt wr wa isa' sys2
 
 -- | The @k = 2@ inductive step: the driver's three-cycle hop.
 --
 -- Unlike the shorter hops, this one can execute an environment instruction.
 -- The architectural state then stays at the trapping instruction while the
 -- core reaches one of the two halted invariant cases.
-indStepObligation2 ::
+indStep2 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation2 wr wa ipc sys =
+indStep2 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -177,21 +177,21 @@ indStepObligation2 wr wa ipc sys =
     sys3 = stepSys sys2
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 2
 
-    conclusion = invAtFree wr wa isa' sys3
+    conclusion = invAt wr wa isa' sys3
 
 -- | The @k = 3@ inductive step: the driver's four-cycle hop, the longest.
 --
--- Stated exactly as 'indStepObligation2', one cycle longer. The @IsaHalted@
+-- Stated exactly as 'indStep2', one cycle longer. The @IsaHalted@
 -- alternative is kept even though this hop should not be able to trap -- the
 -- driver routes environment instructions to a three-cycle hop -- because
 -- covering it costs nothing and assuming it away would be an unchecked side
 -- argument.
-indStepObligation3 ::
+indStep3 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation3 wr wa ipc sys =
+indStep3 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -205,7 +205,7 @@ indStepObligation3 wr wa ipc sys =
     sys4 = stepSys sys3
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 3
 
-    conclusion = invAtFree wr wa isa' sys4
+    conclusion = invAt wr wa isa' sys4

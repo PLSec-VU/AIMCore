@@ -4,14 +4,14 @@
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
 -- one for the running core, and two for the halted core. The reset state is
--- not among them: 'Proof.Core.Functional.Induction.baseCase' steps it two cycles,
+-- not among them: 'Proof.Core.Functional.Solver.baseCase' steps it two cycles,
 -- into the running case, instead.
 --
 -- Two forms of the same predicate live here:
 --
 --   * 'invCases' represents each case as a named list of conjuncts, so a
 --     failing QuickCheck run can report which clause broke ('explain');
---   * 'invAtFree' is the identical predicate built from '&&' and '||' with no
+--   * 'invAt' is the identical predicate built from '&&' and '||' with no
 --     lists, because Pantomime's evaluator diverges on recursion it cannot
 --     prove terminating -- even over a fully concrete list. Symbolic execution
 --     uses this one.
@@ -27,10 +27,10 @@ module Proof.Core.Functional.Invariant
     flushMeStage,
     Case (..),
     inv,
-    invAt,
+    invAtList,
     invCases,
     invCasesAt,
-    invAtFree,
+    invAt,
     explain,
   )
 where
@@ -115,11 +115,13 @@ inv isa sys = P.any holds (invCases isa sys)
 -- | The invariant in pointwise form: instead of comparing whole register files
 -- and memories, compare them at one witness register @wr@ and one witness byte
 -- address @wa@. Quantifying over the witnesses recovers the container form.
+-- Pointwise, because function-backed containers have no decidable equality but
+-- can be read at a symbolic point.
 --
--- This is the version symbolic execution can use: function-backed containers
--- have no decidable equality, but they can be read at a symbolic point.
-invAt :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-invAt wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
+-- Built from the named cases ('invCasesAt'), for the tests; the proofs use the
+-- fold-free 'invAt', which the tests check agrees with it.
+invAtList :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+invAtList wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
 
 -- | Human-readable account of why the invariant failed: for each case, the
 -- conjuncts that were false.
@@ -233,14 +235,14 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
 -- | The invariant, pointwise, built from '&&' and '||' with no lists and no
 -- folds. Semantically identical to @'P.any' holds ('invCasesAt' wr wa)@; see
 -- the module header for why both exist.
-invAtFree ::
+invAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx ->
   Address ->
   IsaStateG r m ->
   SysG r m ->
   Bool
-invAtFree wr wa isa sys =
+invAt wr wa isa sys =
   runningCaseAt wr wa isa sys
     || haltedCaseAt HaltBreak wr wa isa sys
     || haltedCaseAt HaltCall wr wa isa sys

@@ -6,7 +6,7 @@
 -- cannot recurse on a symbolic count -- and each property pins @driver == k@ so
 -- it carries one unrolling rather than four.
 --
--- Together with "Proof.Core.Functional.Induction" these are the leakage theorem: the
+-- Together with "Proof.Core.Functional.Solver" these are the leakage theorem: the
 -- functional proof establishes that the invariant holds wherever the driver
 -- lands, which each step here assumes as a premise.
 --
@@ -25,12 +25,12 @@
 -- Under Bitwuzla, not Z3:
 --
 -- > SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack build
-module Proof.Core.Leakage.Induction
-  ( baseCaseLeak,
-    indStepLeak,
-    indStepLeak1,
-    indStepLeak2,
-    indStepLeak3,
+module Proof.Core.Leakage.Solver
+  ( baseCaseLeakP,
+    indStepLeak0P,
+    indStepLeak1P,
+    indStepLeak2P,
+    indStepLeak3P,
     results,
   )
 where
@@ -52,45 +52,45 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 -- | The first hop from the initial state, for any start PC, register file and
 -- memory.
-{-# ANN baseCaseLeak (Theory arrayAxioms) #-}
-baseCaseLeak :: Address -> RegArr -> MemArr -> Pantomime.Bool
-baseCaseLeak pc ra ma =
-  Pantomime.boolean $ baseCaseLeakObligation pc (RegArrF ra) ma
+{-# ANN baseCaseLeakP (Theory arrayAxioms) #-}
+baseCaseLeakP :: Address -> RegArr -> MemArr -> Pantomime.Bool
+baseCaseLeakP pc ra ma =
+  Pantomime.boolean $ baseCaseLeak pc (RegArrF ra) ma
 
 -- The inductive steps ----------------------------------------------------------
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
-{-# ANN indStepLeak (Theory arrayAxioms) #-}
-indStepLeak :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
-indStepLeak ss i ra ma wr wa ipc sim =
-  Pantomime.boolean $ indStepLeakObligation wr wa ipc (sysOf ss i ra ma) sim
+{-# ANN indStepLeak0P (Theory arrayAxioms) #-}
+indStepLeak0P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> SimState -> Pantomime.Bool
+indStepLeak0P wr wa ipc ss i ra ma sim =
+  Pantomime.boolean $ indStepLeak0 wr wa ipc (sysOf ss i ra ma) sim
 
 -- | @k = 1@: the two-cycle hop (a memory instruction in writeback).
-{-# ANN indStepLeak1 (Theory arrayAxioms) #-}
-indStepLeak1 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
-indStepLeak1 ss i ra ma wr wa ipc sim =
-  Pantomime.boolean $ indStepLeakObligation1 wr wa ipc (sysOf ss i ra ma) sim
+{-# ANN indStepLeak1P (Theory arrayAxioms) #-}
+indStepLeak1P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> SimState -> Pantomime.Bool
+indStepLeak1P wr wa ipc ss i ra ma sim =
+  Pantomime.boolean $ indStepLeak1 wr wa ipc (sysOf ss i ra ma) sim
 
 -- | @k = 2@: the three-cycle hop (environment, taken jump, store hazard with a
 -- non-memory execute instruction, or memory instructions in both older stages).
 -- The hop on which the ISA enters a halt; a halted state then sits at k = 0.
-{-# ANN indStepLeak2 (Theory arrayAxioms) #-}
-indStepLeak2 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
-indStepLeak2 ss i ra ma wr wa ipc sim =
-  Pantomime.boolean $ indStepLeakObligation2 wr wa ipc (sysOf ss i ra ma) sim
+{-# ANN indStepLeak2P (Theory arrayAxioms) #-}
+indStepLeak2P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> SimState -> Pantomime.Bool
+indStepLeak2P wr wa ipc ss i ra ma sim =
+  Pantomime.boolean $ indStepLeak2 wr wa ipc (sysOf ss i ra ma) sim
 
 -- | @k = 3@: the four-cycle hop (store hazard with a memory execute
 -- instruction, load hazard, or all three stages holding memory instructions).
-{-# ANN indStepLeak3 (Theory arrayAxioms) #-}
-indStepLeak3 :: KState -> Core.Input -> RegArr -> MemArr -> RegIdx -> Address -> Address -> SimState -> Pantomime.Bool
-indStepLeak3 ss i ra ma wr wa ipc sim =
-  Pantomime.boolean $ indStepLeakObligation3 wr wa ipc (sysOf ss i ra ma) sim
+{-# ANN indStepLeak3P (Theory arrayAxioms) #-}
+indStepLeak3P :: RegIdx -> Address -> Address -> KState -> Core.Input -> RegArr -> MemArr -> SimState -> Pantomime.Bool
+indStepLeak3P wr wa ipc ss i ra ma sim =
+  Pantomime.boolean $ indStepLeak3 wr wa ipc (sysOf ss i ra ma) sim
 
 results :: [(String, Maybe String)]
 results =
-  [ ("baseCaseLeak", $(pantomime 'baseCaseLeak)),
-    ("indStepLeak", $(pantomime 'indStepLeak)),
-    ("indStepLeak1", $(pantomime 'indStepLeak1)),
-    ("indStepLeak2", $(pantomime 'indStepLeak2)),
-    ("indStepLeak3", $(pantomime 'indStepLeak3))
+  [ ("baseCaseLeakP", $(pantomime 'baseCaseLeakP)),
+    ("indStepLeak0P", $(pantomime 'indStepLeak0P)),
+    ("indStepLeak1P", $(pantomime 'indStepLeak1P)),
+    ("indStepLeak2P", $(pantomime 'indStepLeak2P)),
+    ("indStepLeak3P", $(pantomime 'indStepLeak3P))
   ]

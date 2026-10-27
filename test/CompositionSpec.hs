@@ -3,7 +3,7 @@
 -- | The core behind a cache: what holds for any cache, and the programs and
 -- traces the cache tests ("Cache4KSpec") are built from.
 --
--- The constant-time leakage proof ("Proof.Core.Leakage.Induction") is about the core
+-- The constant-time leakage proof ("Proof.Core.Leakage.Solver") is about the core
 -- attached to memory that answers every request in the next cycle. Behind a
 -- cache a load that misses is answered only after the miss penalty, and in the
 -- meantime the core stalls. The core's side of what lets the ideal-memory result
