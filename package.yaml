@@ -133,15 +133,15 @@ library:
     - Elf.ElfLoader
     - Elf.Syscall
     - HardwareSim
-    - Instruction
-    - ISA
+    - Core.Instruction
+    - Core.ISA
     - Memory.Types
     - Memory.Ideal
     - Memory.Vec
     - Memory.ST
     - Memory.IO
     - Pretty
-    - RegFile
+    - Core.RegFile
     - Simulate
     - Types
     - Util

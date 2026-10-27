@@ -12,7 +12,7 @@ import Memory.IO (IOMemT, ioMemInitSP, loadProgram, newIOMem, runIOMemT)
 import Memory.Types
 import Numeric (showHex)
 import Options.Applicative
-import RegFile
+import Core.RegFile
 import Simulate
 import System.Exit (ExitCode (..), exitWith)
 import Types (Word)

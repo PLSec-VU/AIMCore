@@ -12,9 +12,9 @@ import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
 import Data.Maybe (fromJust, isJust)
-import Instruction
+import Core.Instruction
 import InstructionSpec (instructionTests)
-import RegFile
+import Core.RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec

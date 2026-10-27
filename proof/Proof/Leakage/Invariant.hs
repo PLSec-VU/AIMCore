@@ -8,7 +8,7 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Maybe (isJust, isNothing)
-import Instruction hiding (Halted)
+import Core.Instruction hiding (Halted)
 import Proof.Leakage.Model
 import Proof.Leakage.Simulator
 import Proof.Machine
@@ -45,8 +45,8 @@ simInv sim (Sys st _ _) =
       _ -> False
 
     meStage = case (simStateMeInstr sim, stateMeInstr st) of
-      (LLoad size addr _, Instruction.IType (Load size' _) _ _ _) ->
+      (LLoad size addr _, Core.Instruction.IType (Load size' _) _ _ _) ->
         size == size' && addr == stateMeAddr st
-      (LStore size addr, Instruction.SType size' _ _ _) ->
+      (LStore size addr, Core.Instruction.SType size' _ _ _) ->
         size == size' && addr == stateMeAddr st
-      (leak, ir) -> not (isMemLeak leak) && not (Instruction.isMemInstr ir)
+      (leak, ir) -> not (isMemLeak leak) && not (Core.Instruction.isMemInstr ir)

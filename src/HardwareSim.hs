@@ -8,8 +8,8 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (topEntity)
 import Data.Maybe (fromMaybe)
 import qualified GHC.TypeNats
-import Instruction hiding (decode)
-import RegFile
+import Core.Instruction hiding (decode)
+import Core.RegFile
 import Types
 import Memory.Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
@@ -102,6 +102,6 @@ prog3 =
         :>
         -- mem[1 + r0] := r2
         SType Word 4 0 2
-        :> Instruction.break
+        :> Core.Instruction.break
         :> Nil
     )

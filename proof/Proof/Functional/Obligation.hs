@@ -18,11 +18,11 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
 import Proof.Functional.Driver (driver)
-import ISA (IsaStateG (..), StepG (..), isaStep)
+import Core.ISA (IsaStateG (..), StepG (..), isaStep)
 import Proof.Functional.Invariant
 import Memory.Types (MemOps (..))
 import Proof.Machine
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -32,7 +32,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- The containers are /derived/ from @sys@ by the flush rather than taken as
 -- further inputs. They have to be: the invariant compares them pointwise, at one
 -- witness register and one witness byte, so a freely quantified register file
--- and memory would be tied to @sys@ only at those two points. 'ISA.isaStep'
+-- and memory would be tied to @sys@ only at those two points. 'Core.ISA.isaStep'
 -- reads memory at @isaPc@ and registers at @rs1@/@rs2@, which are elsewhere, so
 -- the solver could pick an architectural state whose instruction at @isaPc@
 -- bears no relation to the one the core is executing. Deriving them makes the
@@ -86,7 +86,7 @@ isaAt ipc (Sys st inp mem) =
 -- values on both sides, and the first hop writes neither, so the invariant's
 -- two container equalities hold by construction here and this property alone
 -- would not notice if the core's initial register file and the ISA's
--- ('RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
+-- ('Core.RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
 baseCaseObligation ::

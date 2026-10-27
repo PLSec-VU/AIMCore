@@ -27,11 +27,11 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Instruction hiding (loadHazard, storeHazard)
-import qualified Instruction
+import Core.Instruction hiding (loadHazard, storeHazard)
+import qualified Core.Instruction
 import Memory.Types (MemOps (..))
 import Proof.Machine
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -91,7 +91,7 @@ takingJump sys@(Sys st _ _) =
 -- decode-stage PC overlaps a store either in the execute stage or in the memory
 -- stage.
 --
--- The overlap test is 'Instruction.storeHazard', the core's own, which is why
+-- The overlap test is 'Core.Instruction.storeHazard', the core's own, which is why
 -- the store's size is carried alongside its address: a byte store and a word
 -- store at the same address clash with different sets of PCs. 'Core.decode'
 -- reads the pair off @ctrlExStoreAddrSize@ / @ctrlMeStoreAddrSize@; here the
@@ -99,8 +99,8 @@ takingJump sys@(Sys st _ _) =
 -- 'Core.execute' would, and the memory-stage one is already in @stateMeAddr@.
 storeHazard :: (RegFileOps r) => SysG r m -> Bool
 storeHazard sys@(Sys st _ _) =
-  maybe False (Instruction.storeHazard dePc) exStore
-    || maybe False (Instruction.storeHazard dePc) meStore
+  maybe False (Core.Instruction.storeHazard dePc) exStore
+    || maybe False (Core.Instruction.storeHazard dePc) meStore
   where
     dePc = stateDePc st
     exStore = case stateExInstr st of
@@ -118,7 +118,7 @@ storeHazard sys@(Sys st _ _) =
 -- arriving on 'inputMem' and the one in the execute stage.
 loadHazard :: SysG r m -> Bool
 loadHazard (Sys st inp _) =
-  Instruction.loadHazard deIr (stateExInstr st)
+  Core.Instruction.loadHazard deIr (stateExInstr st)
   where
     expInstr = stateDeExpInstr st
     deIr

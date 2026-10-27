@@ -26,7 +26,7 @@
 -- branch outcome, the @jalr@ target and the load and store addresses all show.
 -- Whether a program is constant-time is a property of its leakage trace,
 -- checked at the ISA level. The hazard bit is not data dependent:
--- 'Instruction.loadHazard' compares register /fields/, not their contents.
+-- 'Core.Instruction.loadHazard' compares register /fields/, not their contents.
 module Proof.Leakage.Model
   ( -- * Observation
     Obs (..),
@@ -43,10 +43,10 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Instruction
-import ISA (IsaStateG (..), isaInstrAt)
+import Core.Instruction
+import Core.ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

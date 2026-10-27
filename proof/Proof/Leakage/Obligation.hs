@@ -30,7 +30,7 @@ import Proof.Leakage.Invariant
 import Proof.Leakage.Model
 import Proof.Leakage.Simulator
 import Proof.Machine
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

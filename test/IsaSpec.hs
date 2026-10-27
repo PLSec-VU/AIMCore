@@ -3,15 +3,15 @@
 -- | Direct validation of the ISA specification against the official RISC-V
 -- conformance suite.
 --
--- The refinement proof is stated against "ISA", so nothing in the proof can
--- tell us whether "ISA" itself is right -- it is the thing being proved
+-- The refinement proof is stated against "Core.ISA", so nothing in the proof can
+-- tell us whether "Core.ISA" itself is right -- it is the thing being proved
 -- against. The @rv32ui@ programs in @test/rv32ui@ are an external reference, so
 -- running the ISA model on them and checking the suite's own pass condition is
 -- evidence about the specification that does not come from the implementation.
 --
--- Without this, the only check on "ISA" is transitive: the core passes
+-- Without this, the only check on "Core.ISA" is transitive: the core passes
 -- @rv32ui@ (see "BenchmarkSpec") and the proof says the core refines
--- "ISA". That validates the specification /through/ the implementation,
+-- "Core.ISA". That validates the specification /through/ the implementation,
 -- which is the wrong direction.
 --
 -- The pass condition is the one "BenchmarkSpec" applies to the core: at the
@@ -22,9 +22,9 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import Elf.ElfLoader (baseAddr, getElfSegments, readElf, startAddr)
-import ISA (IsaStateG (..), StepG (..), isaStep)
+import Core.ISA (IsaStateG (..), StepG (..), isaStep)
 import Memory.Types (MemOps (..))
-import RegFile
+import Core.RegFile
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 import "aimcore" Types

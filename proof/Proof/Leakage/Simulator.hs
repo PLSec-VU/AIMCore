@@ -25,7 +25,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Data.Maybe (fromMaybe, isJust)
-import Instruction (storeHazard)
+import Core.Instruction (storeHazard)
 import Memory.Types
 import Proof.Leakage.Model
 import Types

@@ -47,7 +47,7 @@ import Data.Kind (Type)
 import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
-import RegFile (RegFileOps (..))
+import Core.RegFile (RegFileOps (..))
 import Types
 import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))

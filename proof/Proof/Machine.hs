@@ -27,7 +27,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Memory.Ideal (idealServe)
 import Memory.Types
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 

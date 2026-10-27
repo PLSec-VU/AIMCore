@@ -15,7 +15,7 @@ import qualified Core as Core
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
-import RegFile
+import Core.RegFile
 import Memory.ST
 import Memory.Types
 import Simulate

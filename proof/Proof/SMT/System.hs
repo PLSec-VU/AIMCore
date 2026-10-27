@@ -21,7 +21,7 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Core
-import Instruction (Instruction)
+import Core.Instruction (Instruction)
 import Proof.Machine
 import Proof.SMT.Array
 import Types

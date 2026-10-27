@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module RegFile
+module Core.RegFile
   ( RegFile (..),
     initRF,
     lookupRF,

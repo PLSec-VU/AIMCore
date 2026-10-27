@@ -6,8 +6,8 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
 import Core
 import Proof.Functional.Driver hiding (loadHazard, storeHazard)
-import ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
-import Instruction
+import Core.ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
+import Core.Instruction
 import Proof.Functional.Invariant
 import Proof.Machine
 import Proof.Functional.Obligation (indStepObligation, indStepObligation1, indStepObligation2, isaAt)
@@ -16,7 +16,7 @@ import Proof.Leakage.Invariant (simInv)
 import Proof.Leakage.Model (Obs, leakOf, obsOf)
 import Proof.Leakage.Simulator (SimInput, SimState, simCircuit, simInit)
 import Memory.Types
-import RegFile
+import Core.RegFile
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 import Test.Tasty.QuickCheck
@@ -219,7 +219,7 @@ storeHazardEx =
   SType Word 204 0 0
     :> IType (Arith ADD) 1 0 1
     :> IType (Arith ADD) 2 0 2
-    :> Instruction.break
+    :> Core.Instruction.break
     :> Nil
 
 -- | Store hazard raised by the store in the /memory/ stage, one cycle later,
@@ -231,7 +231,7 @@ storeHazardMe =
     :> SType Word 212 0 0
     :> IType (Arith ADD) 2 0 2
     :> IType (Arith ADD) 3 0 3
-    :> Instruction.break
+    :> Core.Instruction.break
     :> Nil
 
 -- Random program generation -------------------------------------------------
@@ -259,7 +259,7 @@ genProg :: Gen (Vec PROG_SIZE Word)
 genProg = do
   n <- choose (1, 12)
   body <- P.mapM (genInstr n) [0 .. n - 1]
-  let instrs = P.map roundTrips body P.++ P.replicate (50 - n) Instruction.break
+  let instrs = P.map roundTrips body P.++ P.replicate (50 - n) Core.Instruction.break
   pure (map encode (unsafeFromList instrs))
 
 genInstr :: Int -> Int -> Gen Instruction
@@ -596,7 +596,7 @@ withJumpInMe s =
 -- @0xFFFFFFFE..0x00000001@, wrapping into a low PC word without ever
 -- satisfying @p < a + n@.
 --
--- There is no assumption now: 'Instruction.storeHazard' is wrap-correct and
+-- There is no assumption now: 'Core.Instruction.storeHazard' is wrap-correct and
 -- 'Core.decode' stalls on the overlap, so this state has to survive its hop.
 --
 -- This state realises the mechanism concretely: the pipeline sits astride the
@@ -1159,7 +1159,7 @@ prog1 :: Vec 3 Instruction
 prog1 =
   IType (Arith ADD) 2 0 5
     :> SType Word 0 0 2
-    :> Instruction.break
+    :> Core.Instruction.break
     :> Nil
 
 prog2 :: Vec 6 Instruction
@@ -1169,7 +1169,7 @@ prog2 =
     :> IType (Load Word Signed) 3 0 0
     :> RType ADD 4 0 3
     :> SType Word 4 0 4
-    :> Instruction.break
+    :> Core.Instruction.break
     :> Nil
 
 prog3 :: Vec 6 Instruction
@@ -1179,7 +1179,7 @@ prog3 =
     :> BType EQ 8 2 3
     :> SType Word 0 0 2
     :> SType Word 4 0 2
-    :> Instruction.break
+    :> Core.Instruction.break
     :> Nil
 
 sumTo :: Int -> Vec 8 Instruction
@@ -1192,7 +1192,7 @@ sumTo n =
       IType (Arith ADD) 1 1 (-1),
       JType 0 (-12),
       SType Word 0 0 2,
-      Instruction.break
+      Core.Instruction.break
     ]
 
 -- Targeted generators for the transfer and four-cycle shapes ---------------------
@@ -1305,7 +1305,7 @@ genLoadHazard3 = do
         (\rd' -> IType Jump rd' rd 0) <$> genSmallReg,
         P.pure (IType (Env Call) 0 0 0),
         -- An @ebreak@ whose encoded rs1 is the load's destination.
-        -- 'Instruction.getRs1' reports that field -- it hardcodes x17 only for
+        -- 'Core.Instruction.getRs1' reports that field -- it hardcodes x17 only for
         -- @ecall@ -- so this is a genuine load-use hazard.
         P.pure (IType (Env Break) 0 rd 1)
       ]

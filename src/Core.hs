@@ -38,9 +38,9 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
 import Data.Maybe (fromMaybe, isJust)
-import Instruction hiding (decode)
+import Core.Instruction hiding (decode)
 import Memory.Types
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, lines, not, undefined, (&&), (||))
 
@@ -328,29 +328,29 @@ execute = do
   setLines $ \c -> c {ctrlExInstr = Just ir}
 
   case ir of
-    Instruction.RType op _ rs1 rs2 -> do
+    Core.Instruction.RType op _ rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       let res = alu op r1 r2
       modify $ \s -> s {stateMeRes = res}
-    Instruction.IType (Arith op) _ rs1 imm -> do
+    Core.Instruction.IType (Arith op) _ rs1 imm -> do
       r1 <- getFirstArg rs1
       let imm' = signExtend imm
       let res = alu op r1 imm'
       modify $ \s -> s {stateMeRes = res}
-    Instruction.IType (Load _ _) _ rs1 imm -> do
+    Core.Instruction.IType (Load _ _) _ rs1 imm -> do
       r1 <- getFirstArg rs1
       let imm' = signExtend imm
       let res = alu ADD r1 imm'
       modify $ \s -> s {stateMeAddr = unpack res}
-    Instruction.SType size imm rs1 rs2 -> do
+    Core.Instruction.SType size imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       let imm' = signExtend imm
       let res = alu ADD r1 imm'
       modify $ \s -> s {stateMeRes = r2, stateMeAddr = unpack res}
       setLines $ \c -> c {ctrlExStoreAddrSize = Just (unpack res, size)}
-    Instruction.BType cmp imm rs1 rs2 -> do
+    Core.Instruction.BType cmp imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       pc <- gets $ pack . stateExPc
@@ -358,14 +358,14 @@ execute = do
         let imm' = signExtend imm
         let branchAddr = alu ADD pc imm'
         setLines $ \c -> c {ctrlExJumpAddr = Just (unpack branchAddr)}
-    Instruction.JType _ imm -> do
+    Core.Instruction.JType _ imm -> do
       pc <- gets $ pack . stateExPc
       let res = alu ADD pc 4
       modify $ \s -> s {stateMeRes = res}
       let imm' = signExtend imm
       let jumpAddr = alu ADD pc imm'
       setLines $ \c -> c {ctrlExJumpAddr = Just (unpack jumpAddr)}
-    Instruction.IType Jump _ rs1 imm -> do
+    Core.Instruction.IType Jump _ rs1 imm -> do
       r1 <- getFirstArg rs1
       pc <- gets $ pack . stateExPc
       let res = alu ADD pc 4
@@ -373,7 +373,7 @@ execute = do
       let imm' = signExtend imm
       let jumpAddr = alu ADD r1 imm'
       setLines $ \c -> c {ctrlExJumpAddr = Just (unpack jumpAddr)}
-    Instruction.UType base _ imm -> do
+    Core.Instruction.UType base _ imm -> do
       base' <-
         case base of
           Zero -> pure 0
@@ -381,13 +381,13 @@ execute = do
       let imm' = imm ++# (0 :: BitVector 12)
       let res = alu ADD base' imm'
       modify $ \s -> s {stateMeRes = res}
-    Instruction.IType (Env Call) _ _ _ -> do
+    Core.Instruction.IType (Env Call) _ _ _ -> do
       pc <- gets stateExPc
       modify $ \s -> s {stateMeRes = pack $ pc + 4}
-    Instruction.IType (Env Break) _ _ _ -> do
+    Core.Instruction.IType (Env Break) _ _ _ -> do
       pc <- gets stateExPc
       modify $ \s -> s {stateMeRes = pack $ pc + 4}
-    Instruction.Nop _ -> pure ()
+    Core.Instruction.Nop _ -> pure ()
   where
     getFirstArg :: RegIdx -> CPUM r Word
     getFirstArg idx = do
@@ -482,22 +482,22 @@ memory = do
   setLines $ \c -> c {ctrlMeRegFwd = Nothing}
 
   case ir of
-    Instruction.RType _ rd _ _ ->
+    Core.Instruction.RType _ rd _ _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
-    Instruction.IType (Arith _) rd _ _ ->
+    Core.Instruction.IType (Arith _) rd _ _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
-    Instruction.IType (Load size _) _ _ _ -> do
+    Core.Instruction.IType (Load size _) _ _ _ -> do
       setLines $ \c -> c {ctrlMeMemInstr = True}
       readRAM addr size
-    Instruction.SType size _ _ _ -> do
+    Core.Instruction.SType size _ _ _ -> do
       setLines $ \c ->
         c {ctrlMeMemInstr = True, ctrlMeStoreAddrSize = Just (addr, size)}
       writeRAM addr size res
-    Instruction.JType rd _ ->
+    Core.Instruction.JType rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
-    Instruction.IType Jump rd _ _ ->
+    Core.Instruction.IType Jump rd _ _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
-    Instruction.UType _ rd _ ->
+    Core.Instruction.UType _ rd _ ->
       setLines $ \c -> c {ctrlMeRegFwd = Just (rd, res)}
     _ -> pure ()
 
@@ -509,28 +509,28 @@ writeback = do
   res <- gets stateWbRes
 
   case ir of
-    Instruction.RType _ rd _ _ -> do
+    Core.Instruction.RType _ rd _ _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.IType (Arith _) rd _ _ -> do
+    Core.Instruction.IType (Arith _) rd _ _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.IType (Load size sign) rd _ _ -> do
+    Core.Instruction.IType (Load size sign) rd _ _ -> do
       let val = loadExtend size sign input
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, val)}
       writeRF rd val
-    Instruction.JType rd _ -> do
+    Core.Instruction.JType rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.IType Jump rd _ _ -> do
+    Core.Instruction.IType Jump rd _ _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.UType _ rd _ -> do
+    Core.Instruction.UType _ rd _ -> do
       setLines $ \c -> c {ctrlWbRegFwd = Just (rd, res)}
       writeRF rd res
-    Instruction.IType (Env Call) _ _ _ -> do
+    Core.Instruction.IType (Env Call) _ _ _ -> do
       modify $ \s -> s {stateHalt = Just (Syscall $ unpack res)}
-    Instruction.IType (Env Break) _ _ _ -> do
+    Core.Instruction.IType (Env Break) _ _ _ -> do
       modify $ \s -> s {stateHalt = Just (EBreak $ unpack res)}
     _ -> setLines $ \c -> c {ctrlWbRegFwd = Nothing}
   where

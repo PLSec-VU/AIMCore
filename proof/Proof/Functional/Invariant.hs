@@ -33,11 +33,11 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Instruction
+import Core.Instruction
 import Memory.Types
-import ISA (IsaStateG (..), IsaState)
+import Core.ISA (IsaStateG (..), IsaState)
 import Proof.Machine
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
@@ -207,7 +207,7 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
 
     -- The halt carries the address the core would resume at, which 'Core.execute'
     -- set from the trapping instruction's own PC. Pinning it to @isaPc + 4@ is
-    -- what fixes @isaPc@ as that instruction's address; "ISA" leaves
+    -- what fixes @isaPc@ as that instruction's address; "Core.ISA" leaves
     -- the architectural state where it was, so the ISA is still \"at\" the trap.
     haltedCase name isKind expected =
       Case

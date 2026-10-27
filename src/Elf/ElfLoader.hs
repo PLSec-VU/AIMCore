@@ -22,7 +22,7 @@ import Data.Elf.Constants
 import Data.Elf.Headers
 import Data.Word
 import Types
-import RegFile (modifyRF)
+import Core.RegFile (modifyRF)
 import Memory.Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (&&), (++), (||))

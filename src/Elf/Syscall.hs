@@ -15,7 +15,7 @@ import qualified Data.ByteString as BS
 
 import Types
 import qualified Core
-import RegFile
+import Core.RegFile
 
 -- Custom exception type for non-zero program exit codes
 newtype ProgramExitException = ProgramExitException Int32

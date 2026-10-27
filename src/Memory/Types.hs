@@ -22,7 +22,7 @@ where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Data.Proxy (Proxy (..))
 import qualified GHC.TypeNats
-import Instruction
+import Core.Instruction
 import Types
 import Prelude hiding (Ordering (..), Word, init, iterate, log, map, not, repeat, replicate, take, undefined, (!!), (&&), (++), (||))
 
@@ -36,7 +36,7 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 
 -- | The operations a memory representation has to provide.
 --
--- Parameterised for the same reason as 'RegFile.RegFileOps': the @Vec@-backed
+-- Parameterised for the same reason as 'Core.RegFile.RegFileOps': the @Vec@-backed
 -- 'MemBytes' cannot be symbolically executed, while the function-backed 'MemFn'
 -- can.
 class MemOps m where
