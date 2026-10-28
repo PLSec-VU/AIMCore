@@ -3,6 +3,11 @@ module Stepper.RelRegs
   , regsFrom
   , readReg
   , writeReg
+  , RegSlot
+  , slotFor
+  , sourceSlot
+  , readSlot
+  , writeSlot
   ) where
 
 import Stepper.Concrete (concreteRegIdx)
@@ -19,6 +24,14 @@ data RelRegs = RelRegs
   , anyIndexRegs :: RegIdx -> Rel Word
   }
 
+data Turn = Below | Above
+
+data RegSlot
+  = NoRegister
+  | ZeroRegister
+  | KnownRegister RegIdx [Turn]
+  | AnyRegister RegIdx
+
 halvingWidths :: [RegIdx]
 halvingWidths = [16, 8, 4, 2, 1]
 
@@ -29,25 +42,57 @@ regsFrom initial = RelRegs (spanning 0 halvingWidths) initial
     spanning lowest (half : halves) =
       RegSplit (lowest + half) (spanning lowest halves) (spanning (lowest + half) halves)
 
-lookupTree :: RegIdx -> RegTree -> Rel Word
-lookupTree _ (RegLeaf value) = value
-lookupTree idx (RegSplit pivot below above)
-  | idx < pivot = lookupTree idx below
-  | otherwise = lookupTree idx above
+data Pivots
+  = NoPivot
+  | Pivot RegIdx Pivots Pivots
 
-readAt :: RelRegs -> RegIdx -> Rel Word
-readAt regs idx = case concreteRegIdx idx of
-  Just known -> lookupTree known (knownIndexRegs regs)
-  Nothing -> anyIndexRegs regs idx
+pivots :: Pivots
+pivots = spanning 0 halvingWidths
+  where
+    spanning _ [] = NoPivot
+    spanning lowest (half : halves) =
+      Pivot (lowest + half) (spanning lowest halves) (spanning (lowest + half) halves)
+
+turnsTo :: RegIdx -> [Turn]
+turnsTo idx = turnsWithin pivots
+  where
+    turnsWithin NoPivot = []
+    turnsWithin (Pivot pivot below above)
+      | idx < pivot = Below : turnsWithin below
+      | otherwise = Above : turnsWithin above
+
+zeroTurns :: [Turn]
+zeroTurns = turnsTo 0
+
+slotFor :: RegIdx -> RegSlot
+slotFor idx = case concreteRegIdx idx of
+  Just 0 -> ZeroRegister
+  Just known -> KnownRegister known (turnsTo known)
+  Nothing -> AnyRegister idx
+
+sourceSlot :: Maybe RegIdx -> RegSlot
+sourceSlot = maybe NoRegister slotFor
+
+lookupAlong :: [Turn] -> RegTree -> Rel Word
+lookupAlong _ (RegLeaf value) = value
+lookupAlong (Above : turns) (RegSplit _ _ above) = lookupAlong turns above
+lookupAlong (Below : turns) (RegSplit _ below _) = lookupAlong turns below
+lookupAlong [] (RegSplit _ below _) = lookupAlong [] below
+
+readSlot :: RelRegs -> RegSlot -> Rel Word
+readSlot _ NoRegister = Same 0
+readSlot regs ZeroRegister = lookupAlong zeroTurns (knownIndexRegs regs)
+readSlot regs (KnownRegister _ turns) = lookupAlong turns (knownIndexRegs regs)
+readSlot regs (AnyRegister idx) = anyIndexRegs regs idx
 
 readReg :: RelRegs -> Maybe RegIdx -> Rel Word
-readReg regs = maybe (Same 0) (readAt regs)
+readReg regs = readSlot regs . sourceSlot
 
-replacePath :: RegIdx -> Rel Word -> RegTree -> RegTree
-replacePath _ value (RegLeaf _) = RegLeaf value
-replacePath rd value (RegSplit pivot below above)
-  | rd < pivot = RegSplit pivot (replacePath rd value below) above
-  | otherwise = RegSplit pivot below (replacePath rd value above)
+replaceAlong :: [Turn] -> Rel Word -> RegTree -> RegTree
+replaceAlong _ value (RegLeaf _) = RegLeaf value
+replaceAlong (Above : turns) value (RegSplit pivot below above) = RegSplit pivot below (replaceAlong turns value above)
+replaceAlong (Below : turns) value (RegSplit pivot below above) = RegSplit pivot (replaceAlong turns value below) above
+replaceAlong [] value (RegSplit pivot below above) = RegSplit pivot (replaceAlong [] value below) above
 
 replaceMatchingLeaf :: RegIdx -> Rel Word -> RegIdx -> RegTree -> RegTree
 replaceMatchingLeaf rd value lowest (RegLeaf old) = RegLeaf (if lowest == rd then value else old)
@@ -56,10 +101,23 @@ replaceMatchingLeaf rd value lowest (RegSplit pivot below above) =
 
 writeTree :: RegIdx -> Rel Word -> RegTree -> RegTree
 writeTree rd value tree = case concreteRegIdx rd of
-  Just known -> replacePath known value tree
+  Just known -> replaceAlong (turnsTo known) value tree
   Nothing -> replaceMatchingLeaf rd value 0 tree
 
+withChained :: RegIdx -> Rel Word -> (RegIdx -> Rel Word) -> RegIdx -> Rel Word
+withChained rd value chain idx = if idx == rd then value else chain idx
+
+writeAnyIndex :: RegIdx -> Rel Word -> RelRegs -> RelRegs
+writeAnyIndex 0 _ regs = regs
+writeAnyIndex rd value (RelRegs tree chain) =
+  RelRegs (writeTree rd value tree) (withChained rd value chain)
+
+writeSlot :: RegSlot -> Rel Word -> RelRegs -> RelRegs
+writeSlot NoRegister _ regs = regs
+writeSlot ZeroRegister _ regs = regs
+writeSlot (KnownRegister rd turns) value (RelRegs tree chain) =
+  RelRegs (replaceAlong turns value tree) (withChained rd value chain)
+writeSlot (AnyRegister rd) value regs = writeAnyIndex rd value regs
+
 writeReg :: RegIdx -> Rel Word -> RelRegs -> RelRegs
-writeReg 0 _ regs = regs
-writeReg rd value (RelRegs tree chain) =
-  RelRegs (writeTree rd value tree) (\idx -> if idx == rd then value else chain idx)
+writeReg = writeAnyIndex

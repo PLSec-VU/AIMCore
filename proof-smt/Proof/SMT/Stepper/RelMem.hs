@@ -8,10 +8,15 @@ module Proof.SMT.Stepper.RelMem
   , confinedWriteKeepsKnownWords
   , aliasingWriteMatchesArray
   , aliasingMissingWriteFails
+  , repeatedKnownLoadXorsToZero
+  , recordedLoadThenAliasingWriteMatchesArray
+  , recordedLoadThenConfinedWriteMatchesArray
   ) where
 
 import Clash.Prelude (bitCoerce)
 import Control.Monad ((>=>))
+import Data.Bits (xor)
+import Memory.Types (MemOps (..))
 import Stepper.Concrete (concreteAddress, stepperEmbeddings)
 import Stepper.Memory (Memory)
 import Stepper.Memory qualified as Memory
@@ -225,3 +230,42 @@ aliasingMissingWriteFails = do
   let path = mayAliasKnownKeys (unknownAddr w)
   layered <- knownThenUnknown path w (sameMem base)
   expectCounterexample $ not path || agreesAtKeysAndProbe probe layered (knownWritesOnly w base)
+
+knownLoad :: Address -> RelMem -> SymFC.Sym (Rel Word, RelMem)
+knownLoad addr mem = maybe SymFC.halt pure (loadKnownWord addr mem)
+
+{-# ANN repeatedKnownLoadXorsToZero (SymFC stepperEmbeddings) #-}
+repeatedKnownLoadXorsToZero :: SymFC.Sym ()
+repeatedKnownLoadXorsToZero = do
+  base <- SymFC.fresh @(Memory 32 8)
+  (first, recorded) <- knownLoad firstAddr (sameMem base)
+  (second, _) <- knownLoad firstAddr recorded
+  case concreteAddress (bitCoerce (left first `xor` left second)) of
+    Just difference -> expectValid $ difference == 0 && left first == memReadWord firstAddr base
+    Nothing -> SymFC.halt
+
+recordedLoadThenWriteMatchesArray :: (Address -> Bool) -> SymFC.Sym ()
+recordedLoadThenWriteMatchesArray onPath = do
+  base <- SymFC.fresh @(Memory 32 8)
+  probe <- SymFC.fresh @Address
+  addr <- SymFC.fresh @Address
+  byte <- SymFC.fresh @Byte
+  (loaded, recorded) <- knownLoad firstAddr (sameMem base)
+  let path = onPath addr
+      plain = Memory.write addr byte base
+  written <- writeByte path addr (Same byte) recorded
+  expectValid $
+    not path
+      || ( left loaded == memReadWord firstAddr base
+             && left (readMemWord firstAddr written) == memReadWord firstAddr plain
+             && left (readByte probe written) == Memory.read probe plain
+             && leftMem written == plain
+         )
+
+{-# ANN recordedLoadThenAliasingWriteMatchesArray (SymFC stepperEmbeddings) #-}
+recordedLoadThenAliasingWriteMatchesArray :: SymFC.Sym ()
+recordedLoadThenAliasingWriteMatchesArray = recordedLoadThenWriteMatchesArray mayAliasKnownKeys
+
+{-# ANN recordedLoadThenConfinedWriteMatchesArray (SymFC stepperEmbeddings) #-}
+recordedLoadThenConfinedWriteMatchesArray :: SymFC.Sym ()
+recordedLoadThenConfinedWriteMatchesArray = recordedLoadThenWriteMatchesArray confinedBetweenKeys

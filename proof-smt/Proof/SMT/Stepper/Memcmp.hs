@@ -126,12 +126,12 @@ sodiumMemcmpShortRunOutOfFuel = expectOutOfFuel $ callFunction tooFewSteps sodiu
 
 expectFetch :: Code -> Address -> Word -> SymFC.Sym ()
 expectFetch code addr expectedWord = case codeFetch code addr of
-  Just fetchedWord | fetchedWord == expectedWord -> pure ()
+  Just here | fetchedWord here == expectedWord -> pure ()
   _ -> SymFC.halt
 
 expectNoFetchOf :: Code -> Address -> Word -> SymFC.Sym ()
 expectNoFetchOf code addr unexpectedWord = case codeFetch code addr of
-  Just fetchedWord | fetchedWord == unexpectedWord -> SymFC.halt
+  Just here | fetchedWord here == unexpectedWord -> SymFC.halt
   _ -> pure ()
 
 {-# ANN memcmpFetchesKnownWords (SymFC stepperEmbeddings) #-}

@@ -11,8 +11,10 @@ module Proof.SMT.Concrete
   , literalComparisonIsKnown
   , freshBoolIsUnknown
   , mergedBoolIsUnknown
+  , xorWithSelfIsZero
   ) where
 
+import Data.Bits (xor)
 import Data.Maybe (isNothing)
 import Stepper.Concrete (concreteAddress, concreteEmbeddings, knownBool)
 import SymFC (SymFC (..))
@@ -99,4 +101,10 @@ freshBoolIsUnknown = SymFC.fresh @Bool >>= expectBoolUnknown
 mergedBoolIsUnknown :: SymFC.Sym ()
 mergedBoolIsUnknown = do
   b <- SymFC.fresh @Bool
-  expectBoolUnknown (if b then True else False)
+  expectBoolUnknown ((if b then 1 else 2 :: Address) == 1)
+
+{-# ANN xorWithSelfIsZero (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+xorWithSelfIsZero :: SymFC.Sym ()
+xorWithSelfIsZero = do
+  word <- SymFC.fresh @Address
+  expectBoolKnownAs True (word `xor` word == 0)

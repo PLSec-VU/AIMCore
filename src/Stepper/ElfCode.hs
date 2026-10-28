@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import Elf.ElfLoader (getElfSegments, readElf)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
+import Numeric (showHex)
 import qualified Stepper.RelState as RelState
 import Types (Address)
 
@@ -83,10 +84,12 @@ entryAddress image symbols = case symbols of
   [] -> Left "function lists no symbols"
   entry : _ -> rangeStart <$> lookupSymbol image entry
 
-searchTree :: Name -> FetchTable -> Q Exp
+type FetchedTable = [(Integer, Name)]
+
+searchTree :: Name -> FetchedTable -> Q Exp
 searchTree _ [] = [|Nothing|]
-searchTree pc [(addr, word)] =
-  [|if $(varE pc) == $(literal addr) then Just $(literal word) else Nothing|]
+searchTree pc [(addr, here)] =
+  [|if $(varE pc) == $(literal addr) then Just $(varE here) else Nothing|]
 searchTree pc table =
   case splitAt (length table `div` 2) table of
     (lower, upper@((pivot, _) : _)) ->
@@ -96,11 +99,29 @@ searchTree pc table =
 literal :: Integer -> Q Exp
 literal = litE . integerL
 
-codeExpression :: FetchTable -> Q Exp
-codeExpression table = do
+fetchedName :: String -> Integer -> Name
+fetchedName name addr = mkName (name ++ "At" ++ showHex addr "")
+
+fetchedDeclarations :: String -> FetchTable -> Q [Dec]
+fetchedDeclarations name table = concat <$> mapM declare table
+  where
+    addresses = Map.fromList table
+    following addr
+      | Map.member (addr + instructionBytes) addresses = [|Just $(varE (fetchedName name (addr + instructionBytes)))|]
+      | otherwise = [|Nothing|]
+    declare (addr, word) = do
+      body <- [|RelState.fetched $(literal addr) $(literal word) $(following addr)|]
+      pure
+        [ SigD (fetchedName name addr) (ConT ''RelState.Fetched)
+        , ValD (VarP (fetchedName name addr)) (NormalB body) []
+        ]
+
+codeExpression :: String -> FetchTable -> Q Exp
+codeExpression name table = do
   pc <- newName "pc"
   let sortedTable = sortOn fst table
-      fetch = lamE [varP pc] (searchTree pc sortedTable)
+      fetchedTable = [(addr, fetchedName name addr) | (addr, _) <- sortedTable]
+      fetch = lamE [varP pc] (searchTree pc fetchedTable)
       addresses = listE (map (literal . fst) sortedTable)
   [|RelState.Code $fetch (RelState.KnownAddresses $addresses)|]
 
@@ -113,13 +134,15 @@ functionDeclarations image (name, symbols) = do
   table <- orFail (functionFetchTable image symbols)
   let entryName = mkName (name ++ "Entry")
       codeName = mkName (name ++ "Code")
-  code <- codeExpression table
-  pure
-    [ SigD entryName (ConT ''Address)
-    , ValD (VarP entryName) (NormalB (LitE (IntegerL entry))) []
-    , SigD codeName (ConT ''RelState.Code)
-    , ValD (VarP codeName) (NormalB code) []
-    ]
+  code <- codeExpression name table
+  fetchedTable <- fetchedDeclarations name table
+  pure $
+    fetchedTable
+      ++ [ SigD entryName (ConT ''Address)
+         , ValD (VarP entryName) (NormalB (LitE (IntegerL entry))) []
+         , SigD codeName (ConT ''RelState.Code)
+         , ValD (VarP codeName) (NormalB code) []
+         ]
 
 elfCode :: FilePath -> [(String, [String])] -> Q [Dec]
 elfCode path functions = do

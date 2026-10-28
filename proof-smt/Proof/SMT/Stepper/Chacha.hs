@@ -27,14 +27,31 @@ steps :: Int -> Fuel
 steps 0 = Done
 steps n = More (steps (n - 1))
 
+plusFuel :: Fuel -> Fuel -> Fuel
+plusFuel Done later = later
+plusFuel (More fuel) later = More (plusFuel fuel later)
+
+tenfold :: Fuel -> Fuel
+tenfold fuel = plusFuel eightfold twofold
+  where
+    twofold = plusFuel fuel fuel
+    fourfold = plusFuel twofold twofold
+    eightfold = plusFuel fourfold fourfold
+
+decimalSteps :: [Int] -> Fuel
+decimalSteps = digitsAfter Done
+  where
+    digitsAfter sofar [] = sofar
+    digitsAfter sofar (digit : rest) = digitsAfter (plusFuel (steps digit) (tenfold sofar)) rest
+
 oneBlockSteps :: Fuel
-oneBlockSteps = steps 2065
+oneBlockSteps = decimalSteps [2, 0, 6, 5]
 
 oneStepShort :: Fuel
-oneStepShort = steps 2064
+oneStepShort = decimalSteps [2, 0, 6, 4]
 
 tooFewSteps :: Fuel
-tooFewSteps = steps 200
+tooFewSteps = decimalSteps [2, 0, 0]
 
 contextAddr, inputBuf, outputBuf, stackTop, returnOutsideCode :: Address
 contextAddr = 0x1000

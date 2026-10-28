@@ -4,6 +4,7 @@ module Stepper.AddrMap
   ( AddrMap
   , empty
   , insert
+  , insertWith
   , lookup
   , foldrWithKey
   , partitionByRange
@@ -13,52 +14,38 @@ import SymFC.BuiltIn qualified as SymFC
 import Types (Address)
 import Prelude hiding (lookup)
 
+data Color = Red | Black
+
 data AddrMap v
   = Tip
-  | Bin Int Address v (AddrMap v) (AddrMap v)
+  | Bin Color Address v (AddrMap v) (AddrMap v)
 
 empty :: AddrMap v
 empty = Tip
 
-height :: AddrMap v -> Int
-height Tip = 0
-height (Bin h _ _ _ _) = h
+balance :: Color -> Address -> v -> AddrMap v -> AddrMap v -> AddrMap v
+balance Black z zv (Bin Red y yv (Bin Red x xv a b) c) d = Bin Red y yv (Bin Black x xv a b) (Bin Black z zv c d)
+balance Black z zv (Bin Red x xv a (Bin Red y yv b c)) d = Bin Red y yv (Bin Black x xv a b) (Bin Black z zv c d)
+balance Black x xv a (Bin Red z zv (Bin Red y yv b c) d) = Bin Red y yv (Bin Black x xv a b) (Bin Black z zv c d)
+balance Black x xv a (Bin Red y yv b (Bin Red z zv c d)) = Bin Red y yv (Bin Black x xv a b) (Bin Black z zv c d)
+balance color k v l r = Bin color k v l r
 
-node :: Address -> v -> AddrMap v -> AddrMap v -> AddrMap v
-node k v l r = Bin (1 + max (height l) (height r)) k v l r
+insertRed :: (Maybe v -> v) -> Address -> AddrMap v -> AddrMap v
+insertRed combine k Tip = Bin Red k (combine Nothing) Tip Tip
+insertRed combine k (Bin color nk nv l r)
+  | k < nk = balance color nk nv (insertRed combine k l) r
+  | k > nk = balance color nk nv l (insertRed combine k r)
+  | otherwise = Bin color k (combine (Just nv)) l r
 
-rotateRight :: AddrMap v -> AddrMap v
-rotateRight (Bin _ k v (Bin _ lk lv ll lr) r) = node lk lv ll (node k v lr r)
-rotateRight t = t
+blackRoot :: AddrMap v -> AddrMap v
+blackRoot (Bin _ k v l r) = Bin Black k v l r
+blackRoot Tip = Tip
 
-rotateLeft :: AddrMap v -> AddrMap v
-rotateLeft (Bin _ k v l (Bin _ rk rv rl rr)) = node rk rv (node k v l rl) rr
-rotateLeft t = t
-
-balanceFactor :: AddrMap v -> Int
-balanceFactor Tip = 0
-balanceFactor (Bin _ _ _ l r) = height l - height r
-
-leansLeft :: AddrMap v -> Bool
-leansLeft t = balanceFactor t > 0
-
-leansRight :: AddrMap v -> Bool
-leansRight t = balanceFactor t < 0
-
-balance :: Address -> v -> AddrMap v -> AddrMap v -> AddrMap v
-balance k v l r
-  | height l > height r + 1 =
-      rotateRight (node k v (if leansRight l then rotateLeft l else l) r)
-  | height r > height l + 1 =
-      rotateLeft (node k v l (if leansLeft r then rotateRight r else r))
-  | otherwise = node k v l r
+insertWith :: (Maybe v -> v) -> Address -> AddrMap v -> AddrMap v
+insertWith combine k tree = blackRoot (insertRed combine k tree)
 
 insert :: Address -> v -> AddrMap v -> AddrMap v
-insert k v Tip = Bin 1 k v Tip Tip
-insert k v (Bin h nk nv l r)
-  | k < nk = balance nk nv (insert k v l) r
-  | k > nk = balance nk nv l (insert k v r)
-  | otherwise = Bin h k v l r
+insert k v = insertWith (const v) k
 
 lookup :: Address -> AddrMap v -> Maybe v
 lookup _ Tip = Nothing
@@ -72,7 +59,7 @@ foldrWithKey _ z Tip = z
 foldrWithKey f z (Bin _ k v l r) = foldrWithKey f (f k v (foldrWithKey f z r)) l
 
 singleton :: Address -> v -> AddrMap v
-singleton k v = Bin 1 k v Tip Tip
+singleton k v = Bin Black k v Tip Tip
 
 lowestKey :: Address -> AddrMap v -> Address
 lowestKey k Tip = k

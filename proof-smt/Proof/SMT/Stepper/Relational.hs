@@ -22,6 +22,7 @@ module Proof.SMT.Stepper.Relational
   , publicJumpToLeakyTargetLeaks
   , publicJumpAvoidingLeakyTargetNoLeak
   , unconstrainedPublicJumpLeaks
+  , confinedJumpInLongCodeNoLeak
   ) where
 
 import Data.Functor.Identity (runIdentity)
@@ -326,18 +327,7 @@ publicJumpProgram =
             withInstruction 20 ebreak noCode
 
 runPublicJumpToy :: (Word -> Bool) -> SymFC.Sym Verdict
-runPublicJumpToy allowedTarget = do
-  isa <- SymFC.fresh @IsaSys
-  secretA <- SymFC.fresh @Word
-  secretB <- SymFC.fresh @Word
-  target <- SymFC.fresh @Word
-  let start = sameState publicJumpProgram isa {isaPc = 0}
-      withTarget =
-        start
-          { relPath = allowedTarget target
-          , relRegs = writeReg jumpTargetReg (Same target) (relRegs start)
-          }
-  relRun forkFuel =<< inSecretReg secretA secretB withTarget
+runPublicJumpToy = runJumpIn publicJumpProgram
 
 {-# ANN publicJumpToLeakyTargetLeaks (SymFC stepperEmbeddings) #-}
 publicJumpToLeakyTargetLeaks :: SymFC.Sym ()
@@ -352,3 +342,48 @@ publicJumpAvoidingLeakyTargetNoLeak =
 {-# ANN unconstrainedPublicJumpLeaks (SymFC stepperEmbeddings) #-}
 unconstrainedPublicJumpLeaks :: SymFC.Sym ()
 unconstrainedPublicJumpLeaks = expectLeakAt 12 LeakBranch $ runPublicJumpToy (const True)
+
+ebreaksFrom :: Address -> Fuel -> Code -> Code
+ebreaksFrom _ Done code = code
+ebreaksFrom addr (More count) code = withInstruction addr ebreak (ebreaksFrom (addr + 4) count code)
+
+doubled :: Fuel -> Fuel
+doubled Done = Done
+doubled (More count) = More (More (doubled count))
+
+sixtyFour :: Fuel
+sixtyFour = doubled (doubled (doubled (doubled (doubled (doubled (More Done))))))
+
+longCodeLeakyAddr :: Address
+longCodeLeakyAddr = 260
+
+firstLongTarget, secondLongTarget :: Word
+firstLongTarget = 176
+secondLongTarget = 180
+
+longJumpProgram :: Code
+longJumpProgram =
+  withInstruction 0 jalrToA1 $
+    ebreaksFrom 4 sixtyFour $
+      withInstruction longCodeLeakyAddr beqA0X0Plus8 $
+        ebreaksFrom (longCodeLeakyAddr + 4) sixtyFour noCode
+
+runJumpIn :: Code -> (Word -> Bool) -> SymFC.Sym Verdict
+runJumpIn code allowedTarget = do
+  isa <- SymFC.fresh @IsaSys
+  secretA <- SymFC.fresh @Word
+  secretB <- SymFC.fresh @Word
+  target <- SymFC.fresh @Word
+  let start = sameState code isa {isaPc = 0}
+      withTarget =
+        start
+          { relPath = allowedTarget target
+          , relRegs = writeReg jumpTargetReg (Same target) (relRegs start)
+          }
+  relRun forkFuel =<< inSecretReg secretA secretB withTarget
+
+{-# ANN confinedJumpInLongCodeNoLeak (SymFC stepperEmbeddings) #-}
+confinedJumpInLongCodeNoLeak :: SymFC.Sym ()
+confinedJumpInLongCodeNoLeak =
+  expectNoLeak $ runJumpIn longJumpProgram \target ->
+    target == firstLongTarget || target == secondLongTarget
