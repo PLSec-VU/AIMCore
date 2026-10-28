@@ -118,10 +118,12 @@ library:
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
         - Proof.SMT.Stepper
+        - Proof.SMT.Stepper.Blake2b
         - Proof.SMT.Stepper.Chacha
         - Proof.SMT.Stepper.Memcmp
         - Proof.SMT.Stepper.RelMem
         - Proof.SMT.Stepper.Relational
+        - Proof.SMT.Stepper.Sha256
         - Proof.SMT.System
       cpp-options: -DSMT_PROOF
   exposed-modules:
