@@ -77,16 +77,14 @@ a1 = 11
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce
 
-withArguments :: Rel Word -> RelState -> RelState
-withArguments blockPointer st =
-  st
-    { relRegs =
-        writeReg a0 (pointer stateAddr)
-          . writeReg a1 blockPointer
-          . writeReg sp (pointer stackTop)
-          . writeReg ra (pointer returnOutsideCode)
-          $ relRegs st
-    }
+withArguments :: Rel Word -> RelState -> SymFC.Sym RelState
+withArguments blockPointer st = do
+  regs <-
+    writeReg a0 (pointer stateAddr)
+      =<< writeReg a1 blockPointer
+      =<< writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode) (relRegs st)
+  pure st {relRegs = regs}
 
 withSecretWords :: Address -> Int -> RelState -> SymFC.Sym RelState
 withSecretWords _ 0 st = pure st
@@ -107,7 +105,7 @@ compressCall :: Fuel -> Rel Word -> Bool -> SymFC.Sym Verdict
 compressCall fuel blockPointer secretChainingValue = do
   isa <- SymFC.fresh @IsaSys
   let start = (sameState blake2bCompressCode isa) {relPc = blake2bCompressEntry}
-  withBlock <- withSecretWords blockAddr blockWords (withArguments blockPointer start)
+  withBlock <- withSecretWords blockAddr blockWords =<< withArguments blockPointer start
   withCounters <- withPublicWords countersAddr counterWords withBlock
   withChainingValue <-
     if secretChainingValue

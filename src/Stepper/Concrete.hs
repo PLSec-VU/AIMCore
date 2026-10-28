@@ -23,43 +23,45 @@ import SymFC.Clash qualified as Clash
 import Types (Address, RegIdx)
 
 {-# OPAQUE concreteAddress #-}
-concreteAddress :: Address -> Maybe Address
-concreteAddress = Just
+concreteAddress :: Address -> SymFC.Sym (Maybe Address)
+concreteAddress = pure . Just
 
 {-# OPAQUE concreteRegIdx #-}
-concreteRegIdx :: RegIdx -> Maybe RegIdx
-concreteRegIdx = Just
+concreteRegIdx :: RegIdx -> SymFC.Sym (Maybe RegIdx)
+concreteRegIdx = pure . Just
 
 {-# OPAQUE knownBool #-}
-knownBool :: Bool -> Maybe Bool
-knownBool = Just
+knownBool :: Bool -> SymFC.Sym (Maybe Bool)
+knownBool = pure . Just
+
+fromKnown :: SymFC.Known a -> Maybe a
+fromKnown (SymFC.Known value) = Just value
+fromKnown SymFC.NotKnown = Nothing
 
 concreteAddressE
   :: forall (bvA :: Nat -> Type)
    . Embeddable bvA Clash.BitVec
   => bvA 32
-  -> Maybe (bvA 32)
+  -> SymFC.Sym (Maybe (bvA 32))
 concreteAddressE
   | Embedding <- embedding @bvA = coerce go
   where
-    go :: Clash.BitVec 32 -> Maybe (Clash.BitVec 32)
-    go (Clash.BitVecP address) = Clash.BitVecP <$> SymFC.concrete address
+    go :: Clash.BitVec 32 -> SymFC.Sym (Maybe (Clash.BitVec 32))
+    go (Clash.BitVecP address) = fmap Clash.BitVecP . fromKnown <$> SymFC.concrete address
 
 concreteRegIdxE
   :: forall (bvA :: Nat -> Type)
    . Embeddable bvA Clash.BitVec
   => bvA 5
-  -> Maybe (bvA 5)
+  -> SymFC.Sym (Maybe (bvA 5))
 concreteRegIdxE
   | Embedding <- embedding @bvA = coerce go
   where
-    go :: Clash.BitVec 5 -> Maybe (Clash.BitVec 5)
-    go (Clash.BitVecP idx) = Clash.BitVecP <$> SymFC.concrete idx
+    go :: Clash.BitVec 5 -> SymFC.Sym (Maybe (Clash.BitVec 5))
+    go (Clash.BitVecP idx) = fmap Clash.BitVecP . fromKnown <$> SymFC.concrete idx
 
-knownBoolE :: Bool -> Maybe Bool
-knownBoolE value = case SymFC.concreteBool (SymFC.boolean value) of
-  Nothing -> Nothing
-  Just known -> Just (SymFC.ite known True False)
+knownBoolE :: Bool -> SymFC.Sym (Maybe Bool)
+knownBoolE value = fromKnown <$> SymFC.concrete value
 
 concreteEmbeddings :: Embeddings
 concreteEmbeddings =

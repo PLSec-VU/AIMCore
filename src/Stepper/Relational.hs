@@ -44,28 +44,46 @@ continueOn :: Bool -> RelState -> Candidate
 continueOn guard next = Candidate guard \path' -> RelNext next {relPath = path'}
 
 relStep :: RelState -> SymFC.Sym RelOutcome
-relStep st@(RelState path code pc _ regs mem) = case currentFetch st of
-  Nothing -> pure RelOutsideCode
-  Just (here, next) -> execute here next
+relStep st@(RelState path code pc _ regs mem) = do
+  current <- currentFetch st
+  case current of
+    Nothing -> pure RelOutsideCode
+    Just (here, next) -> do
+      cached <- fetchedOperands here
+      execute here next cached
   where
-    execute here next = case fetchedInstr here of
-      Reg rd f ->
-        pure $ RelNext (fallThrough st {relRegs = writeSlot (fieldSlot rd) (apSources f) regs})
-      Load size sign rd f -> withAgreed LeakLoadAddress (apSources f) \addr ->
-        let loaded word = writeSlot (fieldSlot rd) (loadExtend size sign <$> word) regs
-         in pure $ RelNext $ fallThrough case loadKnownWord addr mem of
-              Just (word, mem') -> st {relRegs = loaded word, relMem = mem'}
-              Nothing -> st {relRegs = loaded (readMemWord addr mem)}
-      Jump rd link target -> withAgreed LeakJumpTarget (apSources target) \target' ->
-        jumpTo target' \addr -> landAt addr st {relRegs = writeSlot (fieldSlot rd) (bitCoerce <$> ap link) regs}
-      Store size addr rs2 -> withAgreed LeakStoreAddress (apSources addr) \addr' -> do
-        mem' <- writeMem path size addr' (readSlot regs (fieldSlot rs2)) mem
-        pure $ RelNext (fallThrough st {relMem = mem'})
+    execute here next cached = case fetchedInstr here of
+      Reg rd f -> do
+        slot <- fieldSlot rd
+        sources <- apSources f
+        pure $ RelNext (fallThrough st {relRegs = writeSlot slot sources regs})
+      Load size sign rd f -> do
+        slot <- fieldSlot rd
+        sources <- apSources f
+        withAgreed LeakLoadAddress sources \addr -> do
+          (word, mem') <- loadMemWord addr mem
+          let loaded = writeSlot slot (loadExtend size sign <$> word) regs
+          pure $ RelNext $ fallThrough st {relRegs = loaded, relMem = mem'}
+      Jump rd link target -> do
+        slot <- fieldSlot rd
+        sources <- apSources target
+        withAgreed LeakJumpTarget sources \target' -> do
+          linked <- ap link
+          jumpTo target' \addr -> landAt addr st {relRegs = writeSlot slot (bitCoerce <$> linked) regs}
+      Store size addr rs2 -> do
+        slot <- fieldSlot rs2
+        sources <- apSources addr
+        withAgreed LeakStoreAddress sources \addr' -> do
+          mem' <- writeMem path size addr' (readSlot regs slot) mem
+          pure $ RelNext (fallThrough st {relMem = mem'})
       Branch cond target -> do
-        agreed <- agree path (apSources cond)
+        sources <- apSources cond
+        agreed <- agree path sources
         case agreed of
           Nothing -> pure (RelLeaks pc LeakBranch)
-          Just taken -> forkOn taken (landAt (left (ap target)) st) (fallThrough st)
+          Just taken -> do
+            destination <- ap target
+            forkOn taken (landAt (left destination) st) (fallThrough st)
       Nop -> pure $ RelNext (fallThrough st)
       Break -> pure RelHalted
       Syscall -> pure RelHalted
@@ -74,16 +92,14 @@ relStep st@(RelState path code pc _ regs mem) = case currentFetch st of
           Just following -> later {relPc = fetchedAddress following, relFetchHint = Just following}
           Nothing -> later {relPc = pc + 4, relFetchHint = Nothing}
 
-        cached = fetchedOperands here
+        fieldSlot :: RegIdx -> SymFC.Sym RegSlot
+        fieldSlot reg = maybe (slotFor reg) (pure . registerFieldSlot) cached
 
-        fieldSlot :: RegIdx -> RegSlot
-        fieldSlot reg = maybe (slotFor reg) registerFieldSlot cached
+        apSources :: Func a -> SymFC.Sym (Rel a)
+        apSources f = (`apWith` f) <$> maybe (funcSlots f) (pure . sourceSlots) cached
 
-        apSources :: Func a -> Rel a
-        apSources f = apWith (maybe (funcSlots f) sourceSlots cached) f
-
-        ap :: Func a -> Rel a
-        ap f = apWith (funcSlots f) f
+        ap :: Func a -> SymFC.Sym (Rel a)
+        ap f = (`apWith` f) <$> funcSlots f
 
         apWith :: (RegSlot, RegSlot) -> Func a -> Rel a
         apWith (first, second) f =
@@ -99,36 +115,40 @@ relStep st@(RelState path code pc _ regs mem) = case currentFetch st of
         Just a -> continue a
 
     forkOn :: Bool -> RelState -> RelState -> SymFC.Sym RelOutcome
-    forkOn cond whenTrue whenFalse = case knownBool cond of
-      Just True -> pure (RelNext whenTrue)
-      Just False -> pure (RelNext whenFalse)
-      Nothing -> forkAmong [continueOn cond whenTrue, continueOn (not cond) whenFalse]
+    forkOn cond whenTrue whenFalse = do
+      known <- knownBool cond
+      case known of
+        Just True -> pure (RelNext whenTrue)
+        Just False -> pure (RelNext whenFalse)
+        Nothing -> forkAmong [continueOn cond whenTrue, continueOn (not cond) whenFalse]
 
     jumpTo :: PC -> (PC -> RelState) -> SymFC.Sym RelOutcome
-    jumpTo target landing = case (concreteAddress target, codeAddresses code) of
-      (Nothing, KnownAddresses addrs) -> do
-        outside <- feasibleOutcomes [leaveCode]
-        oneOutcome <$> landingsAmong addrs outside
-        where
-          leaveCode = Candidate (missesEvery addrs target) (const RelOutsideCode)
+    jumpTo target landing = do
+      known <- concreteAddress target
+      case (known, codeAddresses code) of
+        (Nothing, KnownAddresses addrs) -> do
+          outside <- feasibleOutcomes [leaveCode]
+          oneOutcome <$> landingsAmong addrs outside
+          where
+            leaveCode = Candidate (missesEvery addrs target) (const RelOutsideCode)
 
-          landOn addr = RelNext (landing addr) {relPath = path && target == addr}
+            landOn addr = RelNext (landing addr) {relPath = path && target == addr}
 
-          reachable addrs' = isFeasible (path && hitsSome addrs' target)
+            reachable addrs' = isFeasible (path && hitsSome addrs' target)
 
-          landingsAmong addrs' later = do
-            canLand <- reachable addrs'
-            if canLand then landingsAmongReachable addrs' later else pure later
+            landingsAmong addrs' later = do
+              canLand <- reachable addrs'
+              if canLand then landingsAmongReachable addrs' later else pure later
 
-          landingsAmongReachable [] later = pure later
-          landingsAmongReachable [addr] later = pure (landOn addr : later)
-          landingsAmongReachable addrs' later = case halves addrs' of
-            (lower, upper) -> do
-              lowerReachable <- reachable lower
-              if lowerReachable
-                then landingsAmongReachable lower =<< landingsAmong upper later
-                else landingsAmongReachable upper later
-      _ -> pure (RelNext (landing target))
+            landingsAmongReachable [] later = pure later
+            landingsAmongReachable [addr] later = pure (landOn addr : later)
+            landingsAmongReachable addrs' later = case halves addrs' of
+              (lower, upper) -> do
+                lowerReachable <- reachable lower
+                if lowerReachable
+                  then landingsAmongReachable lower =<< landingsAmong upper later
+                  else landingsAmongReachable upper later
+        _ -> pure (RelNext (landing target))
 
     isFeasible :: Bool -> SymFC.Sym Bool
     isFeasible guardedPath = do
@@ -151,15 +171,16 @@ relStep st@(RelState path code pc _ regs mem) = case currentFetch st of
 landAt :: PC -> RelState -> RelState
 landAt addr st = st {relPc = addr, relFetchHint = Nothing}
 
-currentFetch :: RelState -> Maybe (Fetched, Maybe Fetched)
+currentFetch :: RelState -> SymFC.Sym (Maybe (Fetched, Maybe Fetched))
 currentFetch st = case relFetchHint st of
-  Just hint -> Just (hint, fetchedFollowing hint)
-  Nothing -> withFollowing <$> codeFetch (relCode st) (relPc st)
+  Just hint -> pure (Just (hint, fetchedFollowing hint))
+  Nothing -> traverse withFollowing (codeFetch (relCode st) (relPc st))
   where
-    withFollowing here = (here, if fetchedAtPc here then fetchedFollowing here else Nothing)
-    fetchedAtPc here = case knownBool (fetchedAddress here == relPc st) of
-      Just True -> True
-      _ -> False
+    withFollowing here = do
+      atPc <- knownBool (fetchedAddress here == relPc st)
+      pure case atPc of
+        Just True -> (here, fetchedFollowing here)
+        _ -> (here, Nothing)
 
 missesEvery :: [Address] -> PC -> Bool
 missesEvery addrs target = foldr (\addr rest -> target /= addr && rest) True addrs

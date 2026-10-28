@@ -79,18 +79,16 @@ a3 = 13
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce
 
-withArguments :: Rel Word -> RelState -> RelState
-withArguments blockPointer st =
-  st
-    { relRegs =
-        writeReg a0 (pointer stateAddr)
-          . writeReg a1 blockPointer
-          . writeReg a2 (pointer scheduleAddr)
-          . writeReg a3 (pointer scratchAddr)
-          . writeReg sp (pointer stackTop)
-          . writeReg ra (pointer returnOutsideCode)
-          $ relRegs st
-    }
+withArguments :: Rel Word -> RelState -> SymFC.Sym RelState
+withArguments blockPointer st = do
+  regs <-
+    writeReg a0 (pointer stateAddr)
+      =<< writeReg a1 blockPointer
+      =<< writeReg a2 (pointer scheduleAddr)
+      =<< writeReg a3 (pointer scratchAddr)
+      =<< writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode) (relRegs st)
+  pure st {relRegs = regs}
 
 withSecretWords :: Address -> Int -> RelState -> SymFC.Sym RelState
 withSecretWords _ 0 st = pure st
@@ -111,7 +109,7 @@ transformCall :: Fuel -> Rel Word -> Bool -> SymFC.Sym Verdict
 transformCall fuel blockPointer secretState = do
   isa <- SymFC.fresh @IsaSys
   let start = (sameState sha256TransformCode isa) {relPc = sha256TransformEntry}
-  withBlock <- withSecretWords blockAddr blockWords (withArguments blockPointer start)
+  withBlock <- withSecretWords blockAddr blockWords =<< withArguments blockPointer start
   withState <-
     if secretState
       then withSecretWords stateAddr stateWords withBlock

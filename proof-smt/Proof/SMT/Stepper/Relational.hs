@@ -55,16 +55,21 @@ expectCounterexample prop = do
 
 data Probe = Probe
   { probeReg :: RegIdx
+  , probeSlot :: RegSlot
   , probeAddr :: Address
   }
 
 freshProbe :: SymFC.Sym Probe
-freshProbe = Probe <$> SymFC.fresh @RegIdx <*> SymFC.fresh @Address
+freshProbe = do
+  reg <- SymFC.fresh @RegIdx
+  addr <- SymFC.fresh @Address
+  slot <- slotFor reg
+  pure (Probe reg slot addr)
 
 matchesState :: Probe -> RelState -> IsaSys -> Bool
 matchesState probe st isa =
   relPc st == isaPc isa
-    && left (readReg (relRegs st) (Just (probeReg probe))) == runIdentity (lookupRFg (probeReg probe) (isaRegFile isa))
+    && left (readSlot (relRegs st) (probeSlot probe)) == runIdentity (lookupRFg (probeReg probe) (isaRegFile isa))
     && Memory.read (probeAddr probe) (leftMem (relMem st)) == Memory.read (probeAddr probe) (isaMem isa)
 
 matchesIsaStep :: Probe -> IsaSys -> RelOutcome -> Bool
@@ -137,7 +142,7 @@ runToy secret first second = do
   relRun toyFuel =<< secret secretA secretB (sameState (program first second) isa {isaPc = 0})
 
 inSecretReg :: Secret
-inSecretReg secretA secretB = pure . withSecretReg secretReg secretA secretB
+inSecretReg = withSecretReg secretReg
 
 inSecretWord :: Secret
 inSecretWord = withSecretWord secretAddr
@@ -375,11 +380,8 @@ runJumpIn code allowedTarget = do
   secretB <- SymFC.fresh @Word
   target <- SymFC.fresh @Word
   let start = sameState code isa {isaPc = 0}
-      withTarget =
-        start
-          { relPath = allowedTarget target
-          , relRegs = writeReg jumpTargetReg (Same target) (relRegs start)
-          }
+  regs <- writeReg jumpTargetReg (Same target) (relRegs start)
+  let withTarget = start {relPath = allowedTarget target, relRegs = regs}
   relRun forkFuel =<< inSecretReg secretA secretB withTarget
 
 {-# ANN confinedJumpInLongCodeNoLeak (SymFC stepperEmbeddings) #-}

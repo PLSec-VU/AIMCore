@@ -84,12 +84,16 @@ applyPlainWithoutSymbolic w =
     . Memory.write secondAddr (secondByte w)
     . Memory.write firstAddr (firstByte w)
 
-readsAgree :: Address -> RelMem -> Memory 32 8 -> Bool
-readsAgree probe layered plain =
-  left (readByte probe layered) == Memory.read probe plain
-    && left (readByte firstAddr layered) == Memory.read firstAddr plain
-    && left (readByte secondAddr layered) == Memory.read secondAddr plain
-    && leftMem layered == plain
+readsAgree :: Address -> RelMem -> Memory 32 8 -> SymFC.Sym Bool
+readsAgree probe layered plain = do
+  atProbe <- readByte probe layered
+  atFirst <- readByte firstAddr layered
+  atSecond <- readByte secondAddr layered
+  pure $
+    left atProbe == Memory.read probe plain
+      && left atFirst == Memory.read firstAddr plain
+      && left atSecond == Memory.read secondAddr plain
+      && leftMem layered == plain
 
 {-# ANN layeredMatchesArray (SymFC stepperEmbeddings) #-}
 layeredMatchesArray :: SymFC.Sym ()
@@ -98,7 +102,7 @@ layeredMatchesArray = do
   probe <- SymFC.fresh @Address
   w <- freshWrites
   layered <- applyLayered w (sameMem base)
-  expectValid $ readsAgree probe layered (applyPlain w base)
+  expectValid =<< readsAgree probe layered (applyPlain w base)
 
 {-# ANN layeredMissingWriteFails (SymFC stepperEmbeddings) #-}
 layeredMissingWriteFails :: SymFC.Sym ()
@@ -107,7 +111,7 @@ layeredMissingWriteFails = do
   probe <- SymFC.fresh @Address
   w <- freshWrites
   layered <- applyLayered w (sameMem base)
-  expectCounterexample $ readsAgree probe layered (applyPlainWithoutSymbolic w base)
+  expectCounterexample =<< readsAgree probe layered (applyPlainWithoutSymbolic w base)
 
 secretAddr :: Address
 secretAddr = 0x200
@@ -123,9 +127,10 @@ layeredPairMatchesArrays = do
   layered <- writeByte True secretAddr (Pair secretA secretB) (sameMem base) >>= applyLayered w
   let plainA = applyPlain w (Memory.write secretAddr secretA base)
       plainB = applyPlain w (Memory.write secretAddr secretB base)
+  atProbe <- readByte probe layered
   expectValid $
-    left (readByte probe layered) == Memory.read probe plainA
-      && right (readByte probe layered) == Memory.read probe plainB
+    left atProbe == Memory.read probe plainA
+      && right atProbe == Memory.read probe plainB
       && leftMem layered == plainA
       && rightMem layered == plainB
 
@@ -171,12 +176,17 @@ knownWritesOnly w =
 knownThenUnknownPlain :: UnknownWrite -> Memory 32 8 -> Memory 32 8
 knownThenUnknownPlain w = Memory.write (unknownAddr w) (unknownByte w) . knownWritesOnly w
 
-agreesAtKeysAndProbe :: Address -> RelMem -> Memory 32 8 -> Bool
-agreesAtKeysAndProbe probe layered plain =
-  agreesAt probe && agreesAt firstAddr && agreesAt secondAddr && agreesAt farAddr
-    && Memory.read probe (leftMem layered) == Memory.read probe plain
+agreesAtKeysAndProbe :: Address -> RelMem -> Memory 32 8 -> SymFC.Sym Bool
+agreesAtKeysAndProbe probe layered plain = do
+  atProbe <- agreesAt probe
+  atFirst <- agreesAt firstAddr
+  atSecond <- agreesAt secondAddr
+  atFar <- agreesAt farAddr
+  pure $
+    atProbe && atFirst && atSecond && atFar
+      && Memory.read probe (leftMem layered) == Memory.read probe plain
   where
-    agreesAt addr = left (readByte addr layered) == Memory.read addr plain
+    agreesAt addr = (\byte -> left byte == Memory.read addr plain) <$> readByte addr layered
 
 {-# ANN confinedWriteMatchesArray (SymFC stepperEmbeddings) #-}
 confinedWriteMatchesArray :: SymFC.Sym ()
@@ -186,13 +196,15 @@ confinedWriteMatchesArray = do
   w <- freshUnknownWrite
   let path = confinedBetweenKeys (unknownAddr w)
   layered <- knownThenUnknown path w (sameMem base)
-  expectValid $ not path || agreesAtKeysAndProbe probe layered (knownThenUnknownPlain w base)
+  expectValid . (not path ||) =<< agreesAtKeysAndProbe probe layered (knownThenUnknownPlain w base)
 
 savedWord :: Word
 savedWord = 0x00042838
 
-exactWordAt :: Address -> RelMem -> Maybe Address
-exactWordAt addr mem = concreteAddress (bitCoerce (left (readMemWord addr mem)))
+exactWordAt :: Address -> RelMem -> SymFC.Sym (Maybe Address)
+exactWordAt addr mem = do
+  word <- readMemWord addr mem
+  concreteAddress (bitCoerce (left word))
 
 {-# ANN confinedWriteKeepsKnownWords (SymFC stepperEmbeddings) #-}
 confinedWriteKeepsKnownWords :: SymFC.Sym ()
@@ -207,7 +219,9 @@ confinedWriteKeepsKnownWords = do
         >=> writeByte path addr (Same byte)
     )
       (sameMem base)
-  case (exactWordAt firstAddr layered, exactWordAt farAddr layered) of
+  firstWord <- exactWordAt firstAddr layered
+  farWord <- exactWordAt farAddr layered
+  case (firstWord, farWord) of
     (Just first, Just far) -> expectValid $ first == bitCoerce savedWord && far == bitCoerce savedWord
     _ -> SymFC.halt
 
@@ -219,7 +233,7 @@ aliasingWriteMatchesArray = do
   w <- freshUnknownWrite
   let path = mayAliasKnownKeys (unknownAddr w)
   layered <- knownThenUnknown path w (sameMem base)
-  expectValid $ not path || agreesAtKeysAndProbe probe layered (knownThenUnknownPlain w base)
+  expectValid . (not path ||) =<< agreesAtKeysAndProbe probe layered (knownThenUnknownPlain w base)
 
 {-# ANN aliasingMissingWriteFails (SymFC stepperEmbeddings) #-}
 aliasingMissingWriteFails :: SymFC.Sym ()
@@ -229,10 +243,10 @@ aliasingMissingWriteFails = do
   w <- freshUnknownWrite
   let path = mayAliasKnownKeys (unknownAddr w)
   layered <- knownThenUnknown path w (sameMem base)
-  expectCounterexample $ not path || agreesAtKeysAndProbe probe layered (knownWritesOnly w base)
+  expectCounterexample . (not path ||) =<< agreesAtKeysAndProbe probe layered (knownWritesOnly w base)
 
 knownLoad :: Address -> RelMem -> SymFC.Sym (Rel Word, RelMem)
-knownLoad addr mem = maybe SymFC.halt pure (loadKnownWord addr mem)
+knownLoad addr mem = maybe SymFC.halt pure =<< loadKnownWord addr mem
 
 {-# ANN repeatedKnownLoadXorsToZero (SymFC stepperEmbeddings) #-}
 repeatedKnownLoadXorsToZero :: SymFC.Sym ()
@@ -240,8 +254,9 @@ repeatedKnownLoadXorsToZero = do
   base <- SymFC.fresh @(Memory 32 8)
   (first, recorded) <- knownLoad firstAddr (sameMem base)
   (second, _) <- knownLoad firstAddr recorded
-  case concreteAddress (bitCoerce (left first `xor` left second)) of
-    Just difference -> expectValid $ difference == 0 && left first == memReadWord firstAddr base
+  difference <- concreteAddress (bitCoerce (left first `xor` left second))
+  case difference of
+    Just knownDifference -> expectValid $ knownDifference == 0 && left first == memReadWord firstAddr base
     Nothing -> SymFC.halt
 
 recordedLoadThenWriteMatchesArray :: (Address -> Bool) -> SymFC.Sym ()
@@ -254,11 +269,13 @@ recordedLoadThenWriteMatchesArray onPath = do
   let path = onPath addr
       plain = Memory.write addr byte base
   written <- writeByte path addr (Same byte) recorded
+  writtenWord <- readMemWord firstAddr written
+  atProbe <- readByte probe written
   expectValid $
     not path
       || ( left loaded == memReadWord firstAddr base
-             && left (readMemWord firstAddr written) == memReadWord firstAddr plain
-             && left (readByte probe written) == Memory.read probe plain
+             && left writtenWord == memReadWord firstAddr plain
+             && left atProbe == Memory.read probe plain
              && leftMem written == plain
          )
 

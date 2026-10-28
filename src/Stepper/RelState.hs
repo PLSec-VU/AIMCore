@@ -8,6 +8,7 @@ module Stepper.RelState
   , sameMem
   , readMemWord
   , loadKnownWord
+  , loadMemWord
   , writeMem
   , leftMem
   , rightMem
@@ -16,6 +17,7 @@ module Stepper.RelState
   , readSlot
   , writeSlot
   , funcSlots
+  , knownOperands
   , Operands (..)
   , Fetched (..)
   , fetched
@@ -37,7 +39,7 @@ import Instruction (decode')
 import Memory.Types (MemOps (..))
 import RegFile (RegFileOps (..))
 import Stepper (IsaSys)
-import Stepper.Concrete (concreteAddress, knownBool)
+import Stepper.Concrete (concreteAddress)
 import Stepper.Memory (Memory)
 import Stepper.Rel (Rel (..))
 import Stepper.RelMem
@@ -50,32 +52,37 @@ data CodeAddresses
   = EveryAddress
   | KnownAddresses [Address]
 
-funcSlots :: Func a -> (RegSlot, RegSlot)
-funcSlots f = (sourceSlot (fst (deps f)), sourceSlot (snd (deps f)))
+funcSlots :: Func a -> SymFC.Sym (RegSlot, RegSlot)
+funcSlots f = (,) <$> sourceSlot (fst (deps f)) <*> sourceSlot (snd (deps f))
+
+knownFuncSlots :: Func a -> (RegSlot, RegSlot)
+knownFuncSlots f = (knownSourceSlot (fst (deps f)), knownSourceSlot (snd (deps f)))
+  where
+    knownSourceSlot = maybe NoRegister knownSlot
 
 data Operands = Operands
   { sourceSlots :: (RegSlot, RegSlot)
   , registerFieldSlot :: RegSlot
   }
 
-operandsOf :: Instr Func -> Operands
-operandsOf instr = case instr of
-  Reg rd f -> Operands (funcSlots f) (slotFor rd)
-  Load _ _ rd f -> Operands (funcSlots f) (slotFor rd)
-  Jump rd _ target -> Operands (funcSlots target) (slotFor rd)
-  Store _ addr rs2 -> Operands (funcSlots addr) (slotFor rs2)
-  Branch cond _ -> Operands (funcSlots cond) (sourceSlot Nothing)
+knownOperands :: Instr Func -> Operands
+knownOperands instr = case instr of
+  Reg rd f -> Operands (knownFuncSlots f) (knownSlot rd)
+  Load _ _ rd f -> Operands (knownFuncSlots f) (knownSlot rd)
+  Jump rd _ target -> Operands (knownFuncSlots target) (knownSlot rd)
+  Store _ addr rs2 -> Operands (knownFuncSlots addr) (knownSlot rs2)
+  Branch cond _ -> Operands (knownFuncSlots cond) NoRegister
   Nop -> unused
   Break -> unused
   Syscall -> unused
   where
-    unused = Operands (sourceSlot Nothing, sourceSlot Nothing) (sourceSlot Nothing)
+    unused = Operands (NoRegister, NoRegister) NoRegister
 
 data Fetched = Fetched
   { fetchedAddress :: Address
   , fetchedWord :: Word
   , fetchedInstr :: Instr Func
-  , fetchedOperands :: Maybe Operands
+  , fetchedOperands :: SymFC.Sym (Maybe Operands)
   , fetchedFollowing :: Maybe Fetched
   }
 
@@ -85,16 +92,20 @@ fetched addr word following =
     { fetchedAddress = addr
     , fetchedWord = word
     , fetchedInstr = instr
-    , fetchedOperands = operandsOf instr <$ concreteAddress (bitCoerce word)
+    , fetchedOperands = pure (Just (knownOperands instr))
     , fetchedFollowing = following >>= sittingAfter addr
     }
   where
     instr = interp (decode' word)
 
 sittingAfter :: Address -> Fetched -> Maybe Fetched
-sittingAfter addr next = case knownBool (fetchedAddress next == addr + 4) of
-  Just True -> Just next
-  _ -> Nothing
+sittingAfter addr next = if fetchedAddress next == addr + 4 then Just next else Nothing
+
+fetchedFromMemory :: Address -> Word -> Fetched
+fetchedFromMemory addr word = literal {fetchedOperands = operandsIfKnown}
+  where
+    literal = fetched addr word Nothing
+    operandsIfKnown = (knownOperands (fetchedInstr literal) <$) <$> concreteAddress (bitCoerce word)
 
 data Code = Code
   { codeFetch :: Address -> Maybe Fetched
@@ -115,7 +126,7 @@ withInstruction addr word code =
     withAddress (KnownAddresses addrs) = KnownAddresses (addr : addrs)
 
 codeFromMemory :: Memory 32 8 -> Code
-codeFromMemory mem = Code {codeFetch = \pc -> Just (fetched pc (memReadWord pc mem) Nothing), codeAddresses = EveryAddress}
+codeFromMemory mem = Code {codeFetch = \pc -> Just (fetchedFromMemory pc (memReadWord pc mem)), codeAddresses = EveryAddress}
 
 data RelState = RelState
   { relPath :: Bool
@@ -137,9 +148,10 @@ sameState code isa =
     , relMem = sameMem (isaMem isa)
     }
 
-withSecretReg :: RegIdx -> Word -> Word -> RelState -> RelState
-withSecretReg idx secretA secretB st =
-  st {relRegs = writeReg idx (Pair secretA secretB) (relRegs st)}
+withSecretReg :: RegIdx -> Word -> Word -> RelState -> SymFC.Sym RelState
+withSecretReg idx secretA secretB st = do
+  regs <- writeReg idx (Pair secretA secretB) (relRegs st)
+  pure st {relRegs = regs}
 
 withSecretWord :: Address -> Word -> Word -> RelState -> SymFC.Sym RelState
 withSecretWord addr secretA secretB st = do

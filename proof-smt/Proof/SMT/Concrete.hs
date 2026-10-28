@@ -12,6 +12,23 @@ module Proof.SMT.Concrete
   , freshBoolIsUnknown
   , mergedBoolIsUnknown
   , xorWithSelfIsZero
+  , closureOverConstantIsKnown
+  , closureOverConstantWrongValueFails
+  , closureOverFreshIsUnknown
+  , closureOverForcedFreshIsUnknown
+  , closureIgnoringFreshIsKnown
+  , sectionOverConstantIsKnown
+  , sectionOverFreshIsUnknown
+  , branchingClosureIsUnknown
+  , closureFromConstantBranchIsKnown
+  , closureOverUnforcedDifferenceIsUnknown
+  , closureOverForcedXorIsKnown
+  , recursiveClosureOverConstantIsKnown
+  , recursiveClosureOverFreshIsUnknown
+  , justConstantIsKnown
+  , justConstantWrongValueFails
+  , justFreshIsUnknown
+  , pairWithIdentityIsKnown
   ) where
 
 import Data.Bits (xor)
@@ -24,19 +41,19 @@ import SymFC.Clash qualified as Clash
 import Types (Address)
 
 expectKnownAs :: Address -> Address -> SymFC.Sym ()
-expectKnownAs expected address
-  | concreteAddress address == Just expected = pure ()
-  | otherwise = SymFC.halt
+expectKnownAs expected address = do
+  known <- concreteAddress address
+  if known == Just expected then pure () else SymFC.halt
 
 expectNotKnownAs :: Address -> Address -> SymFC.Sym ()
-expectNotKnownAs expected address
-  | concreteAddress address == Just expected = SymFC.halt
-  | otherwise = pure ()
+expectNotKnownAs expected address = do
+  known <- concreteAddress address
+  if known == Just expected then SymFC.halt else pure ()
 
 expectUnknown :: Address -> SymFC.Sym ()
-expectUnknown address
-  | isNothing (concreteAddress address) = pure ()
-  | otherwise = SymFC.halt
+expectUnknown address = do
+  known <- concreteAddress address
+  if isNothing known then pure () else SymFC.halt
 
 textBase :: Address
 textBase = 0x1000
@@ -67,19 +84,19 @@ mergedAddressIsUnknown = do
   expectUnknown (if b then 1 else 2)
 
 expectBoolKnownAs :: Bool -> Bool -> SymFC.Sym ()
-expectBoolKnownAs expected value
-  | knownBool value == Just expected = pure ()
-  | otherwise = SymFC.halt
+expectBoolKnownAs expected value = do
+  known <- knownBool value
+  if known == Just expected then pure () else SymFC.halt
 
 expectBoolNotKnownAs :: Bool -> Bool -> SymFC.Sym ()
-expectBoolNotKnownAs expected value
-  | knownBool value == Just expected = SymFC.halt
-  | otherwise = pure ()
+expectBoolNotKnownAs expected value = do
+  known <- knownBool value
+  if known == Just expected then SymFC.halt else pure ()
 
 expectBoolUnknown :: Bool -> SymFC.Sym ()
-expectBoolUnknown value
-  | isNothing (knownBool value) = pure ()
-  | otherwise = SymFC.halt
+expectBoolUnknown value = do
+  known <- knownBool value
+  if isNothing known then pure () else SymFC.halt
 
 {-# ANN literalBoolIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
 literalBoolIsKnown :: SymFC.Sym ()
@@ -108,3 +125,126 @@ xorWithSelfIsZero :: SymFC.Sym ()
 xorWithSelfIsZero = do
   word <- SymFC.fresh @Address
   expectBoolKnownAs True (word `xor` word == 0)
+
+knownAnd :: (a -> Bool) -> a -> SymFC.Sym Bool
+knownAnd property value = do
+  known <- SymFC.concrete value
+  pure $ case known of
+    SymFC.Known value' -> property value'
+    SymFC.NotKnown -> False
+
+expectKnownWith :: (a -> Bool) -> a -> SymFC.Sym ()
+expectKnownWith property value = do
+  holds <- knownAnd property value
+  if holds then pure () else SymFC.halt
+
+refuteKnownWith :: (a -> Bool) -> a -> SymFC.Sym ()
+refuteKnownWith property value = do
+  holds <- knownAnd property value
+  if holds then SymFC.halt else pure ()
+
+expectNotKnown :: a -> SymFC.Sym ()
+expectNotKnown = refuteKnownWith (const True)
+
+{-# OPAQUE addTo #-}
+addTo :: Word -> Word -> Word
+addTo k = \y -> y + k
+
+{-# OPAQUE pickAdder #-}
+pickAdder :: Bool -> Word -> Word
+pickAdder b = if b then (+ 1) else (+ 2)
+
+{-# OPAQUE subtractUntilBelow #-}
+subtractUntilBelow :: Word -> Word -> Word
+subtractUntilBelow k = go
+  where
+    go n = if n < k then n else go (n - k)
+
+{-# ANN closureOverConstantIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverConstantIsKnown :: SymFC.Sym ()
+closureOverConstantIsKnown = expectKnownWith (\f -> f 1 == 6) (addTo 5)
+
+{-# ANN closureOverConstantWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverConstantWrongValueFails :: SymFC.Sym ()
+closureOverConstantWrongValueFails = refuteKnownWith (\f -> f 1 == 7) (addTo 5)
+
+{-# ANN closureOverFreshIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverFreshIsUnknown :: SymFC.Sym ()
+closureOverFreshIsUnknown = do
+  x <- SymFC.fresh @Word
+  expectNotKnown (addTo x)
+
+{-# ANN closureOverForcedFreshIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverForcedFreshIsUnknown :: SymFC.Sym ()
+closureOverForcedFreshIsUnknown = do
+  x <- SymFC.fresh @Word
+  x `seq` expectNotKnown (addTo x)
+
+{-# ANN closureIgnoringFreshIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureIgnoringFreshIsKnown :: SymFC.Sym ()
+closureIgnoringFreshIsKnown = do
+  x <- SymFC.fresh @Word
+  let k = 5 :: Word
+  x `seq` expectKnownWith (\f -> f 1 == 6) (\y -> y + k)
+
+{-# ANN sectionOverConstantIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+sectionOverConstantIsKnown :: SymFC.Sym ()
+sectionOverConstantIsKnown = expectKnownWith (\f -> f 1 == 4) (+ (3 :: Word))
+
+{-# ANN sectionOverFreshIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+sectionOverFreshIsUnknown :: SymFC.Sym ()
+sectionOverFreshIsUnknown = do
+  x <- SymFC.fresh @Word
+  x `seq` expectNotKnown (+ x)
+
+{-# ANN branchingClosureIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+branchingClosureIsUnknown :: SymFC.Sym ()
+branchingClosureIsUnknown = do
+  b <- SymFC.fresh @Bool
+  expectNotKnown (if b then (+ 1) else (+ (2 :: Word)))
+
+{-# ANN closureFromConstantBranchIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureFromConstantBranchIsKnown :: SymFC.Sym ()
+closureFromConstantBranchIsKnown = expectKnownWith (\f -> f 1 == 2) (pickAdder True)
+
+{-# ANN closureOverUnforcedDifferenceIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverUnforcedDifferenceIsUnknown :: SymFC.Sym ()
+closureOverUnforcedDifferenceIsUnknown = do
+  x <- SymFC.fresh @Word
+  let z = x - x
+  x `seq` expectNotKnown (\y -> y + z)
+
+{-# ANN closureOverForcedXorIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+closureOverForcedXorIsKnown :: SymFC.Sym ()
+closureOverForcedXorIsKnown = do
+  x <- SymFC.fresh @Word
+  let isZero = x `xor` x == 0
+  isZero `seq` expectKnownWith (\f -> f 1 == 1) (\y -> if isZero then y else y + 1)
+
+{-# ANN recursiveClosureOverConstantIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+recursiveClosureOverConstantIsKnown :: SymFC.Sym ()
+recursiveClosureOverConstantIsKnown = expectKnownWith (\f -> f 12 == 2) (subtractUntilBelow 5)
+
+{-# ANN recursiveClosureOverFreshIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+recursiveClosureOverFreshIsUnknown :: SymFC.Sym ()
+recursiveClosureOverFreshIsUnknown = do
+  x <- SymFC.fresh @Word
+  x `seq` expectNotKnown (subtractUntilBelow x)
+
+{-# ANN justConstantIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+justConstantIsKnown :: SymFC.Sym ()
+justConstantIsKnown = expectKnownWith (== Just 5) (Just (5 :: Word))
+
+{-# ANN justConstantWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+justConstantWrongValueFails :: SymFC.Sym ()
+justConstantWrongValueFails = refuteKnownWith (== Just 6) (Just (5 :: Word))
+
+{-# ANN justFreshIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+justFreshIsUnknown :: SymFC.Sym ()
+justFreshIsUnknown = do
+  x <- SymFC.fresh @Word
+  x `seq` expectNotKnown (Just x)
+
+{-# ANN pairWithIdentityIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+pairWithIdentityIsKnown :: SymFC.Sym ()
+pairWithIdentityIsKnown = expectKnownWith (\(n, f) -> f n == 5) (5 :: Word, \y -> y)

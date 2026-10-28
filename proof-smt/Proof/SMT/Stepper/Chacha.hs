@@ -79,19 +79,17 @@ a4 = 14
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce
 
-withArguments :: Rel Word -> RelState -> RelState
-withArguments lengthLow st =
-  st
-    { relRegs =
-        writeReg a0 (pointer contextAddr)
-          . writeReg a1 (pointer inputBuf)
-          . writeReg a2 (pointer outputBuf)
-          . writeReg a3 lengthLow
-          . writeReg a4 (Same 0)
-          . writeReg sp (pointer stackTop)
-          . writeReg ra (pointer returnOutsideCode)
-          $ relRegs st
-    }
+withArguments :: Rel Word -> RelState -> SymFC.Sym RelState
+withArguments lengthLow st = do
+  regs <-
+    writeReg a0 (pointer contextAddr)
+      =<< writeReg a1 (pointer inputBuf)
+      =<< writeReg a2 (pointer outputBuf)
+      =<< writeReg a3 lengthLow
+      =<< writeReg a4 (Same 0)
+      =<< writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode) (relRegs st)
+  pure st {relRegs = regs}
 
 withPublicWord :: Address -> Word -> RelState -> SymFC.Sym RelState
 withPublicWord addr value st = do
@@ -149,7 +147,8 @@ encryptCall fuel lengthLow = do
   keyB <- freshSecretKey
   let start = (sameState chachaEncryptCode isa) {relPc = chachaEncryptEntry}
   ready <-
-    withConstants (withArguments lengthLow start)
+    withArguments lengthLow start
+      >>= withConstants
       >>= withSecretKeys keyA keyB
       >>= withStackGuardPointer
   relRun fuel ready

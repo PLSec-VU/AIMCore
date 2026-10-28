@@ -36,9 +36,11 @@ right (Pair _ b) = b
 
 agree :: Eq a => Bool -> Rel a -> SymFC.Sym (Maybe a)
 agree _ (Same a) = pure (Just a)
-agree path (Pair a b)
-  | knownBool (a == b) == Just True = pure (Just a)
-  | otherwise = do
+agree path (Pair a b) = do
+  known <- knownBool (a == b)
+  case known of
+    Just True -> pure (Just a)
+    _ -> do
       result <- SymFC.valid $ SymFC.boolean $ not path || a == b
       pure case result of
         SymFC.None -> Just a

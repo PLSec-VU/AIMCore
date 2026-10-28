@@ -55,22 +55,19 @@ firstArgument = 10
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce
 
-withArgumentsFrom :: RegIdx -> [Rel Word] -> RelRegs -> RelRegs
-withArgumentsFrom _ [] regs = regs
-withArgumentsFrom reg (argument : rest) regs = withArgumentsFrom (reg + 1) rest (writeReg reg argument regs)
+withArgumentsFrom :: RegIdx -> [Rel Word] -> RelRegs -> SymFC.Sym RelRegs
+withArgumentsFrom _ [] regs = pure regs
+withArgumentsFrom reg (argument : rest) regs = withArgumentsFrom (reg + 1) rest =<< writeReg reg argument regs
 
 callAt :: Code -> Address -> [Rel Word] -> SymFC.Sym RelState
 callAt code entry arguments = do
   isa <- SymFC.fresh @IsaSys
   let start = (sameState code isa) {relPc = entry}
-  pure
-    start
-      { relRegs =
-          writeReg sp (pointer stackTop)
-            . writeReg ra (pointer returnOutsideCode)
-            . withArgumentsFrom firstArgument arguments
-            $ relRegs start
-      }
+  regs <-
+    writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode)
+      =<< withArgumentsFrom firstArgument arguments (relRegs start)
+  pure start {relRegs = regs}
 
 withSecretWords :: Address -> Int -> RelState -> SymFC.Sym RelState
 withSecretWords _ 0 st = pure st

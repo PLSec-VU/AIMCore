@@ -72,16 +72,13 @@ callFrom :: Code -> Address -> Rel Word -> Rel Word -> Rel Word -> SymFC.Sym Rel
 callFrom code entry first second third = do
   isa <- SymFC.fresh @IsaSys
   let start = (sameState code isa) {relPc = entry}
-  pure
-    start
-      { relRegs =
-          writeReg a0 first
-            . writeReg a1 second
-            . writeReg a2 third
-            . writeReg sp (pointer stackTop)
-            . writeReg ra (pointer returnOutsideCode)
-            $ relRegs start
-      }
+  regs <-
+    writeReg a0 first
+      =<< writeReg a1 second
+      =<< writeReg a2 third
+      =<< writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode) (relRegs start)
+  pure start {relRegs = regs}
 
 withPublicWord :: Address -> Word -> RelState -> SymFC.Sym RelState
 withPublicWord addr value st = do

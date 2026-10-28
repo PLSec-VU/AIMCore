@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE TupleSections #-}
 
 module Stepper.RelMem
   ( RelMem
@@ -8,6 +9,7 @@ module Stepper.RelMem
   , writeByte
   , readMemWord
   , loadKnownWord
+  , loadMemWord
   , writeMem
   , leftMem
   , rightMem
@@ -114,10 +116,12 @@ readKnownByte :: Address -> RelMem -> Rel Byte
 readKnownByte known mem =
   fromMaybe (loadByte known (memBase mem)) (AddrMap.lookup (wordStart known) (memWrites mem) >>= laneIn (laneOf known))
 
-readByte :: Address -> RelMem -> Rel Byte
-readByte addr mem = case concreteAddress addr of
-  Just known -> readKnownByte known mem
-  Nothing -> loadByte addr (withWritesStored mem)
+readByte :: Address -> RelMem -> SymFC.Sym (Rel Byte)
+readByte addr mem = do
+  known <- concreteAddress addr
+  pure case known of
+    Just knownAddr -> readKnownByte knownAddr mem
+    Nothing -> loadByte addr (withWritesStored mem)
 
 outOfReach :: Bool -> Address -> Address -> Address -> SymFC.Sym Bool
 outOfReach path addr lo hi = do
@@ -127,18 +131,22 @@ outOfReach path addr lo hi = do
     _ -> False
 
 writeByte :: Bool -> Address -> Rel Byte -> RelMem -> SymFC.Sym RelMem
-writeByte path addr byte mem = case concreteAddress addr of
-  Just known ->
-    pure mem {memWrites = AddrMap.insertWith (withLane (laneOf known) byte) (wordStart known) (memWrites mem)}
-  Nothing -> do
-    (mayAlias, untouched) <- AddrMap.partitionByRange (outOfReach path addr) (memWrites mem)
-    let spilled = AddrMap.foldrWithKey storeCell (memBase mem) mayAlias
-    pure (RelMem (storeByte addr byte spilled) untouched)
+writeByte path addr byte mem = do
+  known <- concreteAddress addr
+  case known of
+    Just knownAddr ->
+      pure mem {memWrites = AddrMap.insertWith (withLane (laneOf knownAddr) byte) (wordStart knownAddr) (memWrites mem)}
+    Nothing -> do
+      (mayAlias, untouched) <- AddrMap.partitionByRange (outOfReach path addr) (memWrites mem)
+      let spilled = AddrMap.foldrWithKey storeCell (memBase mem) mayAlias
+      pure (RelMem (storeByte addr byte spilled) untouched)
 
-knownWordStart :: Address -> Maybe Address
-knownWordStart addr = case concreteAddress addr of
-  Just known | isWordStart known -> Just known
-  _ -> Nothing
+knownWordStart :: Address -> SymFC.Sym (Maybe Address)
+knownWordStart addr = do
+  known <- concreteAddress addr
+  pure case known of
+    Just knownAddr | isWordStart knownAddr -> Just knownAddr
+    _ -> Nothing
 
 readWordAt :: Address -> RelMem -> Rel Word
 readWordAt start mem = case AddrMap.lookup start (memWrites mem) of
@@ -150,17 +158,31 @@ wordOver start cell base = joinBytes (laneOr 3 Lane3) (laneOr 2 Lane2) (laneOr 1
   where
     laneOr offset lane = fromMaybe (loadByte (start + offset) base) (cell >>= laneIn lane)
 
-readMemWord :: Address -> RelMem -> Rel Word
-readMemWord addr mem = case knownWordStart addr of
-  Just start -> readWordAt start mem
-  Nothing -> joinBytes (readByte (addr + 3) mem) (readByte (addr + 2) mem) (readByte (addr + 1) mem) (readByte addr mem)
+readBytesOfWord :: Address -> RelMem -> SymFC.Sym (Rel Word)
+readBytesOfWord addr mem =
+  joinBytes <$> readByte (addr + 3) mem <*> readByte (addr + 2) mem <*> readByte (addr + 1) mem <*> readByte addr mem
 
-loadKnownWord :: Address -> RelMem -> Maybe (Rel Word, RelMem)
-loadKnownWord addr mem = loadAt <$> knownWordStart addr
-  where
-    loadAt start = case AddrMap.lookup start (memWrites mem) of
-      Nothing -> recordBaseWord start mem
-      Just _ -> (readWordAt start mem, mem)
+readMemWord :: Address -> RelMem -> SymFC.Sym (Rel Word)
+readMemWord addr mem = do
+  start <- knownWordStart addr
+  case start of
+    Just knownStart -> pure (readWordAt knownStart mem)
+    Nothing -> readBytesOfWord addr mem
+
+loadKnownWord :: Address -> RelMem -> SymFC.Sym (Maybe (Rel Word, RelMem))
+loadKnownWord addr mem = fmap (`loadWordAt` mem) <$> knownWordStart addr
+
+loadMemWord :: Address -> RelMem -> SymFC.Sym (Rel Word, RelMem)
+loadMemWord addr mem = do
+  start <- knownWordStart addr
+  case start of
+    Just knownStart -> pure (loadWordAt knownStart mem)
+    Nothing -> (,mem) <$> readBytesOfWord addr mem
+
+loadWordAt :: Address -> RelMem -> (Rel Word, RelMem)
+loadWordAt start mem = case AddrMap.lookup start (memWrites mem) of
+  Nothing -> recordBaseWord start mem
+  Just _ -> (readWordAt start mem, mem)
 
 recordBaseWord :: Address -> RelMem -> (Rel Word, RelMem)
 recordBaseWord start mem = (word, mem {memWrites = AddrMap.insert start (WholeWord word) (memWrites mem)})
@@ -168,12 +190,15 @@ recordBaseWord start mem = (word, mem {memWrites = AddrMap.insert start (WholeWo
     word = wordOver start Nothing (memBase mem)
 
 writeMem :: Bool -> Size -> Address -> Rel Word -> RelMem -> SymFC.Sym RelMem
-writeMem path size addr word mem = case (size, knownWordStart addr) of
-  (Word, Just start) -> pure mem {memWrites = AddrMap.insert start (WholeWord word) (memWrites mem)}
-  (Byte, _) -> put addr (byte0 word) mem
-  (Half, _) -> put addr (byte0 word) mem >>= put (addr + 1) (byte1 word)
-  (Word, Nothing) ->
-    put addr (byte0 word) mem >>= put (addr + 1) (byte1 word) >>= put (addr + 2) (byte2 word) >>= put (addr + 3) (byte3 word)
+writeMem path size addr word mem = case size of
+  Byte -> put addr (byte0 word) mem
+  Half -> put addr (byte0 word) mem >>= put (addr + 1) (byte1 word)
+  Word -> do
+    start <- knownWordStart addr
+    case start of
+      Just knownStart -> pure mem {memWrites = AddrMap.insert knownStart (WholeWord word) (memWrites mem)}
+      Nothing ->
+        put addr (byte0 word) mem >>= put (addr + 1) (byte1 word) >>= put (addr + 2) (byte2 word) >>= put (addr + 3) (byte3 word)
   where
     put = writeByte path
 

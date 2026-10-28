@@ -55,17 +55,15 @@ a2 = 12
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce
 
-withArguments :: RelState -> RelState
-withArguments st =
-  st
-    { relRegs =
-        writeReg a0 (pointer secretBuf)
-          . writeReg a1 (pointer publicBuf)
-          . writeReg a2 (Same bufLen)
-          . writeReg sp (pointer stackTop)
-          . writeReg ra (pointer returnOutsideCode)
-          $ relRegs st
-    }
+withArguments :: RelState -> SymFC.Sym RelState
+withArguments st = do
+  regs <-
+    writeReg a0 (pointer secretBuf)
+      =<< writeReg a1 (pointer publicBuf)
+      =<< writeReg a2 (Same bufLen)
+      =<< writeReg sp (pointer stackTop)
+      =<< writeReg ra (pointer returnOutsideCode) (relRegs st)
+  pure st {relRegs = regs}
 
 data SecretBuffer = SecretBuffer Word Word Word Word
 
@@ -86,7 +84,7 @@ callFunction fuel code entry = do
   isa <- SymFC.fresh @IsaSys
   secret <- freshSecretBuffer
   let start = (sameState code isa) {relPc = entry}
-  relRun fuel =<< withSecretBuffer secret (withArguments start)
+  relRun fuel =<< withSecretBuffer secret =<< withArguments start
 
 expectNoLeak :: SymFC.Sym Verdict -> SymFC.Sym ()
 expectNoLeak run = do

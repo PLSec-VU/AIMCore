@@ -1,10 +1,13 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+
 module Stepper.RelRegs
   ( RelRegs
   , regsFrom
   , readReg
   , writeReg
-  , RegSlot
+  , RegSlot (..)
   , slotFor
+  , knownSlot
   , sourceSlot
   , readSlot
   , writeSlot
@@ -12,6 +15,7 @@ module Stepper.RelRegs
 
 import Stepper.Concrete (concreteRegIdx)
 import Stepper.Rel (Rel (..))
+import SymFC.BuiltIn qualified as SymFC
 import Types (RegIdx, Word)
 import Prelude hiding (Word)
 
@@ -64,14 +68,15 @@ turnsTo idx = turnsWithin pivots
 zeroTurns :: [Turn]
 zeroTurns = turnsTo 0
 
-slotFor :: RegIdx -> RegSlot
-slotFor idx = case concreteRegIdx idx of
-  Just 0 -> ZeroRegister
-  Just known -> KnownRegister known (turnsTo known)
-  Nothing -> AnyRegister idx
+knownSlot :: RegIdx -> RegSlot
+knownSlot 0 = ZeroRegister
+knownSlot known = KnownRegister known (turnsTo known)
 
-sourceSlot :: Maybe RegIdx -> RegSlot
-sourceSlot = maybe NoRegister slotFor
+slotFor :: RegIdx -> SymFC.Sym RegSlot
+slotFor idx = maybe (AnyRegister idx) knownSlot <$> concreteRegIdx idx
+
+sourceSlot :: Maybe RegIdx -> SymFC.Sym RegSlot
+sourceSlot = maybe (pure NoRegister) slotFor
 
 lookupAlong :: [Turn] -> RegTree -> Rel Word
 lookupAlong _ (RegLeaf value) = value
@@ -85,8 +90,8 @@ readSlot regs ZeroRegister = lookupAlong zeroTurns (knownIndexRegs regs)
 readSlot regs (KnownRegister _ turns) = lookupAlong turns (knownIndexRegs regs)
 readSlot regs (AnyRegister idx) = anyIndexRegs regs idx
 
-readReg :: RelRegs -> Maybe RegIdx -> Rel Word
-readReg regs = readSlot regs . sourceSlot
+readReg :: RelRegs -> Maybe RegIdx -> SymFC.Sym (Rel Word)
+readReg regs idx = readSlot regs <$> sourceSlot idx
 
 replaceAlong :: [Turn] -> Rel Word -> RegTree -> RegTree
 replaceAlong _ value (RegLeaf _) = RegLeaf value
@@ -99,25 +104,22 @@ replaceMatchingLeaf rd value lowest (RegLeaf old) = RegLeaf (if lowest == rd the
 replaceMatchingLeaf rd value lowest (RegSplit pivot below above) =
   RegSplit pivot (replaceMatchingLeaf rd value lowest below) (replaceMatchingLeaf rd value pivot above)
 
-writeTree :: RegIdx -> Rel Word -> RegTree -> RegTree
-writeTree rd value tree = case concreteRegIdx rd of
-  Just known -> replaceAlong (turnsTo known) value tree
-  Nothing -> replaceMatchingLeaf rd value 0 tree
-
 withChained :: RegIdx -> Rel Word -> (RegIdx -> Rel Word) -> RegIdx -> Rel Word
 withChained rd value chain idx = if idx == rd then value else chain idx
 
-writeAnyIndex :: RegIdx -> Rel Word -> RelRegs -> RelRegs
-writeAnyIndex 0 _ regs = regs
-writeAnyIndex rd value (RelRegs tree chain) =
-  RelRegs (writeTree rd value tree) (withChained rd value chain)
+writeUnknownIndex :: RegIdx -> Rel Word -> RelRegs -> RelRegs
+writeUnknownIndex 0 _ regs = regs
+writeUnknownIndex rd value (RelRegs tree chain) =
+  RelRegs (replaceMatchingLeaf rd value 0 tree) (withChained rd value chain)
 
 writeSlot :: RegSlot -> Rel Word -> RelRegs -> RelRegs
 writeSlot NoRegister _ regs = regs
 writeSlot ZeroRegister _ regs = regs
 writeSlot (KnownRegister rd turns) value (RelRegs tree chain) =
   RelRegs (replaceAlong turns value tree) (withChained rd value chain)
-writeSlot (AnyRegister rd) value regs = writeAnyIndex rd value regs
+writeSlot (AnyRegister rd) value regs = writeUnknownIndex rd value regs
 
-writeReg :: RegIdx -> Rel Word -> RelRegs -> RelRegs
-writeReg = writeAnyIndex
+writeReg :: RegIdx -> Rel Word -> RelRegs -> SymFC.Sym RelRegs
+writeReg rd value regs = do
+  slot <- slotFor rd
+  pure (writeSlot slot value regs)
