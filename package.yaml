@@ -125,6 +125,10 @@ library:
         - Proof.SMT.Stepper.X25519.Ladder
         - Proof.SMT.Stepper.X25519.Mul
         - Proof.SMT.Stepper.Memcmp
+        - Proof.SMT.Stepper.P256Call
+        - Proof.SMT.Stepper.P256Field
+        - Proof.SMT.Stepper.P256Multiply
+        - Proof.SMT.Stepper.P256Recode
         - Proof.SMT.Stepper.RelMem
         - Proof.SMT.Stepper.Relational
         - Proof.SMT.Stepper.Sha256
