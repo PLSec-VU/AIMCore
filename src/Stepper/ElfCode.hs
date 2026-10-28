@@ -25,7 +25,7 @@ data SymbolRange = SymbolRange
   }
 
 data Image = Image
-  { imageSymbols :: Map String SymbolRange
+  { imageSymbols :: Map String [SymbolRange]
   , imageChunks :: [(Integer, BS.ByteString)]
   }
 
@@ -46,8 +46,8 @@ loadImage path = do
       pure
         Image
           { imageSymbols =
-              Map.fromList
-                [ (steName symbol, SymbolRange (fromIntegral (steValue symbol)) (fromIntegral (steSize symbol)))
+              Map.fromListWith (++)
+                [ (steName symbol, [SymbolRange (fromIntegral (steValue symbol)) (fromIntegral (steSize symbol))])
                 | symbol <- symbols
                 ]
           , imageChunks = [(fromIntegral addr, bytes) | (addr, bytes) <- getElfSegments elf]
@@ -65,14 +65,22 @@ fetchInstruction image addr =
           instructionBytesOf = BS.take (fromIntegral instructionBytes) (BS.drop offset bytes)
        in Right (littleEndian (map fromIntegral (BS.unpack instructionBytesOf)))
 
-lookupSymbol :: Image -> String -> Either String SymbolRange
+lookupSymbol :: Image -> String -> Either String [SymbolRange]
 lookupSymbol image name = maybe (Left ("symbol not found: " ++ name)) Right (Map.lookup name (imageSymbols image))
+
+lowestStart :: [SymbolRange] -> Integer
+lowestStart = minimum . map rangeStart
+
+rangeFetchTable :: Image -> SymbolRange -> Either String FetchTable
+rangeFetchTable image SymbolRange {..} =
+  mapM (\addr -> (,) addr <$> fetchInstruction image addr) addresses
+  where
+    addresses = [rangeStart, rangeStart + instructionBytes .. rangeStart + rangeSize - instructionBytes]
 
 symbolFetchTable :: Image -> String -> Either String FetchTable
 symbolFetchTable image name = do
-  SymbolRange {..} <- lookupSymbol image name
-  let addresses = [rangeStart, rangeStart + instructionBytes .. rangeStart + rangeSize - instructionBytes]
-  mapM (\addr -> (,) addr <$> fetchInstruction image addr) addresses
+  ranges <- lookupSymbol image name
+  concat <$> mapM (rangeFetchTable image) ranges
 
 functionFetchTable :: Image -> [String] -> Either String FetchTable
 functionFetchTable image symbols = do
@@ -82,7 +90,7 @@ functionFetchTable image symbols = do
 entryAddress :: Image -> [String] -> Either String Integer
 entryAddress image symbols = case symbols of
   [] -> Left "function lists no symbols"
-  entry : _ -> rangeStart <$> lookupSymbol image entry
+  entry : _ -> lowestStart <$> lookupSymbol image entry
 
 type FetchedTable = [(Integer, Name)]
 

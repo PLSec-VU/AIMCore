@@ -120,6 +120,10 @@ library:
         - Proof.SMT.Stepper
         - Proof.SMT.Stepper.Blake2b
         - Proof.SMT.Stepper.Chacha
+        - Proof.SMT.Stepper.X25519.Call
+        - Proof.SMT.Stepper.X25519.Cswap
+        - Proof.SMT.Stepper.X25519.Ladder
+        - Proof.SMT.Stepper.X25519.Mul
         - Proof.SMT.Stepper.Memcmp
         - Proof.SMT.Stepper.RelMem
         - Proof.SMT.Stepper.Relational
