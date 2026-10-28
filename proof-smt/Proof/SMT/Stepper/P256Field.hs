@@ -13,11 +13,15 @@ module Proof.SMT.Stepper.P256Field
   , p256MontReduceUnoptimisedOneStepShortOutOfFuel
   , p256MontReduceOptimisedNoLeak
   , p256MontReduceOptimisedOneStepShortOutOfFuel
+  , p256FieldUnoptimisedDecodeAgrees
+  , p256FieldOptimisedDecodeAgrees
+  , p256UnoptimisedDecodeRejectsWrongInstruction
+  , p256OptimisedDecodeRejectsWrongInstruction
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -149,3 +153,19 @@ p256MontReduceOptimisedNoLeak = expectNoLeak $ montReduceOptimisedCall (decimalS
 p256MontReduceOptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MontReduceOptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ montReduceOptimisedCall (decimalSteps [4, 6, 8])
+
+{-# ANN p256FieldUnoptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256FieldUnoptimisedDecodeAgrees :: SymFC.Sym ()
+p256FieldUnoptimisedDecodeAgrees = expectDecodeAgreement [compareUnoptimisedDecoded, condSubUnoptimisedDecoded, condCopyUnoptimisedDecoded, montReduceUnoptimisedDecoded]
+
+{-# ANN p256FieldOptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256FieldOptimisedDecodeAgrees :: SymFC.Sym ()
+p256FieldOptimisedDecodeAgrees = expectDecodeAgreement [compareOptimisedDecoded, montReduceOptimisedDecoded]
+
+{-# ANN p256UnoptimisedDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+p256UnoptimisedDecodeRejectsWrongInstruction :: SymFC.Sym ()
+p256UnoptimisedDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction compareUnoptimisedDecoded, condSubUnoptimisedDecoded, condCopyUnoptimisedDecoded, montReduceUnoptimisedDecoded]
+
+{-# ANN p256OptimisedDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+p256OptimisedDecodeRejectsWrongInstruction :: SymFC.Sym ()
+p256OptimisedDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction compareOptimisedDecoded, montReduceOptimisedDecoded]

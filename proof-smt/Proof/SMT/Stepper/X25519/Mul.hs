@@ -8,12 +8,13 @@ module Proof.SMT.Stepper.X25519.Mul
   , x25519ToBytesSecretOneStepShort
   , x25519MulSymbolicThreeBits
   , x25519MulSymbolicFiveBits
+  , x25519MulDecodeAgrees
   ) where
 
 import Proof.SMT.Stepper.X25519.Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -107,3 +108,7 @@ x25519MulSymbolicThreeBits = expectOutOfFuel $ multiplyCall withSymbolicFactors 
 {-# ANN x25519MulSymbolicFiveBits (SymFC stepperEmbeddings) #-}
 x25519MulSymbolicFiveBits :: SymFC.Sym ()
 x25519MulSymbolicFiveBits = expectOutOfFuel $ multiplyCall withSymbolicFactors (decimalSteps [2, 5, 7])
+
+{-# ANN x25519MulDecodeAgrees (SymFC stepperEmbeddings) #-}
+x25519MulDecodeAgrees :: SymFC.Sym ()
+x25519MulDecodeAgrees = expectDecodeAgreement [multiplyDecoded, toBytesDecoded]

@@ -5,12 +5,14 @@ module Proof.SMT.Stepper.Blake2b
   , blake2bSecretBlockOneStepShortOutOfFuel
   , blake2bSecretChainingValueNoLeak
   , blake2bSecretBlockPointerLeaks
+  , blake2bDecodeAgrees
+  , blake2bDecodeRejectsWrongInstruction
   ) where
 
 import Clash.Prelude (bitCoerce)
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -161,3 +163,11 @@ blake2bSecretChainingValueNoLeak = expectNoLeak $ secretBlockSecretChainingValue
 {-# ANN blake2bSecretBlockPointerLeaks (SymFC stepperEmbeddings) #-}
 blake2bSecretBlockPointerLeaks :: SymFC.Sym ()
 blake2bSecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
+
+{-# ANN blake2bDecodeAgrees (SymFC stepperEmbeddings) #-}
+blake2bDecodeAgrees :: SymFC.Sym ()
+blake2bDecodeAgrees = expectDecodeAgreement [blake2bCompressDecoded]
+
+{-# ANN blake2bDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+blake2bDecodeRejectsWrongInstruction :: SymFC.Sym ()
+blake2bDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction blake2bCompressDecoded]

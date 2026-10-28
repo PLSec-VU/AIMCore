@@ -2,6 +2,10 @@
 
 module Stepper.ElfCode
   ( elfCode
+  , DecodedTable
+  , expectDecodeAgreement
+  , expectDecodeDisagreement
+  , withWrongFirstInstruction
   ) where
 
 import Control.Monad.Catch (throwM)
@@ -12,12 +16,16 @@ import Data.Elf.Headers
 import Data.List (sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Elf.ElfLoader (getElfSegments, readElf)
+import Instruction (Instruction (..), Reason4Stall (..), decode', nop)
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (addDependentFile)
+import Language.Haskell.TH.Syntax (addDependentFile, lift)
 import Numeric (showHex)
 import qualified Stepper.RelState as RelState
-import Types (Address)
+import qualified SymFC.BuiltIn as SymFC
+import Types (Address, Word)
+import Prelude hiding (Word)
 
 data SymbolRange = SymbolRange
   { rangeStart :: Integer
@@ -30,6 +38,29 @@ data Image = Image
   }
 
 type FetchTable = [(Integer, Integer)]
+
+type DecodedTable = [(Word, Instruction)]
+
+decodeAgrees :: DecodedTable -> Bool
+decodeAgrees [] = True
+decodeAgrees ((word, decoded) : rest) = decode' word == decoded && decodeAgrees rest
+
+everyTableAgrees :: [DecodedTable] -> Bool
+everyTableAgrees [] = True
+everyTableAgrees (table : tables) = decodeAgrees table && everyTableAgrees tables
+
+expectDecodeAgreement :: [DecodedTable] -> SymFC.Sym ()
+expectDecodeAgreement tables = if everyTableAgrees tables then pure () else SymFC.halt
+
+expectDecodeDisagreement :: [DecodedTable] -> SymFC.Sym ()
+expectDecodeDisagreement tables = if everyTableAgrees tables then SymFC.halt else pure ()
+
+differentInstruction :: Instruction -> Instruction
+differentInstruction decoded = if decoded == Nop DecodeFail then nop else Nop DecodeFail
+
+withWrongFirstInstruction :: DecodedTable -> DecodedTable
+withWrongFirstInstruction [] = []
+withWrongFirstInstruction ((word, decoded) : rest) = (word, differentInstruction decoded) : rest
 
 instructionBytes :: Integer
 instructionBytes = 4
@@ -110,6 +141,33 @@ literal = litE . integerL
 fetchedName :: String -> Integer -> Name
 fetchedName name addr = mkName (name ++ "At" ++ showHex addr "")
 
+decodedTableName :: String -> Name
+decodedTableName name = mkName (name ++ "Decoded")
+
+instructionName :: String -> Integer -> Name
+instructionName name word = mkName (name ++ "Instruction" ++ showHex word "")
+
+distinctWords :: FetchTable -> [Integer]
+distinctWords table = Set.toAscList (Set.fromList (map snd table))
+
+instructionDeclarations :: String -> FetchTable -> Q [Dec]
+instructionDeclarations name table = concat <$> mapM declare (distinctWords table)
+  where
+    declare word = do
+      body <- lift (decode' (fromInteger word))
+      pure
+        [ SigD (instructionName name word) (ConT ''Instruction)
+        , ValD (VarP (instructionName name word)) (NormalB body) []
+        ]
+
+decodedTableDeclarations :: String -> FetchTable -> Q [Dec]
+decodedTableDeclarations name table = do
+  body <- listE [[|($(literal word), $(varE (instructionName name word)))|] | word <- distinctWords table]
+  pure
+    [ SigD (decodedTableName name) (ConT ''DecodedTable)
+    , ValD (VarP (decodedTableName name)) (NormalB body) []
+    ]
+
 fetchedDeclarations :: String -> FetchTable -> Q [Dec]
 fetchedDeclarations name table = concat <$> mapM declare table
   where
@@ -118,7 +176,7 @@ fetchedDeclarations name table = concat <$> mapM declare table
       | Map.member (addr + instructionBytes) addresses = [|Just $(varE (fetchedName name (addr + instructionBytes)))|]
       | otherwise = [|Nothing|]
     declare (addr, word) = do
-      body <- [|RelState.fetched $(literal addr) $(literal word) $(following addr)|]
+      body <- [|RelState.fetchedDecoded $(literal addr) $(literal word) $(varE (instructionName name word)) $(following addr)|]
       pure
         [ SigD (fetchedName name addr) (ConT ''RelState.Fetched)
         , ValD (VarP (fetchedName name addr)) (NormalB body) []
@@ -143,9 +201,13 @@ functionDeclarations image (name, symbols) = do
   let entryName = mkName (name ++ "Entry")
       codeName = mkName (name ++ "Code")
   code <- codeExpression name table
+  instructions <- instructionDeclarations name table
   fetchedTable <- fetchedDeclarations name table
+  decodedTable <- decodedTableDeclarations name table
   pure $
-    fetchedTable
+    instructions
+      ++ fetchedTable
+      ++ decodedTable
       ++ [ SigD entryName (ConT ''Address)
          , ValD (VarP entryName) (NormalB (LitE (IntegerL entry))) []
          , SigD codeName (ConT ''RelState.Code)

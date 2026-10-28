@@ -11,12 +11,14 @@ module Proof.SMT.Stepper.P256Multiply
   , p256MontReduceOrderUnoptimisedLeaks
   , p256MontReduceOrderOptimisedNoLeak
   , p256MontReduceOrderOptimisedOneStepShortOutOfFuel
+  , p256MultiplyUnoptimisedDecodeAgrees
+  , p256MultiplyOptimisedDecodeAgrees
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -180,3 +182,11 @@ p256MontReduceOrderOptimisedNoLeak = expectNoLeak $ montReduceOrderOptimisedCall
 p256MontReduceOrderOptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MontReduceOrderOptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ montReduceOrderOptimisedCall optimisedReduceOrderShort
+
+{-# ANN p256MultiplyUnoptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256MultiplyUnoptimisedDecodeAgrees :: SymFC.Sym ()
+p256MultiplyUnoptimisedDecodeAgrees = expectDecodeAgreement [mulUnoptimisedDecoded, sqrUnoptimisedDecoded, montReduceOrderUnoptimisedDecoded]
+
+{-# ANN p256MultiplyOptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256MultiplyOptimisedDecodeAgrees :: SymFC.Sym ()
+p256MultiplyOptimisedDecodeAgrees = expectDecodeAgreement [mulOptimisedDecoded, sqrOptimisedDecoded, montReduceOrderOptimisedDecoded]

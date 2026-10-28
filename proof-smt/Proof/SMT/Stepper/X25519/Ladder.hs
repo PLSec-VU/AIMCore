@@ -4,12 +4,13 @@ module Proof.SMT.Stepper.X25519.Ladder
   ( x25519LadderFirstStepOutOfFuel
   , x25519LadderSecondStepLeaks
   , x25519LadderPublicScalarTwoStepsOutOfFuel
+  , x25519LadderDecodeAgrees
   ) where
 
 import Proof.SMT.Stepper.X25519.Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement)
 import Stepper.RelState (RelState)
 import Stepper.Relational
 import SymFC (SymFC (..))
@@ -79,3 +80,7 @@ x25519LadderSecondStepLeaks = expectLeakAt firstSwapBranch LeakBranch $ ladderCa
 x25519LadderPublicScalarTwoStepsOutOfFuel :: SymFC.Sym ()
 x25519LadderPublicScalarTwoStepsOutOfFuel =
   expectOutOfFuel $ ladderCallWith (withPublicWords scalarIn publicScalar) untilThirdStep
+
+{-# ANN x25519LadderDecodeAgrees (SymFC stepperEmbeddings) #-}
+x25519LadderDecodeAgrees :: SymFC.Sym ()
+x25519LadderDecodeAgrees = expectDecodeAgreement [ladderDecoded]

@@ -5,12 +5,14 @@ module Proof.SMT.Stepper.P256Recode
   , p256RecodeOptimisedLeaks
   , p256GetPointUnoptimisedNoLeak
   , p256GetPointUnoptimisedOneStepShortOutOfFuel
+  , p256RecodeUnoptimisedDecodeAgrees
+  , p256RecodeOptimisedDecodeAgrees
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -81,3 +83,11 @@ p256GetPointUnoptimisedNoLeak = expectNoLeak $ getPointSecretIndex getPointSteps
 {-# ANN p256GetPointUnoptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
 p256GetPointUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256GetPointUnoptimisedOneStepShortOutOfFuel = expectOutOfFuel $ getPointSecretIndex getPointShort
+
+{-# ANN p256RecodeUnoptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256RecodeUnoptimisedDecodeAgrees :: SymFC.Sym ()
+p256RecodeUnoptimisedDecodeAgrees = expectDecodeAgreement [recodeUnoptimisedDecoded, getPointUnoptimisedDecoded]
+
+{-# ANN p256RecodeOptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+p256RecodeOptimisedDecodeAgrees :: SymFC.Sym ()
+p256RecodeOptimisedDecodeAgrees = expectDecodeAgreement [recodeOptimisedDecoded]

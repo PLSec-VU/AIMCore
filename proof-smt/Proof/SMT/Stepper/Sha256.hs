@@ -5,12 +5,14 @@ module Proof.SMT.Stepper.Sha256
   , sha256SecretBlockOneStepShortOutOfFuel
   , sha256SecretStateNoLeak
   , sha256SecretBlockPointerLeaks
+  , sha256DecodeAgrees
+  , sha256DecodeRejectsWrongInstruction
   ) where
 
 import Clash.Prelude (bitCoerce)
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -164,3 +166,11 @@ sha256SecretStateNoLeak = expectNoLeak $ secretBlockSecretState exactSteps
 {-# ANN sha256SecretBlockPointerLeaks (SymFC stepperEmbeddings) #-}
 sha256SecretBlockPointerLeaks :: SymFC.Sym ()
 sha256SecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
+
+{-# ANN sha256DecodeAgrees (SymFC stepperEmbeddings) #-}
+sha256DecodeAgrees :: SymFC.Sym ()
+sha256DecodeAgrees = expectDecodeAgreement [sha256TransformDecoded]
+
+{-# ANN sha256DecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+sha256DecodeRejectsWrongInstruction :: SymFC.Sym ()
+sha256DecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction sha256TransformDecoded]

@@ -21,6 +21,7 @@ module Stepper.RelState
   , Operands (..)
   , Fetched (..)
   , fetched
+  , fetchedDecoded
   , Code (..)
   , CodeAddresses (..)
   , noCode
@@ -35,7 +36,7 @@ module Stepper.RelState
 import Data.Functor.Identity (runIdentity)
 import Clash.Prelude (bitCoerce)
 import ISA (DepReg (..), Func, Instr (..), IsaStateG (..), PC, interp)
-import Instruction (decode')
+import Instruction (Instruction, decode')
 import Memory.Types (MemOps (..))
 import RegFile (RegFileOps (..))
 import Stepper (IsaSys)
@@ -87,7 +88,10 @@ data Fetched = Fetched
   }
 
 fetched :: Address -> Word -> Maybe Fetched -> Fetched
-fetched addr word following =
+fetched addr word = fetchedDecoded addr word (decode' word)
+
+fetchedDecoded :: Address -> Word -> Instruction -> Maybe Fetched -> Fetched
+fetchedDecoded addr word decoded following =
   Fetched
     { fetchedAddress = addr
     , fetchedWord = word
@@ -96,7 +100,7 @@ fetched addr word following =
     , fetchedFollowing = following >>= sittingAfter addr
     }
   where
-    instr = interp (decode' word)
+    instr = interp decoded
 
 sittingAfter :: Address -> Fetched -> Maybe Fetched
 sittingAfter addr next = if fetchedAddress next == addr + 4 then Just next else Nothing
