@@ -4,12 +4,15 @@ module Proof.SMT.Stepper.Memcmp
   ( memcmpLeaks
   , sodiumMemcmpNoLeak
   , sodiumMemcmpShortRunOutOfFuel
+  , memcmpFetchesKnownWords
+  , sodiumMemcmpFetchesKnownWords
+  , memcmpFetchRejectsWrongWord
   ) where
 
 import Clash.Prelude (bitCoerce)
-import Proof.SMT.Bench.Memcmp
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
+import Stepper.ElfCode (elfCode)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -17,6 +20,11 @@ import SymFC (SymFC (..))
 import SymFC.BuiltIn qualified as SymFC
 import Types (Address, RegIdx, Word)
 import Prelude hiding (Word)
+
+$(elfCode "benchmark/bench_vuln_memcmp"
+    [ ("memcmp", ["memcmp"])
+    , ("sodiumMemcmp", ["sodium_memcmp", "_sodium_dummy_symbol_to_prevent_memcmp_lto"])
+    ])
 
 steps :: Int -> Fuel
 steps 0 = Done
@@ -69,16 +77,16 @@ freshSecretBuffer =
     <*> SymFC.fresh @Word
     <*> SymFC.fresh @Word
 
-withSecretBuffer :: SecretBuffer -> RelState -> RelState
-withSecretBuffer (SecretBuffer lowA lowB highA highB) =
-  withSecretWord (secretBuf + 4) highA highB . withSecretWord secretBuf lowA lowB
+withSecretBuffer :: SecretBuffer -> RelState -> SymFC.Sym RelState
+withSecretBuffer (SecretBuffer lowA lowB highA highB) st =
+  withSecretWord secretBuf lowA lowB st >>= withSecretWord (secretBuf + 4) highA highB
 
 callFunction :: Fuel -> Code -> Address -> SymFC.Sym Verdict
 callFunction fuel code entry = do
   isa <- SymFC.fresh @IsaSys
   secret <- freshSecretBuffer
   let start = (sameState code isa) {relPc = entry}
-  relRun fuel $ withSecretBuffer secret $ withArguments start
+  relRun fuel =<< withSecretBuffer secret (withArguments start)
 
 expectNoLeak :: SymFC.Sym Verdict -> SymFC.Sym ()
 expectNoLeak run = do
@@ -115,3 +123,29 @@ sodiumMemcmpNoLeak = expectNoLeak $ callFunction stepLimit sodiumMemcmpCode sodi
 {-# ANN sodiumMemcmpShortRunOutOfFuel (SymFC stepperEmbeddings) #-}
 sodiumMemcmpShortRunOutOfFuel :: SymFC.Sym ()
 sodiumMemcmpShortRunOutOfFuel = expectOutOfFuel $ callFunction tooFewSteps sodiumMemcmpCode sodiumMemcmpEntry
+
+expectFetch :: Code -> Address -> Word -> SymFC.Sym ()
+expectFetch code addr expectedWord = case codeFetch code addr of
+  Just fetchedWord | fetchedWord == expectedWord -> pure ()
+  _ -> SymFC.halt
+
+expectNoFetchOf :: Code -> Address -> Word -> SymFC.Sym ()
+expectNoFetchOf code addr unexpectedWord = case codeFetch code addr of
+  Just fetchedWord | fetchedWord == unexpectedWord -> SymFC.halt
+  _ -> pure ()
+
+{-# ANN memcmpFetchesKnownWords (SymFC stepperEmbeddings) #-}
+memcmpFetchesKnownWords :: SymFC.Sym ()
+memcmpFetchesKnownWords = do
+  expectFetch memcmpCode memcmpEntry 0x00300693
+  expectFetch memcmpCode memcmpWordCompare 0xfcf714e3
+
+{-# ANN sodiumMemcmpFetchesKnownWords (SymFC stepperEmbeddings) #-}
+sodiumMemcmpFetchesKnownWords :: SymFC.Sym ()
+sodiumMemcmpFetchesKnownWords = do
+  expectFetch sodiumMemcmpCode sodiumMemcmpEntry 0xfd010113
+  expectFetch sodiumMemcmpCode (sodiumMemcmpEntry + 4) 0x02812423
+
+{-# ANN memcmpFetchRejectsWrongWord (SymFC stepperEmbeddings) #-}
+memcmpFetchRejectsWrongWord :: SymFC.Sym ()
+memcmpFetchRejectsWrongWord = expectNoFetchOf memcmpCode memcmpEntry 0x00300694

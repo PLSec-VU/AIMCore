@@ -8,6 +8,7 @@ module Stepper.Rel
   , agree
   ) where
 
+import Stepper.Concrete (knownBool)
 import SymFC.BuiltIn qualified as SymFC
 
 data Rel a
@@ -35,8 +36,10 @@ right (Pair _ b) = b
 
 agree :: Eq a => Bool -> Rel a -> SymFC.Sym (Maybe a)
 agree _ (Same a) = pure (Just a)
-agree path (Pair a b) = do
-  result <- SymFC.valid $ SymFC.boolean $ not path || a == b
-  pure case result of
-    SymFC.None -> Just a
-    _ -> Nothing
+agree path (Pair a b)
+  | knownBool (a == b) == Just True = pure (Just a)
+  | otherwise = do
+      result <- SymFC.valid $ SymFC.boolean $ not path || a == b
+      pure case result of
+        SymFC.None -> Just a
+        _ -> Nothing

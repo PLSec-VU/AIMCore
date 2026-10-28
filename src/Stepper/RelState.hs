@@ -1,3 +1,5 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+
 module Stepper.RelState
   ( RelRegs
   , readReg
@@ -8,7 +10,8 @@ module Stepper.RelState
   , writeMem
   , leftMem
   , rightMem
-  , Code
+  , Code (..)
+  , CodeAddresses (..)
   , noCode
   , withInstruction
   , codeFromMemory
@@ -26,28 +29,35 @@ import Stepper (IsaSys)
 import Stepper.Memory (Memory)
 import Stepper.Rel (Rel (..))
 import Stepper.RelMem
+import Stepper.RelRegs
+import SymFC.BuiltIn qualified as SymFC
 import Types (Address, RegIdx, Size (..), Word)
 import Prelude hiding (Word)
 
-type RelRegs = RegIdx -> Rel Word
+data CodeAddresses
+  = EveryAddress
+  | KnownAddresses [Address]
 
-readReg :: RelRegs -> Maybe RegIdx -> Rel Word
-readReg regs = maybe (Same 0) regs
-
-writeReg :: RegIdx -> Rel Word -> RelRegs -> RelRegs
-writeReg 0 _ regs = regs
-writeReg rd value regs = \idx -> if idx == rd then value else regs idx
-
-type Code = Address -> Maybe Word
+data Code = Code
+  { codeFetch :: Address -> Maybe Word
+  , codeAddresses :: CodeAddresses
+  }
 
 noCode :: Code
-noCode = const Nothing
+noCode = Code {codeFetch = const Nothing, codeAddresses = KnownAddresses []}
 
 withInstruction :: Address -> Word -> Code -> Code
-withInstruction addr word code = \pc -> if pc == addr then Just word else code pc
+withInstruction addr word code =
+  Code
+    { codeFetch = \pc -> if pc == addr then Just word else codeFetch code pc
+    , codeAddresses = withAddress (codeAddresses code)
+    }
+  where
+    withAddress EveryAddress = EveryAddress
+    withAddress (KnownAddresses addrs) = KnownAddresses (addr : addrs)
 
 codeFromMemory :: Memory 32 8 -> Code
-codeFromMemory mem = \pc -> Just (memReadWord pc mem)
+codeFromMemory mem = Code {codeFetch = \pc -> Just (memReadWord pc mem), codeAddresses = EveryAddress}
 
 data RelState = RelState
   { relPath :: Bool
@@ -63,7 +73,7 @@ sameState code isa =
     { relPath = True
     , relCode = code
     , relPc = isaPc isa
-    , relRegs = \idx -> Same (runIdentity (lookupRFg idx (isaRegFile isa)))
+    , relRegs = regsFrom (\idx -> Same (runIdentity (lookupRFg idx (isaRegFile isa))))
     , relMem = sameMem (isaMem isa)
     }
 
@@ -71,6 +81,7 @@ withSecretReg :: RegIdx -> Word -> Word -> RelState -> RelState
 withSecretReg idx secretA secretB st =
   st {relRegs = writeReg idx (Pair secretA secretB) (relRegs st)}
 
-withSecretWord :: Address -> Word -> Word -> RelState -> RelState
-withSecretWord addr secretA secretB st =
-  st {relMem = writeMem Word addr (Pair secretA secretB) (relMem st)}
+withSecretWord :: Address -> Word -> Word -> RelState -> SymFC.Sym RelState
+withSecretWord addr secretA secretB st = do
+  mem <- writeMem (relPath st) Word addr (Pair secretA secretB) (relMem st)
+  pure st {relMem = mem}

@@ -6,10 +6,15 @@ module Proof.SMT.Concrete
   , literalArithmeticIsKnown
   , freshAddressIsUnknown
   , mergedAddressIsUnknown
+  , literalBoolIsKnown
+  , literalBoolWrongValueFails
+  , literalComparisonIsKnown
+  , freshBoolIsUnknown
+  , mergedBoolIsUnknown
   ) where
 
 import Data.Maybe (isNothing)
-import Stepper.Concrete (concreteAddress, concreteEmbeddings)
+import Stepper.Concrete (concreteAddress, concreteEmbeddings, knownBool)
 import SymFC (SymFC (..))
 import SymFC.Base qualified as Base
 import SymFC.BuiltIn qualified as SymFC
@@ -58,3 +63,40 @@ mergedAddressIsUnknown :: SymFC.Sym ()
 mergedAddressIsUnknown = do
   b <- SymFC.fresh @Bool
   expectUnknown (if b then 1 else 2)
+
+expectBoolKnownAs :: Bool -> Bool -> SymFC.Sym ()
+expectBoolKnownAs expected value
+  | knownBool value == Just expected = pure ()
+  | otherwise = SymFC.halt
+
+expectBoolNotKnownAs :: Bool -> Bool -> SymFC.Sym ()
+expectBoolNotKnownAs expected value
+  | knownBool value == Just expected = SymFC.halt
+  | otherwise = pure ()
+
+expectBoolUnknown :: Bool -> SymFC.Sym ()
+expectBoolUnknown value
+  | isNothing (knownBool value) = pure ()
+  | otherwise = SymFC.halt
+
+{-# ANN literalBoolIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+literalBoolIsKnown :: SymFC.Sym ()
+literalBoolIsKnown = expectBoolKnownAs True True
+
+{-# ANN literalBoolWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+literalBoolWrongValueFails :: SymFC.Sym ()
+literalBoolWrongValueFails = expectBoolNotKnownAs False True
+
+{-# ANN literalComparisonIsKnown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+literalComparisonIsKnown :: SymFC.Sym ()
+literalComparisonIsKnown = expectBoolKnownAs True (textBase + wordSize == 0x1004)
+
+{-# ANN freshBoolIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+freshBoolIsUnknown :: SymFC.Sym ()
+freshBoolIsUnknown = SymFC.fresh @Bool >>= expectBoolUnknown
+
+{-# ANN mergedBoolIsUnknown (SymFC $ Base.embeddings <> Clash.embeddings <> concreteEmbeddings) #-}
+mergedBoolIsUnknown :: SymFC.Sym ()
+mergedBoolIsUnknown = do
+  b <- SymFC.fresh @Bool
+  expectBoolUnknown (if b then True else False)

@@ -1,11 +1,15 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+
 module Stepper.AddrMap
   ( AddrMap
   , empty
   , insert
   , lookup
   , foldrWithKey
+  , partitionByRange
   ) where
 
+import SymFC.BuiltIn qualified as SymFC
 import Types (Address)
 import Prelude hiding (lookup)
 
@@ -66,3 +70,43 @@ lookup k (Bin _ nk nv l r)
 foldrWithKey :: (Address -> v -> b -> b) -> b -> AddrMap v -> b
 foldrWithKey _ z Tip = z
 foldrWithKey f z (Bin _ k v l r) = foldrWithKey f (f k v (foldrWithKey f z r)) l
+
+singleton :: Address -> v -> AddrMap v
+singleton k v = Bin 1 k v Tip Tip
+
+lowestKey :: Address -> AddrMap v -> Address
+lowestKey k Tip = k
+lowestKey _ (Bin _ k _ l _) = lowestKey k l
+
+highestKey :: Address -> AddrMap v -> Address
+highestKey k Tip = k
+highestKey _ (Bin _ k _ _ r) = highestKey k r
+
+unionDisjoint :: AddrMap v -> AddrMap v -> AddrMap v
+unionDisjoint a b = foldrWithKey insert b a
+
+partitionByRange
+  :: (Address -> Address -> SymFC.Sym Bool)
+  -> AddrMap v
+  -> SymFC.Sym (AddrMap v, AddrMap v)
+partitionByRange _ Tip = pure (Tip, Tip)
+partitionByRange rangeIsClear tree@(Bin _ k v l r) = do
+  clear <- rangeIsClear (lowestKey k l) (highestKey k r)
+  if clear then pure (Tip, tree) else partitionParts rangeIsClear k v l r
+
+partitionParts
+  :: (Address -> Address -> SymFC.Sym Bool)
+  -> Address
+  -> v
+  -> AddrMap v
+  -> AddrMap v
+  -> SymFC.Sym (AddrMap v, AddrMap v)
+partitionParts _ k v Tip Tip = pure (singleton k v, Tip)
+partitionParts rangeIsClear k v l r = do
+  (hitLeft, clearLeft) <- partitionByRange rangeIsClear l
+  (hitKey, clearKey) <- partitionByRange rangeIsClear (singleton k v)
+  (hitRight, clearRight) <- partitionByRange rangeIsClear r
+  pure
+    ( unionDisjoint hitLeft (unionDisjoint hitKey hitRight)
+    , unionDisjoint clearLeft (unionDisjoint clearKey clearRight)
+    )

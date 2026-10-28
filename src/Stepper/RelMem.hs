@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module Stepper.RelMem
@@ -19,6 +20,7 @@ import Stepper.Concrete (concreteAddress)
 import Stepper.Memory (Memory)
 import Stepper.Memory qualified as Memory
 import Stepper.Rel (Rel (..), left, right)
+import SymFC.BuiltIn qualified as SymFC
 import Types (Address, Byte, Size (..), Word)
 import Prelude hiding (Word)
 
@@ -53,10 +55,20 @@ readByte addr mem = case concreteAddress addr of
   Just known -> fromMaybe (loadByte known (memBase mem)) (AddrMap.lookup known (memWrites mem))
   Nothing -> loadByte addr (withWritesStored mem)
 
-writeByte :: Address -> Rel Byte -> RelMem -> RelMem
-writeByte addr byte mem = case concreteAddress addr of
-  Just known -> mem {memWrites = AddrMap.insert known byte (memWrites mem)}
-  Nothing -> RelMem (storeByte addr byte (withWritesStored mem)) AddrMap.empty
+outOfReach :: Bool -> Address -> Address -> Address -> SymFC.Sym Bool
+outOfReach path addr lo hi = do
+  result <- SymFC.valid $ SymFC.boolean $ not path || addr < lo || hi < addr
+  pure case result of
+    SymFC.None -> True
+    _ -> False
+
+writeByte :: Bool -> Address -> Rel Byte -> RelMem -> SymFC.Sym RelMem
+writeByte path addr byte mem = case concreteAddress addr of
+  Just known -> pure mem {memWrites = AddrMap.insert known byte (memWrites mem)}
+  Nothing -> do
+    (mayAlias, untouched) <- AddrMap.partitionByRange (outOfReach path addr) (memWrites mem)
+    let spilled = AddrMap.foldrWithKey storeByte (memBase mem) mayAlias
+    pure (RelMem (storeByte addr byte spilled) untouched)
 
 readMemWord :: Address -> RelMem -> Rel Word
 readMemWord addr mem =
@@ -66,17 +78,17 @@ readMemWord addr mem =
     <*> readByte (addr + 1) mem
     <*> readByte addr mem
 
-writeMem :: Size -> Address -> Rel Word -> RelMem -> RelMem
-writeMem size addr word mem = case size of
+writeMem :: Bool -> Size -> Address -> Rel Word -> RelMem -> SymFC.Sym RelMem
+writeMem path size addr word mem = case size of
   Byte -> put addr b0 mem
-  Half -> put (addr + 1) b1 (put addr b0 mem)
-  Word -> put (addr + 3) b3 (put (addr + 2) b2 (put (addr + 1) b1 (put addr b0 mem)))
+  Half -> put addr b0 mem >>= put (addr + 1) b1
+  Word -> put addr b0 mem >>= put (addr + 1) b1 >>= put (addr + 2) b2 >>= put (addr + 3) b3
   where
     b0 = slice d7 d0 <$> word
     b1 = slice d15 d8 <$> word
     b2 = slice d23 d16 <$> word
     b3 = slice d31 d24 <$> word
-    put = writeByte
+    put = writeByte path
 
 leftMem :: RelMem -> Memory 32 8
 leftMem mem = case withWritesStored mem of

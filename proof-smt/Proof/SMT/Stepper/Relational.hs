@@ -19,6 +19,9 @@ module Proof.SMT.Stepper.Relational
   , leakOnOnePathLeaks
   , leakOnInfeasiblePathNoLeak
   , provenAgreementDoesNotHideLeak
+  , publicJumpToLeakyTargetLeaks
+  , publicJumpAvoidingLeakyTargetNoLeak
+  , unconstrainedPublicJumpLeaks
   ) where
 
 import Data.Functor.Identity (runIdentity)
@@ -27,7 +30,7 @@ import RegFile (RegFileOps (..))
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
 import Stepper.Memory qualified as Memory
-import Stepper.Rel (left)
+import Stepper.Rel (Rel (..), left)
 import Stepper.RelState
 import Stepper.Relational
 import SymFC (SymFC (..))
@@ -60,18 +63,33 @@ freshProbe = Probe <$> SymFC.fresh @RegIdx <*> SymFC.fresh @Address
 matchesState :: Probe -> RelState -> IsaSys -> Bool
 matchesState probe st isa =
   relPc st == isaPc isa
-    && left (relRegs st (probeReg probe)) == runIdentity (lookupRFg (probeReg probe) (isaRegFile isa))
+    && left (readReg (relRegs st) (Just (probeReg probe))) == runIdentity (lookupRFg (probeReg probe) (isaRegFile isa))
     && Memory.read (probeAddr probe) (leftMem (relMem st)) == Memory.read (probeAddr probe) (isaMem isa)
 
 matchesIsaStep :: Probe -> IsaSys -> RelOutcome -> Bool
 matchesIsaStep probe isa outcome = case (outcome, isaStep isa) of
   (RelNext st, Next isa') -> matchesState probe st isa'
-  (RelFork whenTrue whenFalse, Next isa') ->
-    (relPath whenTrue || relPath whenFalse)
-      && (not (relPath whenTrue) || matchesState probe whenTrue isa')
-      && (not (relPath whenFalse) || matchesState probe whenFalse isa')
+  (RelFork branches, Next isa') ->
+    someReachable branches && allReachableMatch probe isa' branches
   (RelHalted, IsaHalted) -> True
   _ -> False
+
+someReachable :: [RelOutcome] -> Bool
+someReachable [] = False
+someReachable (branch : rest) = reachableNext branch || someReachable rest
+
+allReachableMatch :: Probe -> IsaSys -> [RelOutcome] -> Bool
+allReachableMatch _ _ [] = True
+allReachableMatch probe isa (branch : rest) =
+  reachableNextMatches probe isa branch && allReachableMatch probe isa rest
+
+reachableNext :: RelOutcome -> Bool
+reachableNext (RelNext st) = relPath st
+reachableNext _ = False
+
+reachableNextMatches :: Probe -> IsaSys -> RelOutcome -> Bool
+reachableNextMatches probe isa (RelNext st) = not (relPath st) || matchesState probe st isa
+reachableNextMatches _ _ _ = False
 
 {-# ANN relStepMatchesIsaStep (SymFC stepperEmbeddings) #-}
 relStepMatchesIsaStep :: SymFC.Sym ()
@@ -108,17 +126,17 @@ program first second =
 secretAddr :: Address
 secretAddr = 0
 
-type Secret = Word -> Word -> RelState -> RelState
+type Secret = Word -> Word -> RelState -> SymFC.Sym RelState
 
 runToy :: Secret -> Word -> Word -> SymFC.Sym Verdict
 runToy secret first second = do
   isa <- SymFC.fresh @IsaSys
   secretA <- SymFC.fresh @Word
   secretB <- SymFC.fresh @Word
-  relRun toyFuel $ secret secretA secretB $ sameState (program first second) isa {isaPc = 0}
+  relRun toyFuel =<< secret secretA secretB (sameState (program first second) isa {isaPc = 0})
 
 inSecretReg :: Secret
-inSecretReg = withSecretReg secretReg
+inSecretReg secretA secretB = pure . withSecretReg secretReg secretA secretB
 
 inSecretWord :: Secret
 inSecretWord = withSecretWord secretAddr
@@ -228,7 +246,7 @@ runForkToy secret code = do
   isa <- SymFC.fresh @IsaSys
   secretA <- SymFC.fresh @Word
   secretB <- SymFC.fresh @Word
-  relRun forkFuel $ secret secretA secretB $ sameState code isa {isaPc = 0}
+  relRun forkFuel =<< secret secretA secretB (sameState code isa {isaPc = 0})
 
 publicBranchProgram :: Code
 publicBranchProgram =
@@ -286,3 +304,51 @@ leakAfterProvenAgreementProgram =
 {-# ANN provenAgreementDoesNotHideLeak (SymFC stepperEmbeddings) #-}
 provenAgreementDoesNotHideLeak :: SymFC.Sym ()
 provenAgreementDoesNotHideLeak = expectLeakAt 12 LeakBranch $ runForkToy inSecretWord leakAfterProvenAgreementProgram
+
+jalrToA1 :: Word
+jalrToA1 = 0x00058067
+
+jumpTargetReg :: RegIdx
+jumpTargetReg = 11
+
+cleanTarget, leakyTarget, otherCleanTarget :: Word
+cleanTarget = 8
+leakyTarget = 12
+otherCleanTarget = 16
+
+publicJumpProgram :: Code
+publicJumpProgram =
+  withInstruction 0 jalrToA1 $
+    withInstruction 4 ebreak $
+      withInstruction 8 ebreak $
+        withInstruction 12 beqA0X0Plus8 $
+          withInstruction 16 ebreak $
+            withInstruction 20 ebreak noCode
+
+runPublicJumpToy :: (Word -> Bool) -> SymFC.Sym Verdict
+runPublicJumpToy allowedTarget = do
+  isa <- SymFC.fresh @IsaSys
+  secretA <- SymFC.fresh @Word
+  secretB <- SymFC.fresh @Word
+  target <- SymFC.fresh @Word
+  let start = sameState publicJumpProgram isa {isaPc = 0}
+      withTarget =
+        start
+          { relPath = allowedTarget target
+          , relRegs = writeReg jumpTargetReg (Same target) (relRegs start)
+          }
+  relRun forkFuel =<< inSecretReg secretA secretB withTarget
+
+{-# ANN publicJumpToLeakyTargetLeaks (SymFC stepperEmbeddings) #-}
+publicJumpToLeakyTargetLeaks :: SymFC.Sym ()
+publicJumpToLeakyTargetLeaks =
+  expectLeakAt 12 LeakBranch $ runPublicJumpToy \target -> target == cleanTarget || target == leakyTarget
+
+{-# ANN publicJumpAvoidingLeakyTargetNoLeak (SymFC stepperEmbeddings) #-}
+publicJumpAvoidingLeakyTargetNoLeak :: SymFC.Sym ()
+publicJumpAvoidingLeakyTargetNoLeak =
+  expectNoLeak $ runPublicJumpToy \target -> target == cleanTarget || target == otherCleanTarget
+
+{-# ANN unconstrainedPublicJumpLeaks (SymFC stepperEmbeddings) #-}
+unconstrainedPublicJumpLeaks :: SymFC.Sym ()
+unconstrainedPublicJumpLeaks = expectLeakAt 12 LeakBranch $ runPublicJumpToy (const True)
