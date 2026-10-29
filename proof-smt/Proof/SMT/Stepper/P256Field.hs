@@ -100,72 +100,72 @@ montReduceOptimisedCall fuel = do
   withProduct <- withSecretWords leftAddr productLimbs start
   relRun fuel withProduct
 
-{-# ANN p256CompareUnoptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256CompareUnoptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256CompareUnoptimisedNoLeak :: SymFC.Sym ()
 p256CompareUnoptimisedNoLeak =
   expectNoLeak $ compareCall compareUnoptimisedCode compareUnoptimisedEntry (decimalSteps [1, 4, 2])
 
-{-# ANN p256CompareUnoptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256CompareUnoptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256CompareUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256CompareUnoptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ compareCall compareUnoptimisedCode compareUnoptimisedEntry (decimalSteps [1, 4, 1])
 
-{-# ANN p256CompareOptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256CompareOptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256CompareOptimisedNoLeak :: SymFC.Sym ()
 p256CompareOptimisedNoLeak =
   expectNoLeak $ compareCall compareOptimisedCode compareOptimisedEntry (decimalSteps [6, 9])
 
-{-# ANN p256CompareOptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256CompareOptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256CompareOptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256CompareOptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ compareCall compareOptimisedCode compareOptimisedEntry (decimalSteps [6, 8])
 
-{-# ANN p256CondSubUnoptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256CondSubUnoptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256CondSubUnoptimisedNoLeak :: SymFC.Sym ()
 p256CondSubUnoptimisedNoLeak = expectNoLeak $ condSubCall (decimalSteps [1, 1, 9])
 
-{-# ANN p256CondSubUnoptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256CondSubUnoptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256CondSubUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256CondSubUnoptimisedOneStepShortOutOfFuel = expectOutOfFuel $ condSubCall (decimalSteps [1, 1, 8])
 
-{-# ANN p256CondCopyUnoptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256CondCopyUnoptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256CondCopyUnoptimisedNoLeak :: SymFC.Sym ()
 p256CondCopyUnoptimisedNoLeak = expectNoLeak $ condCopyCall (decimalSteps [1, 7, 1])
 
-{-# ANN p256CondCopyUnoptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256CondCopyUnoptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256CondCopyUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256CondCopyUnoptimisedOneStepShortOutOfFuel = expectOutOfFuel $ condCopyCall (decimalSteps [1, 7, 0])
 
-{-# ANN p256MontReduceUnoptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceUnoptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceUnoptimisedNoLeak :: SymFC.Sym ()
 p256MontReduceUnoptimisedNoLeak = expectNoLeak $ montReduceUnoptimisedCall (decimalSteps [1, 7, 5, 7])
 
-{-# ANN p256MontReduceUnoptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceUnoptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MontReduceUnoptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ montReduceUnoptimisedCall (decimalSteps [1, 7, 5, 6])
 
-{-# ANN p256MontReduceOptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceOptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceOptimisedNoLeak :: SymFC.Sym ()
 p256MontReduceOptimisedNoLeak = expectNoLeak $ montReduceOptimisedCall (decimalSteps [4, 6, 9])
 
-{-# ANN p256MontReduceOptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceOptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceOptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MontReduceOptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ montReduceOptimisedCall (decimalSteps [4, 6, 8])
 
-{-# ANN p256FieldUnoptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN p256FieldUnoptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 p256FieldUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256FieldUnoptimisedDecodeAgrees = expectDecodeAgreement [compareUnoptimisedDecoded, condSubUnoptimisedDecoded, condCopyUnoptimisedDecoded, montReduceUnoptimisedDecoded]
 
-{-# ANN p256FieldOptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN p256FieldOptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 p256FieldOptimisedDecodeAgrees :: SymFC.Sym ()
 p256FieldOptimisedDecodeAgrees = expectDecodeAgreement [compareOptimisedDecoded, montReduceOptimisedDecoded]
 
-{-# ANN p256UnoptimisedDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+{-# ANN p256UnoptimisedDecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
 p256UnoptimisedDecodeRejectsWrongInstruction :: SymFC.Sym ()
 p256UnoptimisedDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction compareUnoptimisedDecoded, condSubUnoptimisedDecoded, condCopyUnoptimisedDecoded, montReduceUnoptimisedDecoded]
 
-{-# ANN p256OptimisedDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+{-# ANN p256OptimisedDecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
 p256OptimisedDecodeRejectsWrongInstruction :: SymFC.Sym ()
 p256OptimisedDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction compareOptimisedDecoded, montReduceOptimisedDecoded]

@@ -148,26 +148,26 @@ expectOutOfFuel run = do
 firstBlockByteLoad :: Address
 firstBlockByteLoad = 0x17d28
 
-{-# ANN blake2bSecretBlockNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bSecretBlockNoLeak (SymFCWith 'stepperEmbeddings) #-}
 blake2bSecretBlockNoLeak :: SymFC.Sym ()
 blake2bSecretBlockNoLeak = expectNoLeak $ secretBlockPublicChainingValue exactSteps
 
-{-# ANN blake2bSecretBlockOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bSecretBlockOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 blake2bSecretBlockOneStepShortOutOfFuel :: SymFC.Sym ()
 blake2bSecretBlockOneStepShortOutOfFuel = expectOutOfFuel $ secretBlockPublicChainingValue oneStepShort
 
-{-# ANN blake2bSecretChainingValueNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bSecretChainingValueNoLeak (SymFCWith 'stepperEmbeddings) #-}
 blake2bSecretChainingValueNoLeak :: SymFC.Sym ()
 blake2bSecretChainingValueNoLeak = expectNoLeak $ secretBlockSecretChainingValue exactSteps
 
-{-# ANN blake2bSecretBlockPointerLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bSecretBlockPointerLeaks (SymFCWith 'stepperEmbeddings) #-}
 blake2bSecretBlockPointerLeaks :: SymFC.Sym ()
 blake2bSecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
 
-{-# ANN blake2bDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 blake2bDecodeAgrees :: SymFC.Sym ()
 blake2bDecodeAgrees = expectDecodeAgreement [blake2bCompressDecoded]
 
-{-# ANN blake2bDecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+{-# ANN blake2bDecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
 blake2bDecodeRejectsWrongInstruction :: SymFC.Sym ()
 blake2bDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction blake2bCompressDecoded]

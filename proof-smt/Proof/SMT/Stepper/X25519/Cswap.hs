@@ -65,15 +65,15 @@ conditionalCall code entry withElements fuel bit = do
 swapSecrets :: Fuel -> SymFC.Sym Verdict
 swapSecrets fuel = conditionalCall cswapCode cswapEntry withSecretElements fuel (Same 1)
 
-{-# ANN x25519CswapPublicBitNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CswapPublicBitNoLeak (SymFCWith 'stepperEmbeddings) #-}
 x25519CswapPublicBitNoLeak :: SymFC.Sym ()
 x25519CswapPublicBitNoLeak = expectNoLeak $ swapSecrets swapWithBitSteps
 
-{-# ANN x25519CswapPublicBitOneStepShort (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CswapPublicBitOneStepShort (SymFCWith 'stepperEmbeddings) #-}
 x25519CswapPublicBitOneStepShort :: SymFC.Sym ()
 x25519CswapPublicBitOneStepShort = expectOutOfFuel $ swapSecrets swapWithBitOneShort
 
-{-# ANN x25519CswapSecretBitLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CswapSecretBitLeaks (SymFCWith 'stepperEmbeddings) #-}
 x25519CswapSecretBitLeaks :: SymFC.Sym ()
 x25519CswapSecretBitLeaks =
   expectLeakAt firstSwapBranch LeakBranch $
@@ -82,18 +82,18 @@ x25519CswapSecretBitLeaks =
 moveUnderSecretBit :: Fuel -> SymFC.Sym Verdict
 moveUnderSecretBit fuel = conditionalCall cmovCode cmovEntry withSecretElements fuel =<< secretBit
 
-{-# ANN x25519CmovSecretBitNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CmovSecretBitNoLeak (SymFCWith 'stepperEmbeddings) #-}
 x25519CmovSecretBitNoLeak :: SymFC.Sym ()
 x25519CmovSecretBitNoLeak = expectNoLeak $ moveUnderSecretBit moveSteps
 
-{-# ANN x25519CmovSecretBitOneStepShort (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CmovSecretBitOneStepShort (SymFCWith 'stepperEmbeddings) #-}
 x25519CmovSecretBitOneStepShort :: SymFC.Sym ()
 x25519CmovSecretBitOneStepShort = expectOutOfFuel $ moveUnderSecretBit moveOneShort
 
-{-# ANN x25519CswapDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN x25519CswapDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 x25519CswapDecodeAgrees :: SymFC.Sym ()
 x25519CswapDecodeAgrees = expectDecodeAgreement [cswapDecoded, cmovDecoded]
 
-{-# ANN x25519DecodeRejectsWrongInstruction (SymFC stepperEmbeddings) #-}
+{-# ANN x25519DecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
 x25519DecodeRejectsWrongInstruction :: SymFC.Sym ()
 x25519DecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction cswapDecoded, cmovDecoded]

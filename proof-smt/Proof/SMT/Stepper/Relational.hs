@@ -97,7 +97,7 @@ reachableNextMatches :: Probe -> IsaSys -> RelOutcome -> Bool
 reachableNextMatches probe isa (RelNext st) = not (relPath st) || matchesState probe st isa
 reachableNextMatches _ _ _ = False
 
-{-# ANN relStepMatchesIsaStep (SymFC stepperEmbeddings) #-}
+{-# ANN relStepMatchesIsaStep (SymFCWith 'stepperEmbeddings) #-}
 relStepMatchesIsaStep :: SymFC.Sym ()
 relStepMatchesIsaStep = do
   isa <- SymFC.fresh @IsaSys
@@ -105,7 +105,7 @@ relStepMatchesIsaStep = do
   outcome <- relStep (sameState (codeFromMemory (isaMem isa)) isa)
   expectValid $ matchesIsaStep probe isa outcome
 
-{-# ANN relStepMismatchFails (SymFC stepperEmbeddings) #-}
+{-# ANN relStepMismatchFails (SymFCWith 'stepperEmbeddings) #-}
 relStepMismatchFails :: SymFC.Sym ()
 relStepMismatchFails = do
   isa <- SymFC.fresh @IsaSys
@@ -197,47 +197,47 @@ swA1ToA0 = 0x00B52023
 jalrToA0 :: Word
 jalrToA0 = 0x00050067
 
-{-# ANN addOnSecretNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN addOnSecretNoLeak (SymFCWith 'stepperEmbeddings) #-}
 addOnSecretNoLeak :: SymFC.Sym ()
 addOnSecretNoLeak = expectNoLeak $ runToy inSecretReg addA1A0A0 ebreak
 
-{-# ANN branchOnPublicNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN branchOnPublicNoLeak (SymFCWith 'stepperEmbeddings) #-}
 branchOnPublicNoLeak :: SymFC.Sym ()
 branchOnPublicNoLeak = expectNoLeak $ runToy inSecretReg beqX0X0Plus8 ebreak
 
-{-# ANN storeSecretNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN storeSecretNoLeak (SymFCWith 'stepperEmbeddings) #-}
 storeSecretNoLeak :: SymFC.Sym ()
 storeSecretNoLeak = expectNoLeak $ runToy inSecretReg swA0ToZero ebreak
 
-{-# ANN branchOnSecretLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN branchOnSecretLeaks (SymFCWith 'stepperEmbeddings) #-}
 branchOnSecretLeaks :: SymFC.Sym ()
 branchOnSecretLeaks = expectLeakAt 0 LeakBranch $ runToy inSecretReg beqA0X0Plus8 ebreak
 
-{-# ANN loadFromSecretLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN loadFromSecretLeaks (SymFCWith 'stepperEmbeddings) #-}
 loadFromSecretLeaks :: SymFC.Sym ()
 loadFromSecretLeaks = expectLeakAt 0 LeakLoadAddress $ runToy inSecretReg lwA1FromA0 ebreak
 
-{-# ANN secretThroughAddLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN secretThroughAddLeaks (SymFCWith 'stepperEmbeddings) #-}
 secretThroughAddLeaks :: SymFC.Sym ()
 secretThroughAddLeaks = expectLeakAt 4 LeakBranch $ runToy inSecretReg addA1A0A0 beqA1X0Plus8
 
-{-# ANN storeToSecretAddressLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN storeToSecretAddressLeaks (SymFCWith 'stepperEmbeddings) #-}
 storeToSecretAddressLeaks :: SymFC.Sym ()
 storeToSecretAddressLeaks = expectLeakAt 0 LeakStoreAddress $ runToy inSecretReg swA1ToA0 ebreak
 
-{-# ANN jumpToSecretLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN jumpToSecretLeaks (SymFCWith 'stepperEmbeddings) #-}
 jumpToSecretLeaks :: SymFC.Sym ()
 jumpToSecretLeaks = expectLeakAt 0 LeakJumpTarget $ runToy inSecretReg jalrToA0 ebreak
 
-{-# ANN loadSecretWordNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN loadSecretWordNoLeak (SymFCWith 'stepperEmbeddings) #-}
 loadSecretWordNoLeak :: SymFC.Sym ()
 loadSecretWordNoLeak = expectNoLeak $ runToy inSecretWord lwA1FromZero addA2A1A1
 
-{-# ANN loadPublicWordBesideSecretNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN loadPublicWordBesideSecretNoLeak (SymFCWith 'stepperEmbeddings) #-}
 loadPublicWordBesideSecretNoLeak :: SymFC.Sym ()
 loadPublicWordBesideSecretNoLeak = expectNoLeak $ runToy inSecretWord lwA1From64 lwA2FromA1
 
-{-# ANN branchOnSecretWordLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN branchOnSecretWordLeaks (SymFCWith 'stepperEmbeddings) #-}
 branchOnSecretWordLeaks :: SymFC.Sym ()
 branchOnSecretWordLeaks = expectLeakAt 4 LeakBranch $ runToy inSecretWord lwA1FromZero beqA1X0Plus8
 
@@ -280,15 +280,15 @@ secretBranchBehindInfeasibleProgram =
               withInstruction 24 ebreak $
                 withInstruction 28 ebreak noCode
 
-{-# ANN publicBranchForksNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN publicBranchForksNoLeak (SymFCWith 'stepperEmbeddings) #-}
 publicBranchForksNoLeak :: SymFC.Sym ()
 publicBranchForksNoLeak = expectNoLeak $ runForkToy inSecretReg publicBranchProgram
 
-{-# ANN leakOnOnePathLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN leakOnOnePathLeaks (SymFCWith 'stepperEmbeddings) #-}
 leakOnOnePathLeaks :: SymFC.Sym ()
 leakOnOnePathLeaks = expectLeakAt 8 LeakBranch $ runForkToy inSecretReg secretBranchOnFallthroughProgram
 
-{-# ANN leakOnInfeasiblePathNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN leakOnInfeasiblePathNoLeak (SymFCWith 'stepperEmbeddings) #-}
 leakOnInfeasiblePathNoLeak :: SymFC.Sym ()
 leakOnInfeasiblePathNoLeak = expectNoLeak $ runForkToy inSecretReg secretBranchBehindInfeasibleProgram
 
@@ -307,7 +307,7 @@ leakAfterProvenAgreementProgram =
           withInstruction 16 ebreak $
             withInstruction 20 ebreak noCode
 
-{-# ANN provenAgreementDoesNotHideLeak (SymFC stepperEmbeddings) #-}
+{-# ANN provenAgreementDoesNotHideLeak (SymFCWith 'stepperEmbeddings) #-}
 provenAgreementDoesNotHideLeak :: SymFC.Sym ()
 provenAgreementDoesNotHideLeak = expectLeakAt 12 LeakBranch $ runForkToy inSecretWord leakAfterProvenAgreementProgram
 
@@ -334,17 +334,17 @@ publicJumpProgram =
 runPublicJumpToy :: (Word -> Bool) -> SymFC.Sym Verdict
 runPublicJumpToy = runJumpIn publicJumpProgram
 
-{-# ANN publicJumpToLeakyTargetLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN publicJumpToLeakyTargetLeaks (SymFCWith 'stepperEmbeddings) #-}
 publicJumpToLeakyTargetLeaks :: SymFC.Sym ()
 publicJumpToLeakyTargetLeaks =
   expectLeakAt 12 LeakBranch $ runPublicJumpToy \target -> target == cleanTarget || target == leakyTarget
 
-{-# ANN publicJumpAvoidingLeakyTargetNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN publicJumpAvoidingLeakyTargetNoLeak (SymFCWith 'stepperEmbeddings) #-}
 publicJumpAvoidingLeakyTargetNoLeak :: SymFC.Sym ()
 publicJumpAvoidingLeakyTargetNoLeak =
   expectNoLeak $ runPublicJumpToy \target -> target == cleanTarget || target == otherCleanTarget
 
-{-# ANN unconstrainedPublicJumpLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN unconstrainedPublicJumpLeaks (SymFCWith 'stepperEmbeddings) #-}
 unconstrainedPublicJumpLeaks :: SymFC.Sym ()
 unconstrainedPublicJumpLeaks = expectLeakAt 12 LeakBranch $ runPublicJumpToy (const True)
 
@@ -384,7 +384,7 @@ runJumpIn code allowedTarget = do
   let withTarget = start {relPath = allowedTarget target, relRegs = regs}
   relRun forkFuel =<< inSecretReg secretA secretB withTarget
 
-{-# ANN confinedJumpInLongCodeNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN confinedJumpInLongCodeNoLeak (SymFCWith 'stepperEmbeddings) #-}
 confinedJumpInLongCodeNoLeak :: SymFC.Sym ()
 confinedJumpInLongCodeNoLeak =
   expectNoLeak $ runJumpIn longJumpProgram \target ->

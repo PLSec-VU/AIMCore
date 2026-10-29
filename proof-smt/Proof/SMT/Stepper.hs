@@ -17,10 +17,9 @@ import ISA (IsaStateG (..), StepG (..), isaStep)
 import Memory.Types (MemOps (..))
 import RegFile (RegFileOps (..))
 import Stepper (Fuel (..), IsaSys, IsaSysStep)
+import Stepper.Concrete (baseEmbeddings)
 import SymFC (SymFC (..))
-import SymFC.Base qualified as Base
 import SymFC.BuiltIn qualified as SymFC
-import SymFC.Clash qualified as Clash
 import Types (Address, Size (..), Word)
 import Prelude hiding (Word)
 
@@ -38,7 +37,7 @@ expectCounterexample prop = do
     SymFC.Instance -> pure ()
     _ -> SymFC.halt
 
-{-# ANN stepChangesState (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN stepChangesState (SymFCWith 'baseEmbeddings) #-}
 stepChangesState :: SymFC.Sym ()
 stepChangesState = do
   isa0 <- SymFC.fresh @IsaSys
@@ -55,13 +54,13 @@ stepSetsX1To :: Word -> IsaSys -> Bool
 stepSetsX1To value isa =
   isaStep isa == Next isa {isaPc = 4, isaRegFile = modifyRFg 1 (pure value) (isaRegFile isa)}
 
-{-# ANN addiSetsX1 (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN addiSetsX1 (SymFCWith 'baseEmbeddings) #-}
 addiSetsX1 :: SymFC.Sym ()
 addiSetsX1 = do
   isa <- addiAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepSetsX1To 5 isa
 
-{-# ANN addiWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN addiWrongValueFails (SymFCWith 'baseEmbeddings) #-}
 addiWrongValueFails :: SymFC.Sym ()
 addiWrongValueFails = do
   isa <- addiAtZero <$> SymFC.fresh @IsaSys
@@ -101,13 +100,13 @@ andThenStep = \case
 threeStepsUnrolled :: IsaSys -> IsaSysStep
 threeStepsUnrolled = andThenStep . andThenStep . isaStep
 
-{-# ANN chainUnrolled (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainUnrolled (SymFCWith 'baseEmbeddings) #-}
 chainUnrolled :: SymFC.Sym ()
 chainUnrolled = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ threeStepsUnrolled isa == chainSetsX3To 13 isa
 
-{-# ANN chainUnrolledWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainUnrolledWrongValueFails (SymFCWith 'baseEmbeddings) #-}
 chainUnrolledWrongValueFails :: SymFC.Sym ()
 chainUnrolledWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
@@ -122,13 +121,13 @@ stepWithFuel (More fuel) isa = case isaStep isa of
   Next isa' -> stepWithFuel fuel isa'
   IsaHalted -> IsaHalted
 
-{-# ANN chainFuel (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainFuel (SymFCWith 'baseEmbeddings) #-}
 chainFuel :: SymFC.Sym ()
 chainFuel = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepWithFuel threeSteps isa == chainSetsX3To 13 isa
 
-{-# ANN chainFuelWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainFuelWrongValueFails (SymFCWith 'baseEmbeddings) #-}
 chainFuelWrongValueFails :: SymFC.Sym ()
 chainFuelWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
@@ -141,13 +140,13 @@ stepTimes n isa
       Next isa' -> stepTimes (n - 1) isa'
       IsaHalted -> IsaHalted
 
-{-# ANN chainIntFuel (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainIntFuel (SymFCWith 'baseEmbeddings) #-}
 chainIntFuel :: SymFC.Sym ()
 chainIntFuel = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepTimes 3 isa == chainSetsX3To 13 isa
 
-{-# ANN chainIntFuelWrongValueFails (SymFC $ Base.embeddings <> Clash.embeddings) #-}
+{-# ANN chainIntFuelWrongValueFails (SymFCWith 'baseEmbeddings) #-}
 chainIntFuelWrongValueFails :: SymFC.Sym ()
 chainIntFuelWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys

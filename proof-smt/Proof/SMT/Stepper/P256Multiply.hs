@@ -128,65 +128,65 @@ montReduceOrderOptimisedCall fuel = do
   withProduct <- withSecretWords leftAddr productLimbs start
   relRun fuel withProduct
 
-{-# ANN p256MulUnoptimisedSecretRightLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256MulUnoptimisedSecretRightLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256MulUnoptimisedSecretRightLeaks :: SymFC.Sym ()
 p256MulUnoptimisedSecretRightLeaks =
   expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
     mulSecretRight mulUnoptimisedCode mulUnoptimisedEntry unoptimisedMulSteps
 
-{-# ANN p256MulUnoptimisedSecretLeftNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256MulUnoptimisedSecretLeftNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256MulUnoptimisedSecretLeftNoLeak :: SymFC.Sym ()
 p256MulUnoptimisedSecretLeftNoLeak =
   expectNoLeak $ mulSecretLeftByCurveConstant mulUnoptimisedCode mulUnoptimisedEntry unoptimisedMulSteps
 
-{-# ANN p256MulUnoptimisedSecretLeftOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256MulUnoptimisedSecretLeftOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256MulUnoptimisedSecretLeftOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MulUnoptimisedSecretLeftOneStepShortOutOfFuel =
   expectOutOfFuel $ mulSecretLeftByCurveConstant mulUnoptimisedCode mulUnoptimisedEntry unoptimisedMulSecretLeftShort
 
-{-# ANN p256MulOptimisedSecretRightLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256MulOptimisedSecretRightLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256MulOptimisedSecretRightLeaks :: SymFC.Sym ()
 p256MulOptimisedSecretRightLeaks =
   expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
     mulSecretRight mulOptimisedCode mulOptimisedEntry optimisedMulSteps
 
-{-# ANN p256MulOptimisedSecretLeftLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256MulOptimisedSecretLeftLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256MulOptimisedSecretLeftLeaks :: SymFC.Sym ()
 p256MulOptimisedSecretLeftLeaks =
   expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
     mulSecretLeftByCurveConstant mulOptimisedCode mulOptimisedEntry optimisedMulSteps
 
-{-# ANN p256SqrUnoptimisedLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256SqrUnoptimisedLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256SqrUnoptimisedLeaks :: SymFC.Sym ()
 p256SqrUnoptimisedLeaks =
   expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
     sqrSecret sqrUnoptimisedCode sqrUnoptimisedEntry unoptimisedSqrSteps
 
-{-# ANN p256SqrOptimisedLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256SqrOptimisedLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256SqrOptimisedLeaks :: SymFC.Sym ()
 p256SqrOptimisedLeaks =
   expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
     sqrSecret sqrOptimisedCode sqrOptimisedEntry optimisedSqrSteps
 
-{-# ANN p256MontReduceOrderUnoptimisedLeaks (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceOrderUnoptimisedLeaks (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceOrderUnoptimisedLeaks :: SymFC.Sym ()
 p256MontReduceOrderUnoptimisedLeaks =
   expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
     montReduceOrderUnoptimisedCall unoptimisedReduceOrderSteps
 
-{-# ANN p256MontReduceOrderOptimisedNoLeak (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceOrderOptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceOrderOptimisedNoLeak :: SymFC.Sym ()
 p256MontReduceOrderOptimisedNoLeak = expectNoLeak $ montReduceOrderOptimisedCall optimisedReduceOrderSteps
 
-{-# ANN p256MontReduceOrderOptimisedOneStepShortOutOfFuel (SymFC stepperEmbeddings) #-}
+{-# ANN p256MontReduceOrderOptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
 p256MontReduceOrderOptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256MontReduceOrderOptimisedOneStepShortOutOfFuel =
   expectOutOfFuel $ montReduceOrderOptimisedCall optimisedReduceOrderShort
 
-{-# ANN p256MultiplyUnoptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN p256MultiplyUnoptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 p256MultiplyUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256MultiplyUnoptimisedDecodeAgrees = expectDecodeAgreement [mulUnoptimisedDecoded, sqrUnoptimisedDecoded, montReduceOrderUnoptimisedDecoded]
 
-{-# ANN p256MultiplyOptimisedDecodeAgrees (SymFC stepperEmbeddings) #-}
+{-# ANN p256MultiplyOptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
 p256MultiplyOptimisedDecodeAgrees :: SymFC.Sym ()
 p256MultiplyOptimisedDecodeAgrees = expectDecodeAgreement [mulOptimisedDecoded, sqrOptimisedDecoded, montReduceOrderOptimisedDecoded]

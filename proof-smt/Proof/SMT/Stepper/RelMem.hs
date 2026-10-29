@@ -95,7 +95,7 @@ readsAgree probe layered plain = do
       && left atSecond == Memory.read secondAddr plain
       && leftMem layered == plain
 
-{-# ANN layeredMatchesArray (SymFC stepperEmbeddings) #-}
+{-# ANN layeredMatchesArray (SymFCWith 'stepperEmbeddings) #-}
 layeredMatchesArray :: SymFC.Sym ()
 layeredMatchesArray = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -104,7 +104,7 @@ layeredMatchesArray = do
   layered <- applyLayered w (sameMem base)
   expectValid =<< readsAgree probe layered (applyPlain w base)
 
-{-# ANN layeredMissingWriteFails (SymFC stepperEmbeddings) #-}
+{-# ANN layeredMissingWriteFails (SymFCWith 'stepperEmbeddings) #-}
 layeredMissingWriteFails :: SymFC.Sym ()
 layeredMissingWriteFails = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -116,7 +116,7 @@ layeredMissingWriteFails = do
 secretAddr :: Address
 secretAddr = 0x200
 
-{-# ANN layeredPairMatchesArrays (SymFC stepperEmbeddings) #-}
+{-# ANN layeredPairMatchesArrays (SymFCWith 'stepperEmbeddings) #-}
 layeredPairMatchesArrays :: SymFC.Sym ()
 layeredPairMatchesArrays = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -188,7 +188,7 @@ agreesAtKeysAndProbe probe layered plain = do
   where
     agreesAt addr = (\byte -> left byte == Memory.read addr plain) <$> readByte addr layered
 
-{-# ANN confinedWriteMatchesArray (SymFC stepperEmbeddings) #-}
+{-# ANN confinedWriteMatchesArray (SymFCWith 'stepperEmbeddings) #-}
 confinedWriteMatchesArray :: SymFC.Sym ()
 confinedWriteMatchesArray = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -206,7 +206,7 @@ exactWordAt addr mem = do
   word <- readMemWord addr mem
   concreteAddress (bitCoerce (left word))
 
-{-# ANN confinedWriteKeepsKnownWords (SymFC stepperEmbeddings) #-}
+{-# ANN confinedWriteKeepsKnownWords (SymFCWith 'stepperEmbeddings) #-}
 confinedWriteKeepsKnownWords :: SymFC.Sym ()
 confinedWriteKeepsKnownWords = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -225,7 +225,7 @@ confinedWriteKeepsKnownWords = do
     (Just first, Just far) -> expectValid $ first == bitCoerce savedWord && far == bitCoerce savedWord
     _ -> SymFC.halt
 
-{-# ANN aliasingWriteMatchesArray (SymFC stepperEmbeddings) #-}
+{-# ANN aliasingWriteMatchesArray (SymFCWith 'stepperEmbeddings) #-}
 aliasingWriteMatchesArray :: SymFC.Sym ()
 aliasingWriteMatchesArray = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -235,7 +235,7 @@ aliasingWriteMatchesArray = do
   layered <- knownThenUnknown path w (sameMem base)
   expectValid . (not path ||) =<< agreesAtKeysAndProbe probe layered (knownThenUnknownPlain w base)
 
-{-# ANN aliasingMissingWriteFails (SymFC stepperEmbeddings) #-}
+{-# ANN aliasingMissingWriteFails (SymFCWith 'stepperEmbeddings) #-}
 aliasingMissingWriteFails :: SymFC.Sym ()
 aliasingMissingWriteFails = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -248,7 +248,7 @@ aliasingMissingWriteFails = do
 knownLoad :: Address -> RelMem -> SymFC.Sym (Rel Word, RelMem)
 knownLoad addr mem = maybe SymFC.halt pure =<< loadKnownWord addr mem
 
-{-# ANN repeatedKnownLoadXorsToZero (SymFC stepperEmbeddings) #-}
+{-# ANN repeatedKnownLoadXorsToZero (SymFCWith 'stepperEmbeddings) #-}
 repeatedKnownLoadXorsToZero :: SymFC.Sym ()
 repeatedKnownLoadXorsToZero = do
   base <- SymFC.fresh @(Memory 32 8)
@@ -279,10 +279,10 @@ recordedLoadThenWriteMatchesArray onPath = do
              && leftMem written == plain
          )
 
-{-# ANN recordedLoadThenAliasingWriteMatchesArray (SymFC stepperEmbeddings) #-}
+{-# ANN recordedLoadThenAliasingWriteMatchesArray (SymFCWith 'stepperEmbeddings) #-}
 recordedLoadThenAliasingWriteMatchesArray :: SymFC.Sym ()
 recordedLoadThenAliasingWriteMatchesArray = recordedLoadThenWriteMatchesArray mayAliasKnownKeys
 
-{-# ANN recordedLoadThenConfinedWriteMatchesArray (SymFC stepperEmbeddings) #-}
+{-# ANN recordedLoadThenConfinedWriteMatchesArray (SymFCWith 'stepperEmbeddings) #-}
 recordedLoadThenConfinedWriteMatchesArray :: SymFC.Sym ()
 recordedLoadThenConfinedWriteMatchesArray = recordedLoadThenWriteMatchesArray confinedBetweenKeys

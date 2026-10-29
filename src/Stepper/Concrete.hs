@@ -3,7 +3,8 @@
 {-# LANGUAGE GADTs #-}
 
 module Stepper.Concrete
-  ( concreteAddress
+  ( baseEmbeddings
+  , concreteAddress
   , concreteAddressE
   , concreteRegIdx
   , concreteRegIdxE
@@ -74,5 +75,8 @@ concreteEmbeddings =
         ]
     }
 
+baseEmbeddings :: Embeddings
+baseEmbeddings = Base.embeddings <> Clash.embeddings
+
 stepperEmbeddings :: Embeddings
-stepperEmbeddings = Base.embeddings <> Clash.embeddings <> concreteEmbeddings
+stepperEmbeddings = baseEmbeddings <> concreteEmbeddings
