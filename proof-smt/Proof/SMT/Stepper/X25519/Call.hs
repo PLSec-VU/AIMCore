@@ -62,8 +62,8 @@ stackTop = 0x8000
 returnOutsideCode = 0
 
 stackGuardSlot, stackGuard :: Address
-stackGuardSlot = 0x5b020
-stackGuard = 0x5bc04
+stackGuardSlot = 0x5e020
+stackGuard = 0x5ec04
 
 pointer :: Address -> Rel Word
 pointer = Same . bitCoerce

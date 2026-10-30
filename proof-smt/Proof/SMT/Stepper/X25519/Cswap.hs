@@ -46,7 +46,7 @@ moveSteps = decimalSteps [6, 3]
 moveOneShort = decimalSteps [6, 2]
 
 firstSwapBranch :: Address
-firstSwapBranch = 0x1bae8
+firstSwapBranch = 0x1e158
 
 withSecretElements :: RelState -> SymFC.Sym RelState
 withSecretElements st = withSecretWords firstElement limbCount st >>= withSecretWords secondElement limbCount

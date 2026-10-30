@@ -110,7 +110,7 @@ expectOutOfFuel run = do
     _ -> SymFC.halt
 
 memcmpWordCompare :: Address
-memcmpWordCompare = 0x42838
+memcmpWordCompare = 0x442f0
 
 {-# ANN memcmpLeaks (SymFCWith 'stepperEmbeddings) #-}
 memcmpLeaks :: SymFC.Sym ()
@@ -138,7 +138,7 @@ expectNoFetchOf code addr unexpectedWord = case codeFetch code addr of
 memcmpFetchesKnownWords :: SymFC.Sym ()
 memcmpFetchesKnownWords = do
   expectFetch memcmpCode memcmpEntry 0x00300693
-  expectFetch memcmpCode memcmpWordCompare 0xfcf714e3
+  expectFetch memcmpCode memcmpWordCompare 0x00f71c63
 
 {-# ANN sodiumMemcmpFetchesKnownWords (SymFCWith 'stepperEmbeddings) #-}
 sodiumMemcmpFetchesKnownWords :: SymFC.Sym ()

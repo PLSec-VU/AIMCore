@@ -47,10 +47,10 @@ decimalSteps = digitsAfter Done
     digitsAfter sofar (digit : rest) = digitsAfter (plusFuel (steps digit) (tenfold sofar)) rest
 
 exactSteps :: Fuel
-exactSteps = decimalSteps [7, 3, 5, 3]
+exactSteps = decimalSteps [7, 4, 5, 0]
 
 oneStepShort :: Fuel
-oneStepShort = decimalSteps [7, 3, 5, 2]
+oneStepShort = decimalSteps [7, 4, 4, 9]
 
 stateAddr, countersAddr, blockAddr, stackTop, returnOutsideCode :: Address
 stateAddr = 0x1000
@@ -146,7 +146,7 @@ expectOutOfFuel run = do
     _ -> SymFC.halt
 
 firstBlockByteLoad :: Address
-firstBlockByteLoad = 0x17d28
+firstBlockByteLoad = 0x19c28
 
 {-# ANN blake2bSecretBlockNoLeak (SymFCWith 'stepperEmbeddings) #-}
 blake2bSecretBlockNoLeak :: SymFC.Sym ()

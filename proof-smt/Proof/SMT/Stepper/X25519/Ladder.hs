@@ -44,8 +44,8 @@ basePointU :: [Word]
 basePointU = [9, 0, 0, 0, 0, 0, 0, 0]
 
 untilSecondStepSwap, throughSecondStepSwap :: Fuel
-untilSecondStepSwap = decimalSteps [2, 9, 6, 9, 7]
-throughSecondStepSwap = decimalSteps [2, 9, 6, 9, 8]
+untilSecondStepSwap = decimalSteps [2, 9, 7, 8, 7]
+throughSecondStepSwap = decimalSteps [2, 9, 7, 8, 8]
 
 publicScalar :: [Word]
 publicScalar = [0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a, 0x5a5a5a5a]
@@ -54,7 +54,7 @@ untilThirdStep :: Fuel
 untilThirdStep = decimalSteps [8, 3, 6, 7, 0]
 
 firstSwapBranch :: Address
-firstSwapBranch = 0x1bae8
+firstSwapBranch = 0x1e158
 
 ladderCall :: Fuel -> SymFC.Sym Verdict
 ladderCall = ladderCallWith (withSecretWords scalarIn scalarWords)

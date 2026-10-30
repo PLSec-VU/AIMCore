@@ -47,10 +47,10 @@ decimalSteps = digitsAfter Done
     digitsAfter sofar (digit : rest) = digitsAfter (plusFuel (steps digit) (tenfold sofar)) rest
 
 oneBlockSteps :: Fuel
-oneBlockSteps = decimalSteps [2, 0, 6, 5]
+oneBlockSteps = decimalSteps [2, 0, 6, 3]
 
 oneStepShort :: Fuel
-oneStepShort = decimalSteps [2, 0, 6, 4]
+oneStepShort = decimalSteps [2, 0, 6, 2]
 
 tooFewSteps :: Fuel
 tooFewSteps = decimalSteps [2, 0, 0]
@@ -63,8 +63,8 @@ stackTop = 0x8000
 returnOutsideCode = 0
 
 stackGuardSlot, stackGuard :: Address
-stackGuardSlot = 0x4e020
-stackGuard = 0x4eba0
+stackGuardSlot = 0x50020
+stackGuard = 0x50ba0
 
 blockBytes :: Word
 blockBytes = 64
@@ -186,7 +186,7 @@ expectOutOfFuel run = do
     _ -> SymFC.halt
 
 shortTailCheck :: Address
-shortTailCheck = 0x111ac
+shortTailCheck = 0x111d0
 
 {-# ANN chachaBlockNoLeak (SymFCWith 'stepperEmbeddings) #-}
 chachaBlockNoLeak :: SymFC.Sym ()

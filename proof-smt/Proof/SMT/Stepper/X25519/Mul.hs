@@ -46,7 +46,7 @@ multiplyOneShort = decimalSteps [2, 8, 1, 7, 5]
 pastFirstLimbProduct = decimalSteps [3, 0, 0]
 
 firstMultiplierBitBranch :: Address
-firstMultiplierBitBranch = 0x4045c
+firstMultiplierBitBranch = 0x42680
 
 bytesOut, elementIn :: Address
 bytesOut = 0x1000
