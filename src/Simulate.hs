@@ -52,7 +52,7 @@ simulator =
               case mval of
                 Nothing -> pure <$> ramRead addr size
                 Just val -> do
-                  ramWrite addr size (unAccess val)
+                  ramWrite addr size (extract val)
                   pure (pure 0)
           | otherwise = pure (pure 0)
 

@@ -23,7 +23,7 @@ import Memory.Types (MemOps (..))
 import Prelude hiding (Word, read)
 import Types (Size (..))
 import RegFile (RegFileOps (..))
-import Access (Access (unAccess))
+import Access (extract)
 import SymFC.BuiltIn qualified as SymFC
 import SymFC.Clash (BitVec(..))
 
@@ -117,6 +117,6 @@ instance RegFileOps RegFile where
 
   modifyRFg idx value rf@(RegFile memory) = case idx of
     0 -> rf
-    _ -> RegFile $ write idx (unAccess value) memory
+    _ -> RegFile $ write idx (extract value) memory
 
   initRFg = RegFile empty

@@ -87,6 +87,7 @@ dependencies:
 - sym-fc-base
 - template-haskell
 - constraints
+- comonad
 
 ghc-options:
 - -Wall

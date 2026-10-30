@@ -48,7 +48,7 @@ mkRAM prog memAccessM =
     mkWrite n =
       fmap $ \memAccess -> do
         w <- memVal memAccess
-        pure (memAddress memAccess, extractByte n (unAccess w))
+        pure (memAddress memAccess, extractByte n (extract w))
 
     extractByte 0 w = slice d7 d0 w
     extractByte 1 w = slice d15 d8 w

@@ -299,7 +299,7 @@ decode = do
 
   ir <-
     if expInstr
-      then pure $ decode' $ unAccess $ inputMem input
+      then pure $ decode' $ extract $ inputMem input
       else pure $ Nop MemoryBusBusy
 
   let halted = ctrlExInstr ctrl == Just (Nop Halted)
@@ -376,13 +376,13 @@ execute = do
     Instruction.IType (Load _ _) _ rs1 imm -> do
       r1 <- getFirstArg rs1
       let imm' = signExtend imm
-      let res = unAccess $ alu ADD r1 (pure imm')
+      let res = extract $ alu ADD r1 (pure imm')
       modify $ \s -> s {stateMeAddr = unpack res}
     Instruction.SType size imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       let imm' = signExtend imm
-      let res = unAccess $ alu ADD r1 (pure imm')
+      let res = extract $ alu ADD r1 (pure imm')
       modify $ \s -> s {stateMeRes = r2}
       modify $ \s -> s {stateMeAddr = unpack res}
       setLines $ \c -> c {ctrlExStoreAddrSize = Just (unpack res, size)}
@@ -390,12 +390,12 @@ execute = do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       pc <- gets $ pack . stateExPc
-      let doBranch = unAccess $ branch cmp r1 r2
+      let doBranch = extract $ branch cmp r1 r2
       when doBranch $ do
         let imm' = signExtend imm
         let branchAddr = alu ADD (pure pc) (pure imm') :: f Word
         setLines $ \c ->
-          c {ctrlExJumpAddr = Just $ unpack $ unAccess branchAddr}
+          c {ctrlExJumpAddr = Just $ unpack $ extract branchAddr}
     Instruction.JType _ imm -> do
       pc <- gets $ pack . stateExPc
       let res = alu ADD (pure pc) (pure 4)
@@ -403,7 +403,7 @@ execute = do
       let imm' = signExtend imm
       let jumpAddr = alu ADD (pure pc) (pure imm') :: f Word
       setLines $ \c ->
-        c {ctrlExJumpAddr = Just $ unpack $ unAccess jumpAddr}
+        c {ctrlExJumpAddr = Just $ unpack $ extract jumpAddr}
     Instruction.IType Jump _ rs1 imm -> do
       r1 <- getFirstArg rs1
       pc <- gets $ pack . stateExPc
@@ -412,7 +412,7 @@ execute = do
       let imm' = signExtend imm
       let jumpAddr = alu ADD r1 (pure imm') :: f Word
       setLines $ \c ->
-        c {ctrlExJumpAddr = Just $ unpack $ unAccess jumpAddr}
+        c {ctrlExJumpAddr = Just $ unpack $ extract jumpAddr}
     Instruction.UType base _ imm -> do
       base' <-
         case base of

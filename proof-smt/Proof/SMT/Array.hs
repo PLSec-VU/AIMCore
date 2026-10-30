@@ -163,7 +163,7 @@ instance RegFileOps RegArrF where
   lookupRFg idx (RegArrF a) = if idx == 0 then pure 0 else pure (loadRA a idx)
   modifyRFg idx v rf@(RegArrF a)
     | idx == 0 = rf
-    | otherwise = RegArrF (storeRA a idx (unAccess v))
+    | otherwise = RegArrF (storeRA a idx (extract v))
 
   -- On the symbolic path; see 'zeroRA'.
   initRFg = RegArrF zeroRA

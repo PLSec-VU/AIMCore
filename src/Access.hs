@@ -1,9 +1,7 @@
-module Access where
+{-# LANGUAGE ConstraintKinds #-}
 
-import Data.Functor.Identity
+module Access (Access, extract) where
 
-class (Applicative f) => Access f where
-  unAccess :: f a -> a
+import Control.Comonad (Comonad (extract))
 
-instance Access Identity where
-  unAccess = runIdentity
+type Access f = (Applicative f, Comonad f)
