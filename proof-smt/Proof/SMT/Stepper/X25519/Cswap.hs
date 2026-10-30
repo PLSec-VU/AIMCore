@@ -76,7 +76,7 @@ x25519CswapPublicBitOneStepShort = expectOutOfFuel $ swapSecrets swapWithBitOneS
 {-# ANN x25519CswapSecretBitLeaks (SymFC ['stepperEmbeddings]) #-}
 x25519CswapSecretBitLeaks :: SymFC.Sym ()
 x25519CswapSecretBitLeaks =
-  expectLeakAt firstSwapBranch LeakBranch $
+  expectLeakAt firstSwapBranch $
     conditionalCall cswapCode cswapEntry withPublicElements swapWithBitSteps =<< secretBit
 
 moveUnderSecretBit :: Fuel -> SymFC.Sym Verdict

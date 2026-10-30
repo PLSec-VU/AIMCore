@@ -5,6 +5,7 @@
 module Stepper.RelMem
   ( RelMem
   , sameMem
+  , pairMem
   , readByte
   , writeByte
   , readMemWord
@@ -45,6 +46,9 @@ data RelMem = RelMem
 
 sameMem :: Memory 32 8 -> RelMem
 sameMem mem = RelMem (SameBase mem) AddrMap.empty
+
+pairMem :: Memory 32 8 -> Memory 32 8 -> RelMem
+pairMem first second = RelMem (PairBase first second) AddrMap.empty
 
 storeByte :: Address -> Rel Byte -> Base -> Base
 storeByte addr (Same byte) (SameBase mem) = SameBase (Memory.write addr byte mem)

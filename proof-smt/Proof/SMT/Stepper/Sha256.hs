@@ -134,11 +134,11 @@ expectNoLeak run = do
     NoLeak -> pure ()
     _ -> SymFC.halt
 
-expectLeakAt :: Address -> LeakKind -> SymFC.Sym Verdict -> SymFC.Sym ()
-expectLeakAt expectedPc expectedKind run = do
+expectLeakAt :: Address -> SymFC.Sym Verdict -> SymFC.Sym ()
+expectLeakAt expectedPc run = do
   verdict <- run
   case verdict of
-    Leaks pc kind | pc == expectedPc && kind == expectedKind -> pure ()
+    Leaks pc | pc == expectedPc -> pure ()
     _ -> SymFC.halt
 
 expectOutOfFuel :: SymFC.Sym Verdict -> SymFC.Sym ()
@@ -165,7 +165,7 @@ sha256SecretStateNoLeak = expectNoLeak $ secretBlockSecretState exactSteps
 
 {-# ANN sha256SecretBlockPointerLeaks (SymFC ['stepperEmbeddings]) #-}
 sha256SecretBlockPointerLeaks :: SymFC.Sym ()
-sha256SecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
+sha256SecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad secretBlockPointer
 
 {-# ANN sha256DecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 sha256DecodeAgrees :: SymFC.Sym ()

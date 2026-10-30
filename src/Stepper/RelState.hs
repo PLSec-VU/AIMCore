@@ -6,6 +6,7 @@ module Stepper.RelState
   , writeReg
   , RelMem
   , sameMem
+  , pairMem
   , readMemWord
   , loadKnownWord
   , loadMemWord
@@ -29,6 +30,7 @@ module Stepper.RelState
   , codeFromMemory
   , RelState (..)
   , sameState
+  , pairState
   , withSecretReg
   , withSecretWord
   ) where
@@ -82,6 +84,7 @@ knownOperands instr = case instr of
 data Fetched = Fetched
   { fetchedAddress :: Address
   , fetchedWord :: Word
+  , fetchedDecodedWord :: Instruction
   , fetchedInstr :: Instr Func
   , fetchedOperands :: SymFC.Sym (Maybe Operands)
   , fetchedFollowing :: Maybe Fetched
@@ -95,6 +98,7 @@ fetchedDecoded addr word decoded following =
   Fetched
     { fetchedAddress = addr
     , fetchedWord = word
+    , fetchedDecodedWord = decoded
     , fetchedInstr = instr
     , fetchedOperands = pure (Just (knownOperands instr))
     , fetchedFollowing = following >>= sittingAfter addr
@@ -151,6 +155,15 @@ sameState code isa =
     , relRegs = regsFrom (\idx -> Same (runIdentity (lookupRFg idx (isaRegFile isa))))
     , relMem = sameMem (isaMem isa)
     }
+
+pairState :: Code -> IsaSys -> IsaSys -> RelState
+pairState code first second =
+  (sameState code first)
+    { relRegs = regsFrom (\idx -> Pair (registerOf first idx) (registerOf second idx))
+    , relMem = pairMem (isaMem first) (isaMem second)
+    }
+  where
+    registerOf isa idx = runIdentity (lookupRFg idx (isaRegFile isa))
 
 withSecretReg :: RegIdx -> Word -> Word -> RelState -> SymFC.Sym RelState
 withSecretReg idx secretA secretB st = do

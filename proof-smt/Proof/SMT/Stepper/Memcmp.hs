@@ -95,11 +95,11 @@ expectNoLeak run = do
     NoLeak -> pure ()
     _ -> SymFC.halt
 
-expectLeakAt :: Address -> LeakKind -> SymFC.Sym Verdict -> SymFC.Sym ()
-expectLeakAt expectedPc expectedKind run = do
+expectLeakAt :: Address -> SymFC.Sym Verdict -> SymFC.Sym ()
+expectLeakAt expectedPc run = do
   verdict <- run
   case verdict of
-    Leaks pc kind | pc == expectedPc && kind == expectedKind -> pure ()
+    Leaks pc | pc == expectedPc -> pure ()
     _ -> SymFC.halt
 
 expectOutOfFuel :: SymFC.Sym Verdict -> SymFC.Sym ()
@@ -114,7 +114,7 @@ memcmpWordCompare = 0x442f0
 
 {-# ANN memcmpLeaks (SymFC ['stepperEmbeddings]) #-}
 memcmpLeaks :: SymFC.Sym ()
-memcmpLeaks = expectLeakAt memcmpWordCompare LeakBranch $ callFunction stepLimit memcmpCode memcmpEntry
+memcmpLeaks = expectLeakAt memcmpWordCompare $ callFunction stepLimit memcmpCode memcmpEntry
 
 {-# ANN sodiumMemcmpNoLeak (SymFC ['stepperEmbeddings]) #-}
 sodiumMemcmpNoLeak :: SymFC.Sym ()

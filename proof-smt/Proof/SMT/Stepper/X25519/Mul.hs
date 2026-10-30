@@ -77,7 +77,7 @@ x25519MulPublicOneStepShort = expectOutOfFuel $ multiplyCall withPublicFactors m
 
 {-# ANN x25519MulSecretLeaks (SymFC ['stepperEmbeddings]) #-}
 x25519MulSecretLeaks :: SymFC.Sym ()
-x25519MulSecretLeaks = expectLeakAt firstMultiplierBitBranch LeakBranch $ multiplyCall withSecretFactors pastFirstLimbProduct
+x25519MulSecretLeaks = expectLeakAt firstMultiplierBitBranch $ multiplyCall withSecretFactors pastFirstLimbProduct
 
 toBytesCall :: Fuel -> SymFC.Sym Verdict
 toBytesCall fuel = do

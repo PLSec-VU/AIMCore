@@ -131,7 +131,7 @@ montReduceOrderOptimisedCall fuel = do
 {-# ANN p256MulUnoptimisedSecretRightLeaks (SymFC ['stepperEmbeddings]) #-}
 p256MulUnoptimisedSecretRightLeaks :: SymFC.Sym ()
 p256MulUnoptimisedSecretRightLeaks =
-  expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstUnoptimisedTableLoad $
     mulSecretRight mulUnoptimisedCode mulUnoptimisedEntry unoptimisedMulSteps
 
 {-# ANN p256MulUnoptimisedSecretLeftNoLeak (SymFC ['stepperEmbeddings]) #-}
@@ -147,31 +147,31 @@ p256MulUnoptimisedSecretLeftOneStepShortOutOfFuel =
 {-# ANN p256MulOptimisedSecretRightLeaks (SymFC ['stepperEmbeddings]) #-}
 p256MulOptimisedSecretRightLeaks :: SymFC.Sym ()
 p256MulOptimisedSecretRightLeaks =
-  expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstOptimisedTableLoad $
     mulSecretRight mulOptimisedCode mulOptimisedEntry optimisedMulSteps
 
 {-# ANN p256MulOptimisedSecretLeftLeaks (SymFC ['stepperEmbeddings]) #-}
 p256MulOptimisedSecretLeftLeaks :: SymFC.Sym ()
 p256MulOptimisedSecretLeftLeaks =
-  expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstOptimisedTableLoad $
     mulSecretLeftByCurveConstant mulOptimisedCode mulOptimisedEntry optimisedMulSteps
 
 {-# ANN p256SqrUnoptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256SqrUnoptimisedLeaks :: SymFC.Sym ()
 p256SqrUnoptimisedLeaks =
-  expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstUnoptimisedTableLoad $
     sqrSecret sqrUnoptimisedCode sqrUnoptimisedEntry unoptimisedSqrSteps
 
 {-# ANN p256SqrOptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256SqrOptimisedLeaks :: SymFC.Sym ()
 p256SqrOptimisedLeaks =
-  expectLeakAt firstOptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstOptimisedTableLoad $
     sqrSecret sqrOptimisedCode sqrOptimisedEntry optimisedSqrSteps
 
 {-# ANN p256MontReduceOrderUnoptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256MontReduceOrderUnoptimisedLeaks :: SymFC.Sym ()
 p256MontReduceOrderUnoptimisedLeaks =
-  expectLeakAt firstUnoptimisedTableLoad LeakLoadAddress $
+  expectLeakAt firstUnoptimisedTableLoad $
     montReduceOrderUnoptimisedCall unoptimisedReduceOrderSteps
 
 {-# ANN p256MontReduceOrderOptimisedNoLeak (SymFC ['stepperEmbeddings]) #-}

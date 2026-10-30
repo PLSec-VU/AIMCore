@@ -131,11 +131,11 @@ expectNoLeak run = do
     NoLeak -> pure ()
     _ -> SymFC.halt
 
-expectLeakAt :: Address -> LeakKind -> SymFC.Sym Verdict -> SymFC.Sym ()
-expectLeakAt expectedPc expectedKind run = do
+expectLeakAt :: Address -> SymFC.Sym Verdict -> SymFC.Sym ()
+expectLeakAt expectedPc run = do
   verdict <- run
   case verdict of
-    Leaks pc kind | pc == expectedPc && kind == expectedKind -> pure ()
+    Leaks pc | pc == expectedPc -> pure ()
     _ -> SymFC.halt
 
 expectOutOfFuel :: SymFC.Sym Verdict -> SymFC.Sym ()
@@ -162,7 +162,7 @@ blake2bSecretChainingValueNoLeak = expectNoLeak $ secretBlockSecretChainingValue
 
 {-# ANN blake2bSecretBlockPointerLeaks (SymFC ['stepperEmbeddings]) #-}
 blake2bSecretBlockPointerLeaks :: SymFC.Sym ()
-blake2bSecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
+blake2bSecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad secretBlockPointer
 
 {-# ANN blake2bDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 blake2bDecodeAgrees :: SymFC.Sym ()

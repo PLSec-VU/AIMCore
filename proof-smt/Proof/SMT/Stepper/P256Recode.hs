@@ -67,13 +67,13 @@ getPointSecretIndex fuel = do
 {-# ANN p256RecodeUnoptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256RecodeUnoptimisedLeaks :: SymFC.Sym ()
 p256RecodeUnoptimisedLeaks =
-  expectLeakAt unoptimisedRecodeIndexLoad LeakLoadAddress $
+  expectLeakAt unoptimisedRecodeIndexLoad $
     recodeSecretScalar recodeUnoptimisedCode recodeUnoptimisedEntry unoptimisedRecodeSteps
 
 {-# ANN p256RecodeOptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256RecodeOptimisedLeaks :: SymFC.Sym ()
 p256RecodeOptimisedLeaks =
-  expectLeakAt optimisedRecodeIndexLoad LeakLoadAddress $
+  expectLeakAt optimisedRecodeIndexLoad $
     recodeSecretScalar recodeOptimisedCode recodeOptimisedEntry optimisedRecodeSteps
 
 {-# ANN p256GetPointUnoptimisedNoLeak (SymFC ['stepperEmbeddings]) #-}
