@@ -27,8 +27,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 #
 #   SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack test
 #
-# CI does exactly this: it installs bitwuzla and sets SBV_Z3 to it (see
-# .github/workflows/stack-test.yml).
+# CI installs Z3 and leaves SBV_Z3 unset (see .github/workflows/stack-test.yml).
 #
 # Do not add --fast: at -O0 GHC creates no unfoldings and the plugin fails with
 # "Unbound variable in symbolise" rather than reporting a failed proof.
