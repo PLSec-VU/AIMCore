@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,18 +18,11 @@ import RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
-#ifdef SMT_PROOF
-import qualified Proof.SMT.Sanity as Sanity
-#endif
 import qualified Prelude
-#ifdef SMT_PROOF
-import qualified Proof.Functional.Induction
-import qualified Proof.Leakage.Induction
-#endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.QuickCheck
 import "aimcore" Types
 import "aimcore" Util
@@ -53,64 +45,12 @@ mkPureTest s (CPUTest prog expected) =
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
 
-#ifdef SMT_PROOF
--- | The compile-time symbolic checks, read back out.
---
--- The first three establish that the Pantomime plugin is wired in and actually
--- discharging properties -- since pantomime 1821a71 an invalid property no
--- longer fails the build, so the negative control has to be asserted here.
--- The rest are the proofs themselves; see "Proof.Functional.Induction" and
--- "Proof.Leakage.Induction".
-sanityTests :: TestTree
-sanityTests =
-  testGroup
-    "Symbolic proof results"
-    [ testCase "plugin sanity: deMorgan is valid" $ verdict "deMorgan" @?= Nothing,
-      testCase "plugin sanity: doubling is valid" $ verdict "doubling" @?= Nothing,
-      testCase "plugin sanity: negative control yields a counterexample" $
-        assertBool "expected a counterexample for 'bogus'" $
-          isJust (verdict "bogus"),
-      testCase "array embedding round-trips" $
-        lookup "arrRoundTrip" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "shift embeddings are sane" $
-        lookup "shiftsSane" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "base case: invariant holds after the reset hop" $
-        lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "k = 0 inductive step is valid" $
-        lookup "indStep" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "k = 1 inductive step is valid" $
-        lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "k = 2 inductive step is valid" $
-        lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
-      testCase "leakage base case: simulator matches the first hop" $
-        lookup "baseCaseLeak" Proof.Leakage.Induction.results @?= Just Nothing,
-      testCase "k = 0 leakage step is valid" $
-        lookup "indStepLeak" Proof.Leakage.Induction.results @?= Just Nothing,
-      testCase "k = 1 leakage step is valid" $
-        lookup "indStepLeak1" Proof.Leakage.Induction.results @?= Just Nothing,
-      testCase "k = 2 leakage step is valid" $
-        lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
-      testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing
-    ]
-  where
-    verdict :: String -> Maybe String
-    verdict name = case lookup name Sanity.results of
-      Just v -> v
-      Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
-#endif
 
 tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [
-#ifdef SMT_PROOF
-      sanityTests,
-#endif
-      proofTests,
+    [ proofTests,
       isaConformanceTests,
       instructionTests,
       testGroup

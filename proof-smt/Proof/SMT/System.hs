@@ -2,20 +2,18 @@
 --
 -- The pipeline registers are passed as an ADT of scalars ('KState'), and the
 -- register file and memory as SMT arrays: an ADT of scalars can be a fresh
--- symbolic argument, a record containing a function cannot, and the Clash
+-- symbolic value, a record containing a function cannot, and the Clash
 -- @Vec@ API is opaque to the plugin (see "Proof.SMT.Array"). 'sysOf' assembles
--- the pieces into a 'Proof.Machine.SysG'.
+-- the pieces into a 'Proof.Machine.SysG', and 'freshSys' makes one from fresh
+-- pieces.
 --
 -- Shared by the functional and the leakage inductions, so that neither imports
 -- the other: their obligations are discharged while GHC compiles them, and an
 -- import between them would re-run one proof whenever the other changes.
 module Proof.SMT.System
-  ( -- | Exported because nothing in Haskell ever applies the constructor: the
-    -- plugin synthesises a 'KState' as a fresh symbolic input to each property,
-    -- and 'sysOf' only reads it back through the field accessors. Without this
-    -- the constructor looks dead to @-Wunused-top-binds@.
-    KState (..),
+  ( KState (..),
     sysOf,
+    freshSys,
   )
 where
 
@@ -25,6 +23,8 @@ import Data.Functor.Identity
 import Instruction (Instruction)
 import Proof.Machine
 import Proof.SMT.Array
+import Proof.SMT.Symbolic ()
+import qualified SymFC.BuiltIn as SymFC
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -44,6 +44,9 @@ data KState = KState
     kHalt :: Maybe Core.HaltState,
     kHaltNextPc :: Address
   }
+  deriving (Generic)
+
+instance SymFC.Symbolic KState
 
 -- | Assemble a system state from the symbolic pieces.
 sysOf :: KState -> Core.Input Identity -> RegArr -> MemArr -> SysG RegArrF MemArr
@@ -69,3 +72,7 @@ sysOf ss i ra ma =
       sysInput = i,
       sysMem = ma
     }
+
+-- | A system state whose every part is a fresh symbolic value.
+freshSys :: SymFC.Sym (SysG RegArrF MemArr)
+freshSys = sysOf <$> SymFC.fresh <*> SymFC.fresh <*> freshRA <*> freshMA

@@ -29,6 +29,10 @@ module Proof.SMT.Array
     loadME,
     storeME,
     RegArrSMT (..),
+    freshRA,
+    freshRAE,
+    freshMA,
+    freshMAE,
     loadRA,
     storeRA,
     zeroRA,
@@ -137,6 +141,20 @@ zeroRA = RegArr (Clash.Prelude.repeat 0)
 -- | Embedding of 'zeroRA' as a constant array.
 zeroRAE :: forall arr. Embeddable arr RegArrSMT => arr
 zeroRAE | Embedding <- embedding @arr = coerce (RegArrSMT (P.aconst 0))
+
+-- | A fresh symbolic register file.
+--
+-- A 'Vec' has no symbolic counterpart, so this has no Haskell meaning: the body
+-- halts, and 'freshRAE' replaces it under the term axiom. If the axiom ever
+-- stops firing, the property halts and the build fails instead of silently
+-- checking a concrete register file.
+{-# OPAQUE freshRA #-}
+freshRA :: P.Sym RegArr
+freshRA = P.halt
+
+-- | Embedding of 'freshRA' as a fresh SMT array.
+freshRAE :: forall arr. Embeddable arr RegArrSMT => P.Sym arr
+freshRAE | Embedding <- embedding @arr = coerce . RegArrSMT <$> P.fresh
 
 -- | The array-backed register file, wrapped so it fits 'RegFileOps'.
 --
@@ -272,6 +290,16 @@ storeME
     go :: MemArrSMT -> Clash.BitVec 32 -> Clash.BitVec 8 -> MemArrSMT
     go (MemArrSMT arr) (Clash.BitVecP a) (Clash.BitVecP v) =
       MemArrSMT (P.astore arr a v)
+
+-- | A fresh symbolic memory. No Haskell meaning, for the same reason as
+-- 'freshRA'.
+{-# OPAQUE freshMA #-}
+freshMA :: P.Sym MemArr
+freshMA = P.halt
+
+-- | Embedding of 'freshMA' as a fresh SMT array.
+freshMAE :: forall arr. Embeddable arr MemArrSMT => P.Sym arr
+freshMAE | Embedding <- embedding @arr = coerce . MemArrSMT <$> P.fresh
 
 instance MemOps MemArr where
   memReadByte a m = loadM m a

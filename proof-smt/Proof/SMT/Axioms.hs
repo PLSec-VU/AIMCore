@@ -50,7 +50,9 @@ arrayEmbeddings =
           (''MemArr, ''MemArrSMT)
         ],
         termEmbeddings =
-          [ ('loadRA, 'loadRAE),
+          [ ('freshRA, 'freshRAE),
+            ('freshMA, 'freshMAE),
+            ('loadRA, 'loadRAE),
             ('zeroRA, 'zeroRAE),
             ('storeRA, 'storeRAE),
             ('loadM, 'loadME),

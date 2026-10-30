@@ -114,7 +114,6 @@ library:
         - Proof.SMT.Array
         - Proof.SMT.Axioms
         - Proof.SMT.Concrete
-        - Proof.SMT.Logged
         - Proof.SMT.Sanity
         - Proof.SMT.Stepper
         - Proof.SMT.Stepper.Blake2b
@@ -131,6 +130,7 @@ library:
         - Proof.SMT.Stepper.RelMem
         - Proof.SMT.Stepper.Relational
         - Proof.SMT.Stepper.Sha256
+        - Proof.SMT.Symbolic
         - Proof.SMT.System
       cpp-options: -DSMT_PROOF
   exposed-modules:
