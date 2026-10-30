@@ -9,11 +9,10 @@ module Stepper.Relational
   , leakOfReadsAgree
   ) where
 
-import Clash.Prelude (bitCoerce)
 import Data.Functor.Identity (Identity (..))
 import Data.Maybe (isJust)
-import ISA (Func, Instr (..), IsaStateG (..), PC, apply, unDone)
-import Instruction (Instruction, loadExtend)
+import ISA (Flow (..), IsaStateG (..), Machine (..), PC, isaStepM)
+import Instruction (Instruction)
 import Instruction qualified as I
 import Memory.Types (MemOps (..))
 import Proof.Leakage.Model (leakOf)
@@ -80,69 +79,62 @@ sameRegister regs reg = do
     Just idx -> isSame (readSlot regs (knownSlot idx))
     Nothing -> False
 
+-- | One step of 'isaStepM' on both runs at once.
+newtype RelM a = RelM {runRelM :: RelState -> SymFC.Sym (a, RelState)}
+
+instance Functor RelM where
+  fmap f (RelM run) = RelM \st -> (\(a, st') -> (f a, st')) <$> run st
+
+instance Applicative RelM where
+  pure a = RelM \st -> pure (a, st)
+  RelM runF <*> RelM runA = RelM \st -> do
+    (f, st') <- runF st
+    (a, st'') <- runA st'
+    pure (f a, st'')
+
+instance Monad RelM where
+  RelM run >>= k = RelM \st -> do
+    (a, st') <- run st
+    runRelM (k a) st'
+
+instance Machine Rel RelM where
+  readReg idx = RelM \st -> do
+    slot <- slotFor idx
+    pure (readSlot (relRegs st) slot, st)
+  writeReg idx value = RelM \st -> do
+    slot <- slotFor idx
+    pure ((), st {relRegs = writeSlot slot value (relRegs st)})
+  loadWord addr = RelM \st -> do
+    (word, mem') <- loadMemWord addr (relMem st)
+    pure (word, st {relMem = mem'})
+  storeWord size addr value = RelM \st -> do
+    mem' <- writeMem (relPath st) size addr value (relMem st)
+    pure ((), st {relMem = mem'})
+
 relStep :: RelState -> SymFC.Sym RelOutcome
-relStep st@(RelState path code pc _ regs mem) = do
+relStep st@(RelState path code pc _ regs _) = do
   current <- currentFetch st
   case current of
     Nothing -> pure RelOutsideCode
     Just (here, next) -> do
-      cached <- fetchedOperands here
       readsAgree <- leakOfReadsAgree (sameRegister regs) (pure (isJust next)) (fetchedDecodedWord here)
       sameLeak <-
         if readsAgree
           then pure True
           else isJust <$> agree path (leakOf <$> runStates st here next)
       if sameLeak
-        then execute here next cached
+        then continueAfter next =<< runRelM (isaStepM pc (fetchedInstr here)) st
         else pure (RelLeaks pc)
   where
-    execute here next cached = case fetchedInstr here of
-      Reg rd f -> do
-        slot <- fieldSlot rd
-        sources <- apSources f
-        pure $ RelNext (fallThrough st {relRegs = writeSlot slot sources regs})
-      Load size sign rd f -> do
-        slot <- fieldSlot rd
-        sources <- apSources f
-        (word, mem') <- loadMemWord (left sources) mem
-        let loaded = writeSlot slot (loadExtend size sign <$> word) regs
-        pure $ RelNext $ fallThrough st {relRegs = loaded, relMem = mem'}
-      Jump rd link target -> do
-        slot <- fieldSlot rd
-        sources <- apSources target
-        linked <- ap link
-        jumpTo (left sources) \addr -> landAt addr st {relRegs = writeSlot slot (bitCoerce <$> linked) regs}
-      Store size addr rs2 -> do
-        slot <- fieldSlot rs2
-        sources <- apSources addr
-        mem' <- writeMem path size (left sources) (readSlot regs slot) mem
-        pure $ RelNext (fallThrough st {relMem = mem'})
-      Branch cond target -> do
-        sources <- apSources cond
-        destination <- ap target
-        forkOn (left sources) (landAt (left destination) st) (fallThrough st)
-      Nop -> pure $ RelNext (fallThrough st)
-      Break -> pure RelHalted
-      Syscall -> pure RelHalted
+    continueAfter next (control, later) = case control of
+      FallThrough -> pure (RelNext (fallThrough later))
+      Goto target -> jumpTo target (`landAt` later)
+      BranchTo taken target -> forkOn taken (landAt target later) (fallThrough later)
+      Halt -> pure RelHalted
       where
-        fallThrough later = case next of
-          Just following -> later {relPc = fetchedAddress following, relFetchHint = Just following}
-          Nothing -> later {relPc = pc + 4, relFetchHint = Nothing}
-
-        fieldSlot :: RegIdx -> SymFC.Sym RegSlot
-        fieldSlot reg = maybe (slotFor reg) (pure . registerFieldSlot) cached
-
-        apSources :: Func a -> SymFC.Sym (Rel a)
-        apSources f = (`apWith` f) <$> maybe (funcSlots f) (pure . sourceSlots) cached
-
-        ap :: Func a -> SymFC.Sym (Rel a)
-        ap f = (`apWith` f) <$> funcSlots f
-
-        apWith :: (RegSlot, RegSlot) -> Func a -> Rel a
-        apWith (first, second) f =
-          (\r1 r2 -> unDone (apply f r1 r2 pc))
-            <$> readSlot regs first
-            <*> readSlot regs second
+        fallThrough after = case next of
+          Just following -> after {relPc = fetchedAddress following, relFetchHint = Just following}
+          Nothing -> after {relPc = pc + 4, relFetchHint = Nothing}
 
     forkOn :: Bool -> RelState -> RelState -> SymFC.Sym RelOutcome
     forkOn cond whenTrue whenFalse = do
