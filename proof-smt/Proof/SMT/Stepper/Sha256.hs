@@ -151,26 +151,26 @@ expectOutOfFuel run = do
 firstBlockByteLoad :: Address
 firstBlockByteLoad = 0x105c0
 
-{-# ANN sha256SecretBlockNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256SecretBlockNoLeak (SymFC ['stepperEmbeddings]) #-}
 sha256SecretBlockNoLeak :: SymFC.Sym ()
 sha256SecretBlockNoLeak = expectNoLeak $ secretBlockPublicState exactSteps
 
-{-# ANN sha256SecretBlockOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256SecretBlockOneStepShortOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 sha256SecretBlockOneStepShortOutOfFuel :: SymFC.Sym ()
 sha256SecretBlockOneStepShortOutOfFuel = expectOutOfFuel $ secretBlockPublicState oneStepShort
 
-{-# ANN sha256SecretStateNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256SecretStateNoLeak (SymFC ['stepperEmbeddings]) #-}
 sha256SecretStateNoLeak :: SymFC.Sym ()
 sha256SecretStateNoLeak = expectNoLeak $ secretBlockSecretState exactSteps
 
-{-# ANN sha256SecretBlockPointerLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256SecretBlockPointerLeaks (SymFC ['stepperEmbeddings]) #-}
 sha256SecretBlockPointerLeaks :: SymFC.Sym ()
 sha256SecretBlockPointerLeaks = expectLeakAt firstBlockByteLoad LeakLoadAddress secretBlockPointer
 
-{-# ANN sha256DecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256DecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 sha256DecodeAgrees :: SymFC.Sym ()
 sha256DecodeAgrees = expectDecodeAgreement [sha256TransformDecoded]
 
-{-# ANN sha256DecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sha256DecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 sha256DecodeRejectsWrongInstruction :: SymFC.Sym ()
 sha256DecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction sha256TransformDecoded]

@@ -68,19 +68,19 @@ ladderCallWith withScalar fuel = do
       >>= withStackGuardPointer
   relRun fuel ready
 
-{-# ANN x25519LadderFirstStepOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519LadderFirstStepOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 x25519LadderFirstStepOutOfFuel :: SymFC.Sym ()
 x25519LadderFirstStepOutOfFuel = expectOutOfFuel $ ladderCall untilSecondStepSwap
 
-{-# ANN x25519LadderSecondStepLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519LadderSecondStepLeaks (SymFC ['stepperEmbeddings]) #-}
 x25519LadderSecondStepLeaks :: SymFC.Sym ()
 x25519LadderSecondStepLeaks = expectLeakAt firstSwapBranch LeakBranch $ ladderCall throughSecondStepSwap
 
-{-# ANN x25519LadderPublicScalarTwoStepsOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519LadderPublicScalarTwoStepsOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 x25519LadderPublicScalarTwoStepsOutOfFuel :: SymFC.Sym ()
 x25519LadderPublicScalarTwoStepsOutOfFuel =
   expectOutOfFuel $ ladderCallWith (withPublicWords scalarIn publicScalar) untilThirdStep
 
-{-# ANN x25519LadderDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519LadderDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 x25519LadderDecodeAgrees :: SymFC.Sym ()
 x25519LadderDecodeAgrees = expectDecodeAgreement [ladderDecoded]

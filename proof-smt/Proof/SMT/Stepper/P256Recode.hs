@@ -64,30 +64,30 @@ getPointSecretIndex fuel = do
   start <- callAt getPointUnoptimisedCode getPointUnoptimisedEntry [pointer pointAddr, pointer tableAddr, Pair indexA indexB]
   relRun fuel start
 
-{-# ANN p256RecodeUnoptimisedLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256RecodeUnoptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256RecodeUnoptimisedLeaks :: SymFC.Sym ()
 p256RecodeUnoptimisedLeaks =
   expectLeakAt unoptimisedRecodeIndexLoad LeakLoadAddress $
     recodeSecretScalar recodeUnoptimisedCode recodeUnoptimisedEntry unoptimisedRecodeSteps
 
-{-# ANN p256RecodeOptimisedLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256RecodeOptimisedLeaks (SymFC ['stepperEmbeddings]) #-}
 p256RecodeOptimisedLeaks :: SymFC.Sym ()
 p256RecodeOptimisedLeaks =
   expectLeakAt optimisedRecodeIndexLoad LeakLoadAddress $
     recodeSecretScalar recodeOptimisedCode recodeOptimisedEntry optimisedRecodeSteps
 
-{-# ANN p256GetPointUnoptimisedNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256GetPointUnoptimisedNoLeak (SymFC ['stepperEmbeddings]) #-}
 p256GetPointUnoptimisedNoLeak :: SymFC.Sym ()
 p256GetPointUnoptimisedNoLeak = expectNoLeak $ getPointSecretIndex getPointSteps
 
-{-# ANN p256GetPointUnoptimisedOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256GetPointUnoptimisedOneStepShortOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 p256GetPointUnoptimisedOneStepShortOutOfFuel :: SymFC.Sym ()
 p256GetPointUnoptimisedOneStepShortOutOfFuel = expectOutOfFuel $ getPointSecretIndex getPointShort
 
-{-# ANN p256RecodeUnoptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256RecodeUnoptimisedDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 p256RecodeUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256RecodeUnoptimisedDecodeAgrees = expectDecodeAgreement [recodeUnoptimisedDecoded, getPointUnoptimisedDecoded]
 
-{-# ANN p256RecodeOptimisedDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN p256RecodeOptimisedDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 p256RecodeOptimisedDecodeAgrees :: SymFC.Sym ()
 p256RecodeOptimisedDecodeAgrees = expectDecodeAgreement [recodeOptimisedDecoded]

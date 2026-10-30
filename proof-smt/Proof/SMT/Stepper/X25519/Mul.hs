@@ -67,15 +67,15 @@ withPublicFactors st = withPublicWords multiplicand publicMultiplicand st >>= wi
 withSecretFactors :: RelState -> SymFC.Sym RelState
 withSecretFactors st = withSecretWords multiplicand limbCount st >>= withSecretWords multiplier limbCount
 
-{-# ANN x25519MulPublicNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulPublicNoLeak (SymFC ['stepperEmbeddings]) #-}
 x25519MulPublicNoLeak :: SymFC.Sym ()
 x25519MulPublicNoLeak = expectNoLeak $ multiplyCall withPublicFactors multiplySteps
 
-{-# ANN x25519MulPublicOneStepShort (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulPublicOneStepShort (SymFC ['stepperEmbeddings]) #-}
 x25519MulPublicOneStepShort :: SymFC.Sym ()
 x25519MulPublicOneStepShort = expectOutOfFuel $ multiplyCall withPublicFactors multiplyOneShort
 
-{-# ANN x25519MulSecretLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulSecretLeaks (SymFC ['stepperEmbeddings]) #-}
 x25519MulSecretLeaks :: SymFC.Sym ()
 x25519MulSecretLeaks = expectLeakAt firstMultiplierBitBranch LeakBranch $ multiplyCall withSecretFactors pastFirstLimbProduct
 
@@ -84,11 +84,11 @@ toBytesCall fuel = do
   start <- callFrom toBytesCode toBytesEntry (pointer bytesOut) (pointer elementIn) (Same 0)
   relRun fuel =<< withSecretWords elementIn limbCount start
 
-{-# ANN x25519ToBytesSecretNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519ToBytesSecretNoLeak (SymFC ['stepperEmbeddings]) #-}
 x25519ToBytesSecretNoLeak :: SymFC.Sym ()
 x25519ToBytesSecretNoLeak = expectNoLeak $ toBytesCall toBytesSteps
 
-{-# ANN x25519ToBytesSecretOneStepShort (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519ToBytesSecretOneStepShort (SymFC ['stepperEmbeddings]) #-}
 x25519ToBytesSecretOneStepShort :: SymFC.Sym ()
 x25519ToBytesSecretOneStepShort = expectOutOfFuel $ toBytesCall toBytesOneShort
 
@@ -101,14 +101,14 @@ withPublicSymbolicWords addr remaining st = do
 withSymbolicFactors :: RelState -> SymFC.Sym RelState
 withSymbolicFactors st = withPublicSymbolicWords multiplicand limbCount st >>= withPublicSymbolicWords multiplier limbCount
 
-{-# ANN x25519MulSymbolicThreeBits (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulSymbolicThreeBits (SymFC ['stepperEmbeddings]) #-}
 x25519MulSymbolicThreeBits :: SymFC.Sym ()
 x25519MulSymbolicThreeBits = expectOutOfFuel $ multiplyCall withSymbolicFactors (decimalSteps [2, 3, 3])
 
-{-# ANN x25519MulSymbolicFiveBits (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulSymbolicFiveBits (SymFC ['stepperEmbeddings]) #-}
 x25519MulSymbolicFiveBits :: SymFC.Sym ()
 x25519MulSymbolicFiveBits = expectOutOfFuel $ multiplyCall withSymbolicFactors (decimalSteps [2, 5, 7])
 
-{-# ANN x25519MulDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN x25519MulDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 x25519MulDecodeAgrees :: SymFC.Sym ()
 x25519MulDecodeAgrees = expectDecodeAgreement [multiplyDecoded, toBytesDecoded]

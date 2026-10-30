@@ -112,15 +112,15 @@ expectOutOfFuel run = do
 memcmpWordCompare :: Address
 memcmpWordCompare = 0x442f0
 
-{-# ANN memcmpLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN memcmpLeaks (SymFC ['stepperEmbeddings]) #-}
 memcmpLeaks :: SymFC.Sym ()
 memcmpLeaks = expectLeakAt memcmpWordCompare LeakBranch $ callFunction stepLimit memcmpCode memcmpEntry
 
-{-# ANN sodiumMemcmpNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sodiumMemcmpNoLeak (SymFC ['stepperEmbeddings]) #-}
 sodiumMemcmpNoLeak :: SymFC.Sym ()
 sodiumMemcmpNoLeak = expectNoLeak $ callFunction stepLimit sodiumMemcmpCode sodiumMemcmpEntry
 
-{-# ANN sodiumMemcmpShortRunOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sodiumMemcmpShortRunOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 sodiumMemcmpShortRunOutOfFuel :: SymFC.Sym ()
 sodiumMemcmpShortRunOutOfFuel = expectOutOfFuel $ callFunction tooFewSteps sodiumMemcmpCode sodiumMemcmpEntry
 
@@ -134,26 +134,26 @@ expectNoFetchOf code addr unexpectedWord = case codeFetch code addr of
   Just here | fetchedWord here == unexpectedWord -> SymFC.halt
   _ -> pure ()
 
-{-# ANN memcmpFetchesKnownWords (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN memcmpFetchesKnownWords (SymFC ['stepperEmbeddings]) #-}
 memcmpFetchesKnownWords :: SymFC.Sym ()
 memcmpFetchesKnownWords = do
   expectFetch memcmpCode memcmpEntry 0x00300693
   expectFetch memcmpCode memcmpWordCompare 0x00f71c63
 
-{-# ANN sodiumMemcmpFetchesKnownWords (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN sodiumMemcmpFetchesKnownWords (SymFC ['stepperEmbeddings]) #-}
 sodiumMemcmpFetchesKnownWords :: SymFC.Sym ()
 sodiumMemcmpFetchesKnownWords = do
   expectFetch sodiumMemcmpCode sodiumMemcmpEntry 0xfd010113
   expectFetch sodiumMemcmpCode (sodiumMemcmpEntry + 4) 0x02812423
 
-{-# ANN memcmpFetchRejectsWrongWord (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN memcmpFetchRejectsWrongWord (SymFC ['stepperEmbeddings]) #-}
 memcmpFetchRejectsWrongWord :: SymFC.Sym ()
 memcmpFetchRejectsWrongWord = expectNoFetchOf memcmpCode memcmpEntry 0x00300694
 
-{-# ANN memcmpDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN memcmpDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 memcmpDecodeAgrees :: SymFC.Sym ()
 memcmpDecodeAgrees = expectDecodeAgreement [memcmpDecoded, sodiumMemcmpDecoded]
 
-{-# ANN memcmpDecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN memcmpDecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 memcmpDecodeRejectsWrongInstruction :: SymFC.Sym ()
 memcmpDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction memcmpDecoded, sodiumMemcmpDecoded]

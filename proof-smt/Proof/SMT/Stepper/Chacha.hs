@@ -188,26 +188,26 @@ expectOutOfFuel run = do
 shortTailCheck :: Address
 shortTailCheck = 0x111d0
 
-{-# ANN chachaBlockNoLeak (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaBlockNoLeak (SymFC ['stepperEmbeddings]) #-}
 chachaBlockNoLeak :: SymFC.Sym ()
 chachaBlockNoLeak = expectNoLeak $ encryptBlock oneBlockSteps
 
-{-# ANN chachaShortRunOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaShortRunOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 chachaShortRunOutOfFuel :: SymFC.Sym ()
 chachaShortRunOutOfFuel = expectOutOfFuel $ encryptBlock tooFewSteps
 
-{-# ANN chachaOneStepShortOutOfFuel (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaOneStepShortOutOfFuel (SymFC ['stepperEmbeddings]) #-}
 chachaOneStepShortOutOfFuel :: SymFC.Sym ()
 chachaOneStepShortOutOfFuel = expectOutOfFuel $ encryptBlock oneStepShort
 
-{-# ANN chachaSecretLengthLeaks (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaSecretLengthLeaks (SymFC ['stepperEmbeddings]) #-}
 chachaSecretLengthLeaks :: SymFC.Sym ()
 chachaSecretLengthLeaks = expectLeakAt shortTailCheck LeakBranch encryptSecretLength
 
-{-# ANN chachaDecodeAgrees (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 chachaDecodeAgrees :: SymFC.Sym ()
 chachaDecodeAgrees = expectDecodeAgreement [chachaEncryptDecoded]
 
-{-# ANN chachaDecodeRejectsWrongInstruction (SymFCWith 'stepperEmbeddings) #-}
+{-# ANN chachaDecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 chachaDecodeRejectsWrongInstruction :: SymFC.Sym ()
 chachaDecodeRejectsWrongInstruction = expectDecodeDisagreement [withWrongFirstInstruction chachaEncryptDecoded]

@@ -33,7 +33,7 @@ import SymFC.BuiltIn qualified as SymFC
 -- NOTE: unlike the README, this needs 'Base.axioms'. GHC compiles @(==) \@Bool@
 -- down to the @dataToTagSmall#@ primop, which only 'Base.axioms' maps onto a
 -- Pantomime primitive.
-{-# ANN deMorgan (SymFCWith 'Base.embeddings) #-}
+{-# ANN deMorgan (SymFC ['Base.embeddings]) #-}
 deMorgan :: Sym ()
 deMorgan = do
   x <- SymFC.fresh
@@ -46,7 +46,7 @@ deMorgan = do
 
 -- | The example from the Pantomime install guide, which additionally exercises
 -- the 'base' axioms (i.e. the embedding of 'Int' into the theory of bitvectors).
-{-# ANN doubling (SymFCWith 'Base.embeddings) #-}
+{-# ANN doubling (SymFC ['Base.embeddings]) #-}
 doubling :: Sym ()
 doubling = do
   x <- SymFC.fresh @Int
@@ -59,7 +59,7 @@ doubling = do
 -- | Negative control: this is false (e.g. at @x = -1@). It is kept deliberately
 -- so that 'results' demonstrates the checker reporting a counterexample rather
 -- than silently accepting everything.
-{-# ANN bogus (SymFCWith 'Base.embeddings) #-}
+{-# ANN bogus (SymFC ['Base.embeddings]) #-}
 bogus :: Sym ()
 bogus = do
   x <- SymFC.fresh @Int

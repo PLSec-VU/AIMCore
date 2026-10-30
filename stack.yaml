@@ -5,7 +5,7 @@ packages:
 
 extra-deps:
   - github: PLSec-VU/symfc
-    commit: 2499fc91d20e79101e8a21117729557012bcd672
+    commit: 2784ac7df0837e685a7e07e010af2dbcbcd1d534
   - github: PLSec-VU/symfc-base
     commit: 4464a413720592cb66718e1bdaf38a2e56fbe939
   - github: PLSec-VU/symfc-clash

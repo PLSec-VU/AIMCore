@@ -37,7 +37,7 @@ expectCounterexample prop = do
     SymFC.Instance -> pure ()
     _ -> SymFC.halt
 
-{-# ANN stepChangesState (SymFCWith 'baseEmbeddings) #-}
+{-# ANN stepChangesState (SymFC ['baseEmbeddings]) #-}
 stepChangesState :: SymFC.Sym ()
 stepChangesState = do
   isa0 <- SymFC.fresh @IsaSys
@@ -54,13 +54,13 @@ stepSetsX1To :: Word -> IsaSys -> Bool
 stepSetsX1To value isa =
   isaStep isa == Next isa {isaPc = 4, isaRegFile = modifyRFg 1 (pure value) (isaRegFile isa)}
 
-{-# ANN addiSetsX1 (SymFCWith 'baseEmbeddings) #-}
+{-# ANN addiSetsX1 (SymFC ['baseEmbeddings]) #-}
 addiSetsX1 :: SymFC.Sym ()
 addiSetsX1 = do
   isa <- addiAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepSetsX1To 5 isa
 
-{-# ANN addiWrongValueFails (SymFCWith 'baseEmbeddings) #-}
+{-# ANN addiWrongValueFails (SymFC ['baseEmbeddings]) #-}
 addiWrongValueFails :: SymFC.Sym ()
 addiWrongValueFails = do
   isa <- addiAtZero <$> SymFC.fresh @IsaSys
@@ -100,13 +100,13 @@ andThenStep = \case
 threeStepsUnrolled :: IsaSys -> IsaSysStep
 threeStepsUnrolled = andThenStep . andThenStep . isaStep
 
-{-# ANN chainUnrolled (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainUnrolled (SymFC ['baseEmbeddings]) #-}
 chainUnrolled :: SymFC.Sym ()
 chainUnrolled = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ threeStepsUnrolled isa == chainSetsX3To 13 isa
 
-{-# ANN chainUnrolledWrongValueFails (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainUnrolledWrongValueFails (SymFC ['baseEmbeddings]) #-}
 chainUnrolledWrongValueFails :: SymFC.Sym ()
 chainUnrolledWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
@@ -121,13 +121,13 @@ stepWithFuel (More fuel) isa = case isaStep isa of
   Next isa' -> stepWithFuel fuel isa'
   IsaHalted -> IsaHalted
 
-{-# ANN chainFuel (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainFuel (SymFC ['baseEmbeddings]) #-}
 chainFuel :: SymFC.Sym ()
 chainFuel = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepWithFuel threeSteps isa == chainSetsX3To 13 isa
 
-{-# ANN chainFuelWrongValueFails (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainFuelWrongValueFails (SymFC ['baseEmbeddings]) #-}
 chainFuelWrongValueFails :: SymFC.Sym ()
 chainFuelWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
@@ -140,13 +140,13 @@ stepTimes n isa
       Next isa' -> stepTimes (n - 1) isa'
       IsaHalted -> IsaHalted
 
-{-# ANN chainIntFuel (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainIntFuel (SymFC ['baseEmbeddings]) #-}
 chainIntFuel :: SymFC.Sym ()
 chainIntFuel = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
   expectValid $ stepTimes 3 isa == chainSetsX3To 13 isa
 
-{-# ANN chainIntFuelWrongValueFails (SymFCWith 'baseEmbeddings) #-}
+{-# ANN chainIntFuelWrongValueFails (SymFC ['baseEmbeddings]) #-}
 chainIntFuelWrongValueFails :: SymFC.Sym ()
 chainIntFuelWrongValueFails = do
   isa <- chainAtZero <$> SymFC.fresh @IsaSys
