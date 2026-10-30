@@ -10,6 +10,7 @@ module Proof.SMT.Stepper.Relational
   , addOnSecretNoLeak
   , branchOnPublicNoLeak
   , storeSecretNoLeak
+  , storeIntoCodeIsReported
   , branchOnSecretLeaks
   , loadFromSecretLeaks
   , secretThroughAddLeaks
@@ -269,6 +270,9 @@ lwA2FromA1 = 0x0005A603
 swA0ToZero :: Word
 swA0ToZero = 0x00A02023
 
+swA0To64 :: Word
+swA0To64 = 0x04A02023
+
 swA1ToA0 :: Word
 swA1ToA0 = 0x00B52023
 
@@ -285,7 +289,15 @@ branchOnPublicNoLeak = expectNoLeak $ runToy inSecretReg beqX0X0Plus8 ebreak
 
 {-# ANN storeSecretNoLeak (SymFC ['stepperEmbeddings]) #-}
 storeSecretNoLeak :: SymFC.Sym ()
-storeSecretNoLeak = expectNoLeak $ runToy inSecretReg swA0ToZero ebreak
+storeSecretNoLeak = expectNoLeak $ runToy inSecretReg swA0To64 ebreak
+
+{-# ANN storeIntoCodeIsReported (SymFC ['stepperEmbeddings]) #-}
+storeIntoCodeIsReported :: SymFC.Sym ()
+storeIntoCodeIsReported = do
+  verdict <- runToy inSecretReg swA0ToZero ebreak
+  case verdict of
+    WritesCode 0 -> pure ()
+    _ -> SymFC.halt
 
 {-# ANN branchOnSecretLeaks (SymFC ['stepperEmbeddings]) #-}
 branchOnSecretLeaks :: SymFC.Sym ()

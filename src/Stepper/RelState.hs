@@ -24,6 +24,7 @@ module Stepper.RelState
   , fetched
   , fetchedDecoded
   , Code (..)
+  , writesCode
   , CodeAddresses (..)
   , noCode
   , withInstruction
@@ -118,23 +119,48 @@ fetchedFromMemory addr word = literal {fetchedOperands = operandsIfKnown}
 data Code = Code
   { codeFetch :: Address -> Maybe Fetched
   , codeAddresses :: CodeAddresses
+  , codeSpan :: Maybe (Address, Address)
   }
 
 noCode :: Code
-noCode = Code {codeFetch = const Nothing, codeAddresses = KnownAddresses []}
+noCode = Code {codeFetch = const Nothing, codeAddresses = KnownAddresses [], codeSpan = Nothing}
 
 withInstruction :: Address -> Word -> Code -> Code
 withInstruction addr word code =
   Code
     { codeFetch = \pc -> if pc == addr then Just (fetched addr word Nothing) else codeFetch code pc
     , codeAddresses = withAddress (codeAddresses code)
+    , codeSpan = Just (maybe (addr, end) (\(lo, hi) -> (min lo addr, max hi end)) (codeSpan code))
     }
   where
+    end = addr + 4
     withAddress EveryAddress = EveryAddress
     withAddress (KnownAddresses addrs) = KnownAddresses (addr : addrs)
 
+-- | Code read from the given memory, which later stores do not change. Only
+-- the single-step proofs use it, so 'writesCode' does not watch it.
 codeFromMemory :: Memory 32 8 -> Code
-codeFromMemory mem = Code {codeFetch = \pc -> Just (fetchedFromMemory pc (memReadWord pc mem)), codeAddresses = EveryAddress}
+codeFromMemory mem =
+  Code
+    { codeFetch = \pc -> Just (fetchedFromMemory pc (memReadWord pc mem))
+    , codeAddresses = EveryAddress
+    , codeSpan = Nothing
+    }
+
+-- | Whether a store of this size at this address can touch an instruction.
+-- The span test settles almost every store; the per-word test runs only for
+-- a store inside the span.
+writesCode :: Code -> Size -> Address -> Bool
+writesCode code size addr = case (codeSpan code, codeAddresses code) of
+  (Just (lo, hi), KnownAddresses addrs) -> addr < hi && lo <= lastByte && overlapsSome addrs
+  _ -> False
+  where
+    lastByte = addr + sizeBytes - 1
+    sizeBytes = case size of
+      Byte -> 1
+      Half -> 2
+      Word -> 4
+    overlapsSome = foldr (\word rest -> (addr < word + 4 && word <= lastByte) || rest) False
 
 data RelState = RelState
   { relPath :: Bool
@@ -143,6 +169,7 @@ data RelState = RelState
   , relFetchHint :: Maybe Fetched
   , relRegs :: RelRegs
   , relMem :: RelMem
+  , relWritesCode :: Bool
   }
 
 sameState :: Code -> IsaSys -> RelState
@@ -154,6 +181,7 @@ sameState code isa =
     , relFetchHint = Nothing
     , relRegs = regsFrom (\idx -> Same (runIdentity (lookupRFg idx (isaRegFile isa))))
     , relMem = sameMem (isaMem isa)
+    , relWritesCode = False
     }
 
 pairState :: Code -> IsaSys -> IsaSys -> RelState

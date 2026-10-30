@@ -189,7 +189,10 @@ codeExpression name table = do
       fetchedTable = [(addr, fetchedName name addr) | (addr, _) <- sortedTable]
       fetch = lamE [varP pc] (searchTree pc fetchedTable)
       addresses = listE (map (literal . fst) sortedTable)
-  [|RelState.Code $fetch (RelState.KnownAddresses $addresses)|]
+      codeSpan = case (sortedTable, reverse sortedTable) of
+        ((first, _) : _, (final, _) : _) -> [|Just ($(literal first), $(literal (final + instructionBytes)))|]
+        _ -> [|Nothing|]
+  [|RelState.Code $fetch (RelState.KnownAddresses $addresses) $codeSpan|]
 
 orFail :: Either String a -> Q a
 orFail = either fail pure

@@ -35,6 +35,7 @@ data RelOutcome
   | RelInfeasible
   | RelFork [RelOutcome]
   | RelLeaks PC
+  | RelWritesCode PC
 
 data Candidate = Candidate
   { candidateGuard :: Bool
@@ -109,10 +110,11 @@ instance Machine Rel RelM where
     pure (word, st {relMem = mem'})
   storeWord size addr value = RelM \st -> do
     mem' <- writeMem (relPath st) size addr value (relMem st)
-    pure ((), st {relMem = mem'})
+    let touchesCode = relWritesCode st || writesCode (relCode st) size addr
+    pure ((), st {relMem = mem', relWritesCode = touchesCode})
 
 relStep :: RelState -> SymFC.Sym RelOutcome
-relStep st@(RelState path code pc _ regs _) = do
+relStep st@RelState {relPath = path, relCode = code, relPc = pc, relRegs = regs} = do
   current <- currentFetch st
   case current of
     Nothing -> pure RelOutsideCode
@@ -123,10 +125,19 @@ relStep st@(RelState path code pc _ regs _) = do
           then pure True
           else isJust <$> agree path (leakOf <$> runStates st here next)
       if sameLeak
-        then continueAfter next =<< runRelM (isaStepM pc (fetchedInstr here)) st
+        then checkStores next =<< runRelM (isaStepM pc (fetchedInstr here)) st {relWritesCode = False}
         else pure (RelLeaks pc)
   where
-    continueAfter next (control, later) = case control of
+    checkStores next (control, later) = do
+      known <- knownBool (relWritesCode later)
+      touchesCode <- case known of
+        Just touches -> pure touches
+        Nothing -> isFeasible (path && relWritesCode later)
+      if touchesCode
+        then pure (RelWritesCode pc)
+        else continueAfter next control later
+
+    continueAfter next control later = case control of
       FallThrough -> pure (RelNext (fallThrough later))
       Goto target -> jumpTo target (`landAt` later)
       BranchTo taken target -> forkOn taken (landAt target later) (fallThrough later)
@@ -226,9 +237,16 @@ data Verdict
   = NoLeak
   | OutOfFuel
   | Leaks PC
+  | WritesCode PC
+
+stopsChecking :: Verdict -> Bool
+stopsChecking = \case
+  Leaks {} -> True
+  WritesCode {} -> True
+  _ -> False
 
 laterPathVerdict :: Verdict -> Verdict -> Verdict
-laterPathVerdict _ leak@Leaks {} = leak
+laterPathVerdict _ later | stopsChecking later = later
 laterPathVerdict OutOfFuel _ = OutOfFuel
 laterPathVerdict _ later = later
 
@@ -244,11 +262,12 @@ follow fuel outcome = case outcome of
   RelInfeasible -> pure NoLeak
   RelFork branches -> followAll fuel branches
   RelLeaks pc -> pure (Leaks pc)
+  RelWritesCode pc -> pure (WritesCode pc)
 
 followAll :: Fuel -> [RelOutcome] -> SymFC.Sym Verdict
 followAll _ [] = pure NoLeak
 followAll fuel (branch : rest) = do
   verdict <- follow fuel branch
-  case verdict of
-    Leaks {} -> pure verdict
-    _ -> laterPathVerdict verdict <$> followAll fuel rest
+  if stopsChecking verdict
+    then pure verdict
+    else laterPathVerdict verdict <$> followAll fuel rest
