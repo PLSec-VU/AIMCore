@@ -14,14 +14,16 @@ module Proof.SMT.Stepper.P256Field
   , p256MontReduceOptimisedNoLeak
   , p256MontReduceOptimisedOneStepShortOutOfFuel
   , p256FieldUnoptimisedDecodeAgrees
+  , p256FieldUnoptimisedFetchesByAddress
   , p256FieldOptimisedDecodeAgrees
+  , p256FieldOptimisedFetchesByAddress
   , p256UnoptimisedDecodeRejectsWrongInstruction
   , p256OptimisedDecodeRejectsWrongInstruction
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -158,9 +160,17 @@ p256MontReduceOptimisedOneStepShortOutOfFuel =
 p256FieldUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256FieldUnoptimisedDecodeAgrees = expectDecodeAgreement [compareUnoptimisedDecoded, condSubUnoptimisedDecoded, condCopyUnoptimisedDecoded, montReduceUnoptimisedDecoded]
 
+{-# ANN p256FieldUnoptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256FieldUnoptimisedFetchesByAddress :: SymFC.Sym ()
+p256FieldUnoptimisedFetchesByAddress = expectFetchByAddress [compareUnoptimisedCode, condSubUnoptimisedCode, condCopyUnoptimisedCode, montReduceUnoptimisedCode]
+
 {-# ANN p256FieldOptimisedDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 p256FieldOptimisedDecodeAgrees :: SymFC.Sym ()
 p256FieldOptimisedDecodeAgrees = expectDecodeAgreement [compareOptimisedDecoded, montReduceOptimisedDecoded]
+
+{-# ANN p256FieldOptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256FieldOptimisedFetchesByAddress :: SymFC.Sym ()
+p256FieldOptimisedFetchesByAddress = expectFetchByAddress [compareOptimisedCode, montReduceOptimisedCode]
 
 {-# ANN p256UnoptimisedDecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 p256UnoptimisedDecodeRejectsWrongInstruction :: SymFC.Sym ()

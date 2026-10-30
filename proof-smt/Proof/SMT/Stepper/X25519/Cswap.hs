@@ -7,13 +7,14 @@ module Proof.SMT.Stepper.X25519.Cswap
   , x25519CmovSecretBitNoLeak
   , x25519CmovSecretBitOneStepShort
   , x25519CswapDecodeAgrees
+  , x25519CswapFetchesByAddress
   , x25519DecodeRejectsWrongInstruction
   ) where
 
 import Proof.SMT.Stepper.X25519.Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -93,6 +94,10 @@ x25519CmovSecretBitOneStepShort = expectOutOfFuel $ moveUnderSecretBit moveOneSh
 {-# ANN x25519CswapDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 x25519CswapDecodeAgrees :: SymFC.Sym ()
 x25519CswapDecodeAgrees = expectDecodeAgreement [cswapDecoded, cmovDecoded]
+
+{-# ANN x25519CswapFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+x25519CswapFetchesByAddress :: SymFC.Sym ()
+x25519CswapFetchesByAddress = expectFetchByAddress [cswapCode, cmovCode]
 
 {-# ANN x25519DecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 x25519DecodeRejectsWrongInstruction :: SymFC.Sym ()

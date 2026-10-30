@@ -6,13 +6,14 @@ module Proof.SMT.Stepper.Chacha
   , chachaOneStepShortOutOfFuel
   , chachaSecretLengthLeaks
   , chachaDecodeAgrees
+  , chachaFetchesByAddress
   , chachaDecodeRejectsWrongInstruction
   ) where
 
 import Clash.Prelude (bitCoerce)
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -207,6 +208,10 @@ chachaSecretLengthLeaks = expectLeakAt shortTailCheck encryptSecretLength
 {-# ANN chachaDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 chachaDecodeAgrees :: SymFC.Sym ()
 chachaDecodeAgrees = expectDecodeAgreement [chachaEncryptDecoded]
+
+{-# ANN chachaFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+chachaFetchesByAddress :: SymFC.Sym ()
+chachaFetchesByAddress = expectFetchByAddress [chachaEncryptCode]
 
 {-# ANN chachaDecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 chachaDecodeRejectsWrongInstruction :: SymFC.Sym ()

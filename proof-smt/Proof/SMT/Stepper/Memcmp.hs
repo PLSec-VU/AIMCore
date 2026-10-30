@@ -8,13 +8,14 @@ module Proof.SMT.Stepper.Memcmp
   , sodiumMemcmpFetchesKnownWords
   , memcmpFetchRejectsWrongWord
   , memcmpDecodeAgrees
+  , memcmpFetchesByAddress
   , memcmpDecodeRejectsWrongInstruction
   ) where
 
 import Clash.Prelude (bitCoerce)
 import Stepper (Fuel (..), IsaSys)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectDecodeDisagreement, withWrongFirstInstruction)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress, expectDecodeDisagreement, withWrongFirstInstruction)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -153,6 +154,10 @@ memcmpFetchRejectsWrongWord = expectNoFetchOf memcmpCode memcmpEntry 0x00300694
 {-# ANN memcmpDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 memcmpDecodeAgrees :: SymFC.Sym ()
 memcmpDecodeAgrees = expectDecodeAgreement [memcmpDecoded, sodiumMemcmpDecoded]
+
+{-# ANN memcmpFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+memcmpFetchesByAddress :: SymFC.Sym ()
+memcmpFetchesByAddress = expectFetchByAddress [memcmpCode, sodiumMemcmpCode]
 
 {-# ANN memcmpDecodeRejectsWrongInstruction (SymFC ['stepperEmbeddings]) #-}
 memcmpDecodeRejectsWrongInstruction :: SymFC.Sym ()

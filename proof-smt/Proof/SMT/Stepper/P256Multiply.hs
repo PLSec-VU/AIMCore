@@ -12,13 +12,15 @@ module Proof.SMT.Stepper.P256Multiply
   , p256MontReduceOrderOptimisedNoLeak
   , p256MontReduceOrderOptimisedOneStepShortOutOfFuel
   , p256MultiplyUnoptimisedDecodeAgrees
+  , p256MultiplyUnoptimisedFetchesByAddress
   , p256MultiplyOptimisedDecodeAgrees
+  , p256MultiplyOptimisedFetchesByAddress
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -187,6 +189,14 @@ p256MontReduceOrderOptimisedOneStepShortOutOfFuel =
 p256MultiplyUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256MultiplyUnoptimisedDecodeAgrees = expectDecodeAgreement [mulUnoptimisedDecoded, sqrUnoptimisedDecoded, montReduceOrderUnoptimisedDecoded]
 
+{-# ANN p256MultiplyUnoptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256MultiplyUnoptimisedFetchesByAddress :: SymFC.Sym ()
+p256MultiplyUnoptimisedFetchesByAddress = expectFetchByAddress [mulUnoptimisedCode, sqrUnoptimisedCode, montReduceOrderUnoptimisedCode]
+
 {-# ANN p256MultiplyOptimisedDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 p256MultiplyOptimisedDecodeAgrees :: SymFC.Sym ()
 p256MultiplyOptimisedDecodeAgrees = expectDecodeAgreement [mulOptimisedDecoded, sqrOptimisedDecoded, montReduceOrderOptimisedDecoded]
+
+{-# ANN p256MultiplyOptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256MultiplyOptimisedFetchesByAddress :: SymFC.Sym ()
+p256MultiplyOptimisedFetchesByAddress = expectFetchByAddress [mulOptimisedCode, sqrOptimisedCode, montReduceOrderOptimisedCode]

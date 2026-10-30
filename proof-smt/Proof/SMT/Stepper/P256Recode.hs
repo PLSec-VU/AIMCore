@@ -6,13 +6,15 @@ module Proof.SMT.Stepper.P256Recode
   , p256GetPointUnoptimisedNoLeak
   , p256GetPointUnoptimisedOneStepShortOutOfFuel
   , p256RecodeUnoptimisedDecodeAgrees
+  , p256RecodeUnoptimisedFetchesByAddress
   , p256RecodeOptimisedDecodeAgrees
+  , p256RecodeOptimisedFetchesByAddress
   ) where
 
 import Proof.SMT.Stepper.P256Call
 import Stepper (Fuel)
 import Stepper.Concrete (stepperEmbeddings)
-import Stepper.ElfCode (elfCode, expectDecodeAgreement)
+import Stepper.ElfCode (elfCode, expectDecodeAgreement, expectFetchByAddress)
 import Stepper.Rel (Rel (..))
 import Stepper.RelState
 import Stepper.Relational
@@ -88,6 +90,14 @@ p256GetPointUnoptimisedOneStepShortOutOfFuel = expectOutOfFuel $ getPointSecretI
 p256RecodeUnoptimisedDecodeAgrees :: SymFC.Sym ()
 p256RecodeUnoptimisedDecodeAgrees = expectDecodeAgreement [recodeUnoptimisedDecoded, getPointUnoptimisedDecoded]
 
+{-# ANN p256RecodeUnoptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256RecodeUnoptimisedFetchesByAddress :: SymFC.Sym ()
+p256RecodeUnoptimisedFetchesByAddress = expectFetchByAddress [recodeUnoptimisedCode, getPointUnoptimisedCode]
+
 {-# ANN p256RecodeOptimisedDecodeAgrees (SymFC ['stepperEmbeddings]) #-}
 p256RecodeOptimisedDecodeAgrees :: SymFC.Sym ()
 p256RecodeOptimisedDecodeAgrees = expectDecodeAgreement [recodeOptimisedDecoded]
+
+{-# ANN p256RecodeOptimisedFetchesByAddress (SymFC ['stepperEmbeddings]) #-}
+p256RecodeOptimisedFetchesByAddress :: SymFC.Sym ()
+p256RecodeOptimisedFetchesByAddress = expectFetchByAddress [recodeOptimisedCode]

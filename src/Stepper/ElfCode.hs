@@ -1,9 +1,11 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE GADTs #-}
 
 module Stepper.ElfCode
   ( elfCode
   , DecodedTable
   , expectDecodeAgreement
+  , expectFetchByAddress
   , expectDecodeDisagreement
   , withWrongFirstInstruction
   ) where
@@ -18,8 +20,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Elf.ElfLoader (getElfSegments, readElf)
+import Control.Monad (unless)
 import Instruction (Instruction (..), Reason4Stall (..), decode', nop)
 import Language.Haskell.TH
+import Memory.Types (MemFn (..), MemOps (..))
 import Language.Haskell.TH.Syntax (addDependentFile, lift)
 import Numeric (showHex)
 import qualified Stepper.RelState as RelState
@@ -194,6 +198,41 @@ codeExpression name table = do
         _ -> [|Nothing|]
   [|RelState.Code $fetch (RelState.KnownAddresses $addresses) $codeSpan|]
 
+-- | The memory 'Elf.ElfLoader.loadElf' builds from the same segments: each
+-- byte as written, later segments over earlier ones, zero elsewhere.
+segmentMemory :: Image -> MemFn
+segmentMemory image = MemFn \addr -> foldl (byteFrom (toInteger addr)) 0 (imageChunks image)
+  where
+    byteFrom addr byte (base, bytes)
+      | base <= addr && addr < base + toInteger (BS.length bytes) = fromIntegral (BS.index bytes (fromIntegral (addr - base)))
+      | otherwise = byte
+
+-- | Fail the splice unless every word in the table is the word the ISA reads
+-- at that address from the loaded ELF.
+checkTableAgainstMemory :: Image -> FetchTable -> Q ()
+checkTableAgainstMemory image table = mapM_ check table
+  where
+    memory = segmentMemory image
+    check (addr, word) = do
+      let fromMemory = toInteger (memReadWord (fromInteger addr) memory)
+      unless (fromMemory == word) $
+        fail ("code table word " ++ showHex word "" ++ " at " ++ showHex addr "" ++ " differs from memory word " ++ showHex fromMemory "")
+
+-- | Fail unless 'RelState.codeFetch' finds exactly the listed addresses, each
+-- at its own address.
+expectFetchByAddress :: [RelState.Code] -> SymFC.Sym ()
+expectFetchByAddress codes = do
+  pc <- SymFC.fresh @Address
+  result <- SymFC.valid $ SymFC.boolean $ all (fetchesAt pc) codes
+  case result of
+    SymFC.None -> pure ()
+    _ -> SymFC.halt
+  where
+    fetchesAt pc code = case (RelState.codeFetch code pc, RelState.codeAddresses code) of
+      (Just here, _) -> RelState.fetchedAddress here == pc
+      (Nothing, RelState.KnownAddresses addrs) -> all (/= pc) addrs
+      (Nothing, RelState.EveryAddress) -> False
+
 orFail :: Either String a -> Q a
 orFail = either fail pure
 
@@ -201,6 +240,7 @@ functionDeclarations :: Image -> (String, [String]) -> Q [Dec]
 functionDeclarations image (name, symbols) = do
   entry <- orFail (entryAddress image symbols)
   table <- orFail (functionFetchTable image symbols)
+  checkTableAgainstMemory image table
   let entryName = mkName (name ++ "Entry")
       codeName = mkName (name ++ "Code")
   code <- codeExpression name table
