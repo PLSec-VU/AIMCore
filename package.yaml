@@ -21,13 +21,14 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 # The modules under proof-smt/ discharge their properties through an SMT solver
 # while GHC compiles them, so building them needs a solver on PATH and takes as
-# long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
+# long as the solver does. SymFC goes through SBV, and SBV's Z3 backend is
 # pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
 # useful time, while bitwuzla discharges each in under a minute:
 #
 #   SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack test
 #
-# CI installs Z3 and leaves SBV_Z3 unset (see .github/workflows/stack-test.yml).
+# CI does exactly this: it installs bitwuzla and sets SBV_Z3 to it (see
+# .github/workflows/stack-test.yml).
 #
 # Do not add --fast: at -O0 GHC creates no unfoldings and the plugin fails with
 # "Unbound variable in symbolise" rather than reporting a failed proof.

@@ -493,8 +493,8 @@ alu op lhs rhs = case op of
 -- pull integer arithmetic into a query that is otherwise pure bitvectors and
 -- arrays, and Bitwuzla and Yices have no integer theory at all -- they reject
 -- such a query outright rather than solve it slowly. Keeping the amount a
--- 'BitVector' behind a name lets "Axioms" map each shift to its SMT
--- counterpart; see 'ArrayRF.sllWordE'.
+-- 'BitVector' behind a name lets each shift map to its SMT counterpart; see
+-- 'Stepper.Shift.sllWordE'.
 --
 -- OPAQUE is essential, for the same reason as 'ArrayRF.loadRA': the axiom is
 -- keyed on the name, so an inlined wrapper would leave nothing to rewrite.

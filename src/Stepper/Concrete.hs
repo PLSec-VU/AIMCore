@@ -21,6 +21,7 @@ import SymFC.Base qualified as Base
 import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
 import SymFC.BuiltIn qualified as SymFC
 import SymFC.Clash qualified as Clash
+import Stepper.Shift (shiftEmbeddings)
 import Types (Address, RegIdx)
 
 {-# OPAQUE concreteAddress #-}
@@ -76,7 +77,7 @@ concreteEmbeddings =
     }
 
 baseEmbeddings :: Embeddings
-baseEmbeddings = Base.embeddings <> Clash.embeddings
+baseEmbeddings = Base.embeddings <> Clash.embeddings <> shiftEmbeddings
 
 stepperEmbeddings :: Embeddings
 stepperEmbeddings = baseEmbeddings <> concreteEmbeddings

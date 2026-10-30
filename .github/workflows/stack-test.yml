@@ -21,15 +21,15 @@ jobs:
         enable-stack: true
         stack-version: 'latest'
 
-    - name: Install Z3
+    - name: Install Bitwuzla
       run: |
-        Z3_VERSION="5.1.0"
-        Z3_DIR="z3-${Z3_VERSION}-x64-glibc-2.39"
-        curl -sL "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_DIR}.zip" -o /tmp/z3.zip
-        unzip -q /tmp/z3.zip -d /tmp
-        sudo install -m 755 "/tmp/${Z3_DIR}/bin/z3" /usr/local/bin/z3
-        rm -rf "/tmp/${Z3_DIR}" /tmp/z3.zip
-        z3 --version
+        BITWUZLA_VERSION="0.9.1"
+        curl -sL "https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VERSION}/Bitwuzla-Linux-x86_64-static.zip" -o /tmp/bitwuzla.zip
+        unzip -q /tmp/bitwuzla.zip -d /tmp
+        sudo install -m 755 /tmp/Bitwuzla-Linux-x86_64-static/bin/bitwuzla /usr/local/bin/bitwuzla
+        sudo ln -sf /usr/local/bin/bitwuzla /usr/local/bin/z3
+        rm -rf /tmp/Bitwuzla-Linux-x86_64-static /tmp/bitwuzla.zip
+        bitwuzla --version
 
     - name: Cache Stack
       uses: actions/cache@v4
@@ -45,4 +45,7 @@ jobs:
       run: stack test --only-dependencies --no-nix
 
     - name: Build and run tests
+      env:
+        SBV_Z3: /usr/local/bin/bitwuzla
+        SBV_Z3_OPTIONS: "--produce-models"
       run: stack test --no-nix

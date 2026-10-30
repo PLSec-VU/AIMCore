@@ -7,14 +7,14 @@ packages:
 - completed:
     name: sym-fc
     pantry-tree:
-      sha256: 3fcb23b6dd3fd03be64a89a6ec83a840cdf341dca823e24f36356e4112868990
+      sha256: 55f56425a02e288079c2d07615d86a54542484e82f6b0d8263446d9d5e0aa1ac
       size: 2352
-    sha256: edd6eb28393da50763c3668644511cbff9b1ce0e47fbda706b4195ed2d733a32
-    size: 79647
-    url: https://github.com/PLSec-VU/symfc/archive/2784ac7df0837e685a7e07e010af2dbcbcd1d534.tar.gz
+    sha256: 83a3d30445e563d1064abffb3e60f817ea380fe4c75a971ce2a7017b2c531c5b
+    size: 79737
+    url: https://github.com/PLSec-VU/symfc/archive/4aee0d8bed396d15a02208ff4014b958685a6c88.tar.gz
     version: 0.1.0.0
   original:
-    url: https://github.com/PLSec-VU/symfc/archive/2784ac7df0837e685a7e07e010af2dbcbcd1d534.tar.gz
+    url: https://github.com/PLSec-VU/symfc/archive/4aee0d8bed396d15a02208ff4014b958685a6c88.tar.gz
 - completed:
     name: sym-fc-base
     pantry-tree:
