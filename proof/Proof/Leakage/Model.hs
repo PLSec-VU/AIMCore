@@ -20,19 +20,23 @@
 --
 -- == What 'Leak' is, and is not
 --
--- It is not a list of secrets. Every field is public in any run that does not
--- halt, because 'Core.execute' computes each one inside @noSecrets'@: the
--- branch condition, the @jalr@ target, and the load and store addresses. The
--- fetched instruction word goes through @noSecrets'@ in 'Core.decode' too, so
--- the program is public even under self-modifying code -- which matters, because
--- store /data/ is not forced public, so a store could otherwise plant a
--- secret-dependent instruction. A secret reaching any of these halts the core
--- with 'Core.SecurityViolation'. The hazard bit is not even data dependent:
--- 'Instruction.loadHazard' compares register /fields/, not their contents.
+-- It is not a list of secrets, and the core does not check that its fields are
+-- public. The hardware theorem only says that the bus trace is a function of
+-- the 'leakOf' trace: 'Leak' is what the /simulator/ needs in order to replay
+-- the observation from the architectural state alone. The hazard bit is not
+-- even data dependent: 'Instruction.loadHazard' compares register /fields/,
+-- not their contents.
 --
--- So 'Leak' is what the /simulator/ needs in order to replay the observation
--- from the architectural state alone, not what escapes. The security content
--- lives in the @Access@ / @noSecrets@ discipline.
+-- That the 'leakOf' trace does not depend on secrets is the software checker's
+-- job. The relational stepper ("Stepper.Relational") runs two copies of the
+-- program that differ only in their secrets and rejects the program if their
+-- 'leakOf' values ever differ. Together the two give non-interference on the
+-- bus.
+--
+-- The checker reads instructions from a fixed code image, so it assumes that
+-- the code is not self-modifying: no store writes to an address that is later
+-- fetched. A store could otherwise plant a secret-dependent instruction, whose
+-- leakage the checker would not see.
 module Proof.Leakage.Model
   ( -- * Observation
     Obs (..),

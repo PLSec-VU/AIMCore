@@ -115,4 +115,3 @@ runElf instr c = go c
               let s'' = Core.initAt resumePc (modifyRF 10 ret (Core.stateRegFile s'))
               go $ sim {circuitInput = Core.initInput, circuitState = s''}
         Just (Core.EBreak _) -> pure ()
-        Just Core.SecurityViolation -> pure ()

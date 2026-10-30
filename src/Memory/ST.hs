@@ -59,8 +59,6 @@ instance {-# OVERLAPPING #-} (MonadIO m) => MonadMemory (STMemoryT RealWorld m) 
       liftIO $
         stToIO $
           writeDataArray offset size w (stData st)
-  markMemoryRegion _ _ _ = pure ()
-  isMemorySecret _ = pure False
 
 -- | Read a sized value from the data array.
 readDataArray :: Address -> Size -> STUArray s Address Word8 -> ST s Word

@@ -1,16 +1,14 @@
 module Main (main) where
 
-import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Control.Exception (catch)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
 import Data.Functor.Identity
-import Data.IORef
 import Elf.ElfLoader
 import Elf.Syscall (ProgramExitException (..), handleSyscall)
-import Memory.IO (IOMemT, SecureIOMemT, ioMemInitSP, loadProgram, loadSecureProgram, newIOMem, newSecureIOMem, runIOMemT, runSecureIOMemT, secureIOMemInitSP)
+import Memory.IO (IOMemT, ioMemInitSP, loadProgram, newIOMem, runIOMemT)
 import Memory.Types
 import Numeric (showHex)
 import Options.Applicative
@@ -25,7 +23,6 @@ import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, 
 -- | Command line options
 data Options = Options
   { optVerbose :: Bool
-  , optSecureMemory :: Bool
   , optExecutable :: String
   } deriving (Show)
 
@@ -35,13 +32,6 @@ verboseParser = switch
   ( long "verbose"
   <> short 'v'
   <> help "Enable verbose output (shows PC and instruction trace)" )
-
--- | Parser for secure memory flag
-secureMemoryParser :: Parser Bool
-secureMemoryParser = switch
-  ( long "secure-memory"
-  <> short 's'
-  <> help "Enable secure memory tracking (PubSec mode)" )
 
 -- | Parser for executable argument
 executableParser :: Parser String
@@ -53,7 +43,6 @@ executableParser = strArgument
 optionsParser :: Parser Options
 optionsParser = Options
   <$> verboseParser
-  <*> secureMemoryParser
   <*> executableParser
 
 -- | Program info for help generation
@@ -64,28 +53,24 @@ programInfo = info (optionsParser <**> helper)
   <> header "uc-risc-v - RISC-V Simulator"
   <> footer "Examples:\n\
             \  uc-risc-v benchmark/bench_chacha20\n\
-            \  uc-risc-v --verbose benchmark/bench_blake2b\n\
-            \  uc-risc-v --secure-memory benchmark/bench_secure_memory" )
+            \  uc-risc-v --verbose benchmark/bench_blake2b" )
 
 -- | Called by 'runElf' whenever the core halts on a syscall: optionally log the
--- state, remember it as the final state, and service the syscall.
+-- state, then service the syscall.
 instrument ::
-  (Access f, Show (f Word), MonadIO m, MonadMemory m) =>
-  String -> Bool -> IORef (Maybe (Core.State f)) -> Instrument f m
-instrument modeName shouldLog finalStateRef s = do
+  (MonadIO m, MonadMemory m) =>
+  Bool -> Instrument Identity m
+instrument shouldLog s = do
   let pc = Core.stateExPc s
 
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
-    liftIO $ putStrLn $ "[" P.++ modeName P.++ " MODE]"
     liftIO $ print pc
     let rf = Core.stateRegFile s
     let a0 = lookupRF 10 rf
     let a7 = lookupRF 17 rf
     let s0 = lookupRF 8 rf
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=" P.++ show a0 P.++ " s0=" P.++ show s0 P.++ " syscall=" P.++ show a7
-
-  liftIO $ writeIORef finalStateRef (Just s)
 
   handleSyscall s
 
@@ -98,42 +83,19 @@ runExecutable Options{..} = do
 
   when optVerbose $ do
     putStrLn $ "Entry point: 0x" P.++ showHex entryOffset ""
-    if optSecureMemory
-      then putStrLn "Starting execution in SECURE MEMORY mode..."
-      else putStrLn "Starting execution in standard mode..."
+    putStrLn "Starting execution..."
 
-  if optSecureMemory
-    then do
-      secureIOMem <- newSecureIOMem elf
-      finalStateRef <- newIORef Nothing
-      runSecureIOMemT secureIOMem $ do
-        loadSecureProgram elf
-        runElf
-          (instrument "SECURE" optVerbose finalStateRef)
-          (simulator @PubSec @(SecureIOMemT IO))
-            { circuitState =
-                Core.initAt
-                  (fromIntegral entryOffset)
-                  (modifyRF 2 (pure $ secureIOMemInitSP secureIOMem) (initRF @PubSec))
-            }
-      finalState <- readIORef finalStateRef
-      case finalState of
-        Just state | Core.stateHalt state == Just Core.SecurityViolation ->
-          putStrLn "Program aborted due to security violation"
-        _ -> pure ()
-    else do
-      mem <- newIOMem elf
-      finalStateRef <- newIORef Nothing
-      runIOMemT mem $ do
-        loadProgram elf
-        runElf
-          (instrument "STANDARD" optVerbose finalStateRef)
-          (simulator @Identity @(IOMemT IO))
-            { circuitState =
-                Core.initAt
-                  (fromIntegral entryOffset)
-                  (modifyRF 2 (pure $ ioMemInitSP mem) (initRF @Identity))
-            }
+  mem <- newIOMem elf
+  runIOMemT mem $ do
+    loadProgram elf
+    runElf
+      (instrument optVerbose)
+      (simulator @Identity @(IOMemT IO))
+        { circuitState =
+            Core.initAt
+              (fromIntegral entryOffset)
+              (modifyRF 2 (pure $ ioMemInitSP mem) (initRF @Identity))
+        }
 
   when optVerbose $ putStrLn "Execution completed successfully"
 

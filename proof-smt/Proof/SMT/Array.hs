@@ -126,8 +126,7 @@ storeRAE
 
 -- | The all-zero register file.
 --
--- 'Proof.Leakage.Simulator.censor' installs this on every state it builds, so
--- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
+-- 'initRFg' of 'RegArrF' returns this, so it has to be embeddable.
 -- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
 -- under the term axiom, which is keyed on this name -- hence OPAQUE, for the
 -- same reason as 'loadRA'.
@@ -157,7 +156,7 @@ freshRAE | Embedding <- embedding @arr = coerce . RegArrSMT <$> P.fresh
 --
 -- The @f@ parameter is phantom: the embedding must be monomorphic, so the
 -- element type is fixed to 'Word'. This is a verification-only representation
--- and is used at @f ~ Identity@, where 'unAccess' is the identity.
+-- and is used at @f ~ Identity@.
 newtype RegArrF (f :: Type -> Type) = RegArrF RegArr
 
 instance RegFileOps RegArrF where

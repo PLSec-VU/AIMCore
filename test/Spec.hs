@@ -241,27 +241,19 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
     where
-      genAccessWord = do
-        isSecret <- arbitrary
-        word <- arbitrary
-        pure $ conditionalSecret isSecret word
       genMaybeRegFwd = do
         hasFwd <- arbitrary
         if hasFwd
           then do
             regIdx <- arbitrary
-            accessWord <- genAccessWord
-            pure $ Just (regIdx, accessWord)
+            word <- arbitrary
+            pure $ Just (regIdx, pure word)
           else pure Nothing
-
-instance (Arbitrary a) => Arbitrary (PubSec a) where
-  arbitrary = oneof [Public <$> arbitrary, Secret <$> arbitrary]
 
 instance Arbitrary Core.HaltState where
   arbitrary = oneof
     [ Core.EBreak <$> arbitrary
     , Core.Syscall <$> arbitrary
-    , pure Core.SecurityViolation
     ]
 
 instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
@@ -297,5 +289,4 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    isSecretMem <- arbitrary
-    pure $ Input (conditionalSecret isSecretMem mem)
+    pure $ Input (pure mem)

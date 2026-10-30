@@ -50,10 +50,7 @@ simulator =
         doMemory
           | Just (MemAccess _ addr size mval) <- mem =
               case mval of
-                Nothing -> do
-                  word <- ramRead addr size
-                  isSecret <- isMemorySecret addr
-                  pure (conditionalSecret isSecret word)
+                Nothing -> pure <$> ramRead addr size
                 Just val -> do
                   ramWrite addr size (unAccess val)
                   pure (pure 0)

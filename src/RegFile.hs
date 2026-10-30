@@ -9,7 +9,6 @@ module RegFile
     initRF,
     lookupRF,
     modifyRF,
-    censorRF,
     RegFileOps (..),
     RegFn (..),
   )
@@ -66,10 +65,6 @@ modifyRF :: RegIdx -> f Word -> RegFile f -> RegFile f
 modifyRF idx val (RegFile rf) = case idx of
   0 -> RegFile rf
   _ -> RegFile $ replace (idx - 1) val rf
-
--- | Censor all registers in the register file.
-censorRF :: (Access f) => RegFile f -> RegFile f
-censorRF _ = initRF
 
 -- | The operations the pipeline needs from a register file.
 --

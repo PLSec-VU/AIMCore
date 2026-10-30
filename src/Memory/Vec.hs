@@ -24,6 +24,3 @@ instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
   ramWrite addr size w = do
     ram <- gets memRAM
     modify $ \s -> s {memRAM = write size addr w ram}
-  -- Identity implementation: no-op security functions
-  markMemoryRegion _ _ _ = pure ()
-  isMemorySecret _ = pure False

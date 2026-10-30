@@ -106,7 +106,7 @@ instance Monoid (Output f) where
   mempty = Output Nothing
 
 -- | CPU halt state
-data HaltState = EBreak Address | Syscall Address | SecurityViolation
+data HaltState = EBreak Address | Syscall Address
   deriving (Show, Eq, Generic)
 
 instance NFDataX HaltState
@@ -203,11 +203,6 @@ type CPUM r f = RWS (Input f) (Output f) (StateG r f)
 setLines :: (MonadState (StateG r f) m) => (Control f -> Control f) -> m ()
 setLines f = modify $ \s -> s {stateCtrl = f (stateCtrl s)}
 
--- | No secrets here, buddy: unwrap a word. If it's public, we gucci. If it's
--- private, die.
-noSecrets' :: (Access f) => f a -> b -> (a -> CPUM r f b) -> CPUM r f b
-noSecrets' w a = noSecrets w (setSecurityViolation >> pure a)
-
 -- | Run the CPU for one step.
 circuit :: forall f r. (Access f, RegFileOps r) => StateG r f -> Input f -> (StateG r f, Output f)
 circuit = flip $ execRWS pipe
@@ -263,11 +258,6 @@ initCtrl =
       ctrlWbRegFwd = Nothing
     }
 
--- | Set security violation flag.
-setSecurityViolation :: CPUM r f ()
-setSecurityViolation =
-  modify $ \s -> s {stateHalt = Just SecurityViolation}
-
 -- | Fetch stage.
 fetch :: CPUM r f ()
 fetch = do
@@ -309,7 +299,7 @@ decode = do
 
   ir <-
     if expInstr
-      then noSecrets' (inputMem input) (Nop Halted) (pure . decode')
+      then pure $ decode' $ unAccess $ inputMem input
       else pure $ Nop MemoryBusBusy
 
   let halted = ctrlExInstr ctrl == Just (Nop Halted)
@@ -386,29 +376,26 @@ execute = do
     Instruction.IType (Load _ _) _ rs1 imm -> do
       r1 <- getFirstArg rs1
       let imm' = signExtend imm
-      let res = alu ADD r1 (pure imm')
-      noSecrets' res () $ \res' -> do
-        modify $ \s -> s {stateMeAddr = unpack res'}
+      let res = unAccess $ alu ADD r1 (pure imm')
+      modify $ \s -> s {stateMeAddr = unpack res}
     Instruction.SType size imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       let imm' = signExtend imm
-      let res = alu ADD r1 (pure imm')
+      let res = unAccess $ alu ADD r1 (pure imm')
       modify $ \s -> s {stateMeRes = r2}
-      noSecrets' res () $ \res' -> do
-        modify $ \s -> s {stateMeAddr = unpack res'}
-        setLines $ \c -> c {ctrlExStoreAddrSize = Just (unpack res', size)}
+      modify $ \s -> s {stateMeAddr = unpack res}
+      setLines $ \c -> c {ctrlExStoreAddrSize = Just (unpack res, size)}
     Instruction.BType cmp imm rs1 rs2 -> do
       r1 <- getFirstArg rs1
       r2 <- getSecondArg rs2
       pc <- gets $ pack . stateExPc
-      let doBranch = branch cmp r1 r2
-      noSecrets' doBranch () $ \doBranch' ->
-        when doBranch' $ do
-          let imm' = signExtend imm
-          let branchAddr = alu ADD (pure pc) (pure imm') :: f Word
-          setLines $ \c ->
-            c {ctrlExJumpAddr = fromPublic $ unpack <$> branchAddr}
+      let doBranch = unAccess $ branch cmp r1 r2
+      when doBranch $ do
+        let imm' = signExtend imm
+        let branchAddr = alu ADD (pure pc) (pure imm') :: f Word
+        setLines $ \c ->
+          c {ctrlExJumpAddr = Just $ unpack $ unAccess branchAddr}
     Instruction.JType _ imm -> do
       pc <- gets $ pack . stateExPc
       let res = alu ADD (pure pc) (pure 4)
@@ -416,17 +403,16 @@ execute = do
       let imm' = signExtend imm
       let jumpAddr = alu ADD (pure pc) (pure imm') :: f Word
       setLines $ \c ->
-        c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
+        c {ctrlExJumpAddr = Just $ unpack $ unAccess jumpAddr}
     Instruction.IType Jump _ rs1 imm -> do
       r1 <- getFirstArg rs1
       pc <- gets $ pack . stateExPc
       let res = alu ADD (pure pc) (pure 4)
       modify $ \s -> s {stateMeRes = res}
-      noSecrets' r1 () $ \r1' -> do
-        let imm' = signExtend imm
-        let jumpAddr = alu ADD (pure r1') (pure imm') :: f Word
-        setLines $ \c ->
-          c {ctrlExJumpAddr = fromPublic $ unpack <$> jumpAddr}
+      let imm' = signExtend imm
+      let jumpAddr = alu ADD r1 (pure imm') :: f Word
+      setLines $ \c ->
+        c {ctrlExJumpAddr = Just $ unpack $ unAccess jumpAddr}
     Instruction.UType base _ imm -> do
       base' <-
         case base of
