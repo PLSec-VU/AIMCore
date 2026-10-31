@@ -1,27 +1,131 @@
-resolver: nightly-2026-05-19
+snapshot: ghc-9.12.2
 
 packages:
 - .
 
 extra-deps:
-  - blake2-0.3.0.1@sha256:616926a31133e2a94c353b56b50ef3a8cfb97baf1d051d0f65545e967c5107da,2301
-  - sbv-13.6@sha256:65099c81504a2e85a49cc94a4f8bacad12c423b9171cf2ef3b6686a6a71d99ec,27240
-  - melf-1.3.1@sha256:167dd798237451e8ccca8c7d98ec719ce20ce1752445dda1fee165b389830b4e,4526
-  - parallel-3.2.2.0@sha256:3df46ec247e12b5e406a0adb9577294431b24814b30df420551d176fd112a966,2038
-  - optparse-applicative-0.18.1.0@sha256:f30973861ac7e7ebff05ff8c7c3d1e4d283a1f3850e1cc14106b0693ec1b6d82,5289
-  # NOTE: the 'pantomime' repo was renamed to 'symfc' upstream.
   - github: PLSec-VU/symfc
-    commit: 1821a716aa06d6fc1d415d7fc758cf3aee9aa0c3
-  - github: PLSec-VU/pantomime-base
-    commit: 1a3b9e223f488e5f2c60f1e3a06e41d39c06fced
-  - github: PLSec-VU/pantomime-clash
-    commit: 5bb122c9d38bb4a18c80360e0e4aff46cc9e817d
+    commit: 4aee0d8bed396d15a02208ff4014b958685a6c88
+  - github: PLSec-VU/symfc-base
+    commit: 4464a413720592cb66718e1bdaf38a2e56fbe939
+  - github: PLSec-VU/symfc-clash
+    commit: af54042d920ea6377b4b0aa58a4a536ee7592eb6
   - github: RobinWebbers/grisette
     commit: ae4d837886efb2e7838f89271f343d6fa8130388
+  - blake2-0.3.0.1
+  - sbv-13.6
+  - clash-prelude-1.8.4
+  - QuickCheck-2.18.0.0
+  - arrows-0.4.4.2
+  - async-2.2.6
+  - atomic-primops-0.8.8
+  - base16-bytestring-1.0.2.0
+  - bytes-0.17.5
+  - cereal-0.5.8.3
+  - cereal-text-0.1.0.2
+  - composition-1.0.2.2
+  - constraints-0.14.4
+  - cryptohash-sha512-0.11.103.0
+  - data-binary-ieee754-0.4.4
+  - data-default-class-0.2.0.0
+  - effectful-core-2.6.1.0
+  - effectful-2.6.1.0
+  - entropy-0.4.1.11
+  - extra-1.8.1
+  - generic-deriving-1.14.7
+  - ghc-typelits-extra-0.5.2
+  - ghc-typelits-knownnat-0.8.2
+  - ghc-typelits-natnormalise-0.9.3
+  - half-0.3.3
+  - hashable-1.5.1.0
+  - haskell-src-exts-1.23.1
+  - haskell-src-meta-0.8.15
+  - infinite-list-0.1.3
+  - lens-5.3.6
+  - libBF-0.6.8
+  - loch-th-0.2.2
+  - melf-1.3.1
+  - microlens-0.5.0.0
+  - optparse-applicative-0.19.0.0
+  - parallel-3.2.2.0
+  - prettyprinter-1.7.1
+  - primitive-0.9.1.0
+  - random-1.3.1
+  - recursion-schemes-5.2.3
+  - reflection-2.1.9
+  - singletons-3.0.4
+  - string-interpolate-0.3.4.0
+  - syb-0.7.3
+  - tagged-0.8.10
+  - tasty-1.5.3
+  - tasty-hunit-0.10.2
+  - tasty-quickcheck-0.11.1
+  - th-abstraction-0.7.2.0
+  - th-compat-0.1.7
+  - th-expand-syns-0.4.12.0
+  - th-lift-0.8.7
+  - th-lift-instances-0.1.20
+  - th-orphans-0.13.17
+  - tree-view-0.5.1
+  - type-errors-0.2.0.2
+  - uniplate-1.6.13
+  - unordered-containers-0.2.21
+  - vector-0.13.2.0
+  - Stream-0.4.7.2
+  - ansi-terminal-1.1.5
+  - assoc-1.1.1
+  - base-orphans-0.9.4
+  - bifunctors-5.6.3
+  - binary-orphans-1.0.5
+  - boring-0.2.2
+  - call-stack-0.4.0
+  - clock-0.8.4
+  - comonad-5.0.10
+  - contravariant-1.5.6
+  - data-default-0.8.0.2
+  - data-fix-0.3.4
+  - distributive-0.6.3
+  - first-class-families-0.8.2.0
+  - free-5.2
+  - ghc-tcplugin-api-0.18.2.0
+  - happy-2.2
+  - indexed-traversable-0.1.4
+  - indexed-traversable-instances-0.1.2
+  - kan-extensions-5.2.8
+  - monad-control-1.0.3.1
+  - prettyprinter-ansi-terminal-1.1.3
+  - profunctors-5.6.3
+  - scientific-0.3.8.1
+  - semigroupoids-6.0.2
+  - split-0.2.5
+  - splitmix-0.1.3.2
+  - strict-0.5.1
+  - strict-mutable-base-1.1.0.0
+  - text-conversions-0.3.1.1
+  - th-reify-many-0.1.10
+  - these-1.2.1
+  - transformers-base-0.4.6
+  - transformers-compat-0.8
+  - unliftio-core-0.2.1.0
+  - utf8-string-1.0.2
+  - vector-stream-0.1.0.1
+  - OneTuple-0.4.2.1
+  - StateVar-1.2.2
+  - adjunctions-4.4.4
+  - ansi-terminal-types-1.1.3
+  - base64-bytestring-1.2.1.0
+  - colour-2.3.6
+  - happy-lib-2.2
+  - integer-logarithms-1.0.5
+  - invariant-0.6.5
+  - lazysmallcheck-0.6
+  - safe-0.3.21
+  - unliftio-0.2.25.1
+  - safe-exceptions-0.1.7.4
 
-allow-newer-deps:
-- blake2
-- pantomime
+# allow-newer-deps:
+# - blake2
+# - pantomime
 
 allow-newer: true
 

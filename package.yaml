@@ -21,7 +21,8 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 # The modules listed under the smt-proof flag in the library discharge their
 # properties through an SMT solver while GHC compiles them, so building them
-# needs a solver on PATH and takes as long as the solver does. Pantomime goes through SBV, and SBV's Z3 backend is
+# needs a solver on PATH and takes as long as the solver does. SymFC goes
+# through SBV, and SBV's Z3 backend is
 # pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
 # useful time, while bitwuzla discharges each in under a minute:
 #
@@ -82,10 +83,12 @@ dependencies:
 - exceptions
 - entropy
 - binary
-- pantomime
-- pantomime-clash
-- pantomime-base
+- sym-fc
+- sym-fc-clash
+- sym-fc-base
 - template-haskell
+- constraints
+- comonad
 
 ghc-options:
 - -Wall
@@ -99,7 +102,7 @@ ghc-options:
 - -Wredundant-constraints
 - -fexpose-all-unfoldings
 - -fplugin GHC.TypeLits.Normalise
-- -fplugin Pantomime
+- -fplugin SymFC
 
 library:
   source-dirs:
@@ -115,9 +118,26 @@ library:
         - Proof.Cache.SMT.Array
         - Proof.Cache.SMT.Axioms
         - Proof.Cache.SMT.Coherent
-        - Proof.SMT.Logged
-        - Proof.SMT.Sanity
         - Proof.Core.Functional.System
+        - Proof.SMT.Concrete
+        - Proof.SMT.Sanity
+        - Proof.SMT.Stepper
+        - Proof.SMT.Stepper.Blake2b
+        - Proof.SMT.Stepper.Chacha
+        - Proof.SMT.Stepper.X25519.Call
+        - Proof.SMT.Stepper.X25519.Cswap
+        - Proof.SMT.Stepper.X25519.Ladder
+        - Proof.SMT.Stepper.X25519.Mul
+        - Proof.SMT.Stepper.Memcmp
+        - Proof.SMT.Stepper.P256Call
+        - Proof.SMT.Stepper.P256Field
+        - Proof.SMT.Stepper.P256Multiply
+        - Proof.SMT.Stepper.P256Recode
+        - Proof.SMT.Stepper.RelMem
+        - Proof.SMT.Stepper.Relational
+        - Proof.SMT.Stepper.Invariant
+        - Proof.SMT.Stepper.Sha256
+        - Proof.SMT.Symbolic
       cpp-options: -DSMT_PROOF
   # Listed explicitly, with no automatic discovery: the solver modules above
   # live in proof/ too, and must only be built with the smt-proof flag.
@@ -138,6 +158,7 @@ library:
     - Proof.Core.Leakage.Driver
     - Proof.Core.Leakage.Invariant
     - Proof.Core.Leakage.Obligation
+    - Access
     - Core
     - Elf.ElfLoader
     - Elf.Syscall
@@ -154,6 +175,18 @@ library:
     - Pretty
     - Core.RegFile
     - Simulate
+    - Stepper
+    - Stepper.AddrMap
+    - Stepper.Concrete
+    - Stepper.ElfCode
+    - Stepper.Embedding
+    - Stepper.Memory
+    - Stepper.Rel
+    - Stepper.RelMem
+    - Stepper.RelRegs
+    - Stepper.RelState
+    - Stepper.Relational
+    - Stepper.Shift
     - Types
     - Util
 

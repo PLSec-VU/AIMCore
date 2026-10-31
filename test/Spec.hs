@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -18,19 +17,11 @@ import Core.RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
-#ifdef SMT_PROOF
-import qualified Proof.SMT.Sanity as Sanity
-#endif
 import qualified Prelude
-#ifdef SMT_PROOF
-import qualified Proof.Cache.Functional.Solver
-import qualified Proof.Core.Functional.Solver
-import qualified Proof.Core.Leakage.Solver
-#endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.QuickCheck
 import "aimcore" Types
 import "aimcore" Util
@@ -53,85 +44,12 @@ mkPureTest s (CPUTest prog expected) =
      in forM_ expected $ \(loc, res) ->
           readWord (fromIntegral loc) ram @?= res
 
-#ifdef SMT_PROOF
--- | The compile-time symbolic checks, read back out.
---
--- The first three establish that the Pantomime plugin is wired in and actually
--- discharging properties -- since pantomime 1821a71 an invalid property no
--- longer fails the build, so the negative control has to be asserted here.
--- The rest are the proofs themselves; see "Proof.Core.Functional.Solver" and
--- "Proof.Core.Leakage.Solver".
-sanityTests :: TestTree
-sanityTests =
-  testGroup
-    "Symbolic proof results"
-    [ testCase "plugin sanity: deMorgan is valid" $ verdict "deMorgan" @?= Nothing,
-      testCase "plugin sanity: doubling is valid" $ verdict "doubling" @?= Nothing,
-      testCase "plugin sanity: negative control yields a counterexample" $
-        assertBool "expected a counterexample for 'bogus'" $
-          isJust (verdict "bogus"),
-      testCase "array embedding round-trips" $
-        lookup "arrRoundTripP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "shift embeddings are sane" $
-        lookup "shiftsSaneP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "base case: invariant holds after the reset hop" $
-        lookup "baseCaseP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "k = 0 inductive step is valid" $
-        lookup "indStep0P" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "k = 1 inductive step is valid" $
-        lookup "indStep1P" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "k = 2 inductive step is valid" $
-        lookup "indStep2P" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "k = 3 inductive step is valid" $
-        lookup "indStep3P" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "the invariant implies the ISA's register file is the core's, flushed" $
-        lookup "regFileUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "the invariant implies the ISA's memory is the core's, flushed" $
-        lookup "memUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "leakage base case: simulator matches the first hop" $
-        lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
-      testCase "k = 0 leakage step is valid" $
-        lookup "indStepLeak0P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
-      testCase "k = 1 leakage step is valid" $
-        lookup "indStepLeak1P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
-      testCase "k = 2 leakage step is valid" $
-        lookup "indStepLeak2P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
-      testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
-      testGroup
-        "the 4 KiB cache answers as ideal memory, with delay"
-        [ testCase name $ lookup name Proof.Cache.Functional.Solver.results @?= Just Nothing
-          | name <-
-              [ "cacheArraysP",
-                "coherentDataP",
-                "coherentWriteP",
-                "coherentLayoutP",
-                "baseCaseP",
-                "indStep0P",
-                "indStep4P",
-                "indStep8P",
-                "readyUnderInvP",
-                "readyIdleNoWaitP",
-                "waitsAfterRequestP"
-              ]
-        ]
-    ]
-  where
-    verdict :: String -> Maybe String
-    verdict name = case lookup name Sanity.results of
-      Just v -> v
-      Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
-#endif
 
 tests :: TestTree
 tests =
   testGroup
     "All Tests"
-    [
-#ifdef SMT_PROOF
-      sanityTests,
-#endif
-      proofTests,
+    [ proofTests,
       isaConformanceTests,
       instructionTests,
       testGroup

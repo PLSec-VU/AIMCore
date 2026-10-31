@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 
 module Core.Instruction
   ( Instruction (..),
@@ -60,6 +61,7 @@ data Arith
   | -- | Set Less Than Unsigned
     SLTU
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 -- | Comparison operations.
 data Comparison
@@ -76,24 +78,28 @@ data Comparison
   | -- | Greater or Equals than Unsigned
     GEU
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 -- | Sign extension of a load operation.
 data Sign
   = Signed
   | Unsigned
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 -- | The base for an upper type operation: lui or auipc.
 data UBase
   = PC
   | Zero
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 -- | Environment operation: ecall or ebreak.
 data Env
   = Call
   | Break
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 -- | Types of operations using the immediate encoding.
 data IOperation
@@ -102,6 +108,7 @@ data IOperation
   | Env Env
   | Jump
   deriving (Eq, Show, Generic, NFDataX)
+  deriving stock (Lift)
 
 -- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
 data Reason4Stall
@@ -127,6 +134,7 @@ data Reason4Stall
   | -- | The core has halted.
     Halted
   deriving (Eq, Show, Generic, NFDataX, Binary)
+  deriving stock (Lift)
 
 -- | Decoded instructions
 data Instruction
@@ -145,6 +153,7 @@ data Instruction
   | -- | nop
     Nop Reason4Stall
   deriving (Eq, Show, Generic, NFDataX)
+  deriving stock (Lift)
 
 nop :: Instruction
 nop = RType ADD 0 0 0

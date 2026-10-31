@@ -27,7 +27,7 @@ module Proof.Cache.Functional.Contract
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core (Input (..), Output (..), StateG (..), circuit)
+import Core (Control (..), Input (..), Output (..), StateG (..), circuit)
 import Data.Maybe (isNothing)
 import Memory.Cache4KServer (CacheSrv (..), CacheSrvState (..))
 import Memory.Types (MemOps)
@@ -69,8 +69,29 @@ sameCoreAt wr s1 s2 =
     && stateWbInstr s1 == stateWbInstr s2
     && stateWbRes s1 == stateWbRes s2
     && lookupRFg wr (stateRegFile s1) == lookupRFg wr (stateRegFile s2)
-    && stateCtrl s1 == stateCtrl s2
-    && stateHalt s1 == stateHalt s2
+    && sameControl (stateCtrl s1) (stateCtrl s2)
+    && sameMaybe (==) (stateHalt s1) (stateHalt s2)
+
+-- | Field-by-field equality of the control lines. The derived 'Eq' on 'Maybe'
+-- has an unreachable branch whose stub SymFC cannot unfold, so the 'Maybe'
+-- fields go through 'sameMaybe'.
+sameControl :: Control -> Control -> Bool
+sameControl c1 c2 =
+  sameMaybe (==) (ctrlDeLoadHazard c1) (ctrlDeLoadHazard c2)
+    && sameMaybe (==) (ctrlDeStoreHazard c1) (ctrlDeStoreHazard c2)
+    && sameMaybe (==) (ctrlExInstr c1) (ctrlExInstr c2)
+    && sameMaybe (==) (ctrlExJumpAddr c1) (ctrlExJumpAddr c2)
+    && sameMaybe (==) (ctrlExStoreAddrSize c1) (ctrlExStoreAddrSize c2)
+    && ctrlMeMemInstr c1 == ctrlMeMemInstr c2
+    && sameMaybe (==) (ctrlMeStoreAddrSize c1) (ctrlMeStoreAddrSize c2)
+    && sameMaybe (==) (ctrlMeRegFwd c1) (ctrlMeRegFwd c2)
+    && sameMaybe (==) (ctrlWbRegFwd c1) (ctrlWbRegFwd c2)
+    && ctrlMemNotReady c1 == ctrlMemNotReady c2
+
+sameMaybe :: (a -> a -> Bool) -> Maybe a -> Maybe a -> Bool
+sameMaybe same (Just a) (Just b) = same a b
+sameMaybe _ Nothing Nothing = True
+sameMaybe _ _ _ = False
 
 -- | The core waits for what it asked for: after a request, given no answer, it
 -- makes no request and stays where it was (at register @wr@).

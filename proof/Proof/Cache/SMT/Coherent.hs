@@ -12,6 +12,7 @@
 -- the longest hop exhaust memory before the query is even built.
 module Proof.Cache.SMT.Coherent
   ( DataC (..),
+    freshDataC,
     dataReadC,
     dataWriteC,
     mkDataC,
@@ -19,11 +20,14 @@ module Proof.Cache.SMT.Coherent
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Data.Coerce (Coercible, coerce)
+import Data.Coerce (coerce)
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
+import Proof.Cache.SMT.Array (freshRaw, freshTag)
 import Proof.Cache.SMT.Raw
-import Proof.SMT.Array (MemArr)
+import Proof.SMT.Array (MemArr, freshMA)
+import qualified SymFC.BuiltIn as P
+import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
 import Types (Word)
 import Prelude hiding (Ordering (..), Word, init, log, not, repeat, undefined, (!!), (&&), (++), (||))
 
@@ -35,23 +39,34 @@ import Prelude hiding (Ordering (..), Word, init, log, not, repeat, undefined, (
 data DataC = DataC RawData RawData MemArr TagArr RawData
 
 -- | The embedding of 'Memory.Cache4K.dataRead'.
-dataReadC :: forall arr. (Coercible DataC arr) => BitVector 10 -> arr -> Word
+dataReadC :: forall arr. Embeddable arr DataC => BitVector 10 -> arr -> Word
 dataReadC i a
-  | rawRead i written /= 0 = rawRead i ws
-  | entryValid e = memReadWord (wordAddr (entryTag e) si (slice d1 d0 i) 0) mem
-  | otherwise = rawRead i raw
+  | Embedding <- embedding @arr = readC (coerce a)
   where
-    DataC ws written mem tags raw = coerce a
+    readC (DataC ws written mem tags raw)
+      | rawRead i written /= 0 = rawRead i ws
+      | entryValid e = memReadWord (wordAddr (entryTag e) si (slice d1 d0 i) 0) mem
+      | otherwise = rawRead i raw
+      where
+        e = tagRead si tags
     si = slice d9 d2 i
-    e = tagRead si tags
 
 -- | The embedding of 'Memory.Cache4K.dataWrite'.
-dataWriteC :: forall arr. (Coercible DataC arr) => BitVector 10 -> Word -> arr -> arr
-dataWriteC i v a = coerce (DataC (rawWrite i v ws) (rawWrite i 1 written) mem tags raw)
+dataWriteC :: forall arr. Embeddable arr DataC => BitVector 10 -> Word -> arr -> arr
+dataWriteC i v a
+  | Embedding <- embedding @arr = coerce (writeC (coerce a))
   where
-    DataC ws written mem tags raw = coerce a
+    writeC (DataC ws written mem tags raw) = DataC (rawWrite i v ws) (rawWrite i 1 written) mem tags raw
 
 -- | The embedding of 'Proof.Cache.Functional.Obligation.mkDataMem': nothing
 -- written yet.
-mkDataC :: forall arr. (Coercible DataC arr) => MemArr -> TagArr -> RawData -> arr
-mkDataC mem t raw = coerce (DataC rawZero rawZero mem t raw)
+mkDataC :: forall arr. Embeddable arr DataC => MemArr -> TagArr -> RawData -> arr
+mkDataC mem t raw
+  | Embedding <- embedding @arr = coerce (DataC rawZero rawZero mem t raw)
+
+-- | The embedding of 'Proof.Cache.SMT.Array.freshData': any coherent-cache
+-- data array, writes included.
+freshDataC :: forall arr. Embeddable arr DataC => P.Sym arr
+freshDataC
+  | Embedding <- embedding @arr =
+      coerce <$> (DataC <$> freshRaw <*> freshRaw <*> freshMA <*> freshTag <*> freshRaw)
