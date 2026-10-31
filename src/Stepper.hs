@@ -4,7 +4,7 @@ module Stepper
   , Fuel (..)
   ) where
 
-import ISA (IsaStateG, StepG)
+import Core.ISA (IsaStateG, StepG)
 import Stepper.Memory (Memory, RegFile)
 
 type IsaSys = IsaStateG RegFile (Memory 32 8)

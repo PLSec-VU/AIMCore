@@ -4,14 +4,12 @@
 
 module HardwareSim (topEntity) where
 
-import Access
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (topEntity)
-import Data.Functor.Identity
 import Data.Maybe (fromMaybe)
 import qualified GHC.TypeNats
-import Instruction hiding (decode)
-import RegFile
+import Core.Instruction hiding (decode)
+import Core.RegFile
 import Types
 import Memory.Types
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, take, undefined, (!!), (&&), (++), (||))
@@ -20,35 +18,39 @@ topEntity ::
   Clock System ->
   Reset System ->
   Enable System ->
-  Signal System (Output Identity)
+  Signal System Output
 topEntity = exposeClockResetEnable $ system prog3
 
-cpu :: forall f dom. (Access f, Generic (f Word), NFDataX (f Word), HiddenClockResetEnable dom) => Signal dom (Input f) -> Signal dom (Output f)
-cpu = mealy (circuit @f @RegFile) (init @f @RegFile)
+cpu :: forall dom. (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
+cpu = mealy (circuit @RegFile) (init @RegFile)
 
-system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom (Output Identity)
+system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom Output
 system prog = cpuOut
   where
-    cpuInput :: Signal dom (Input Identity)
+    cpuInput :: Signal dom Input
     cpuInput = register initInput input
-    cpuOut = cpu @Identity cpuInput
-    ram = HardwareSim.mkRAM @Identity @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemAccess False 0 Word Nothing) . outMem <$> cpuOut)
-    input = Input . Identity <$> ram
+    cpuOut = cpu cpuInput
+    ram = HardwareSim.mkRAM @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemRead 0 Word) . outMem <$> cpuOut)
+    input = Input . Just <$> ram
 
-mkRAM :: forall f progSize ramSize dom.
-  (Access f, HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
+mkRAM :: forall progSize ramSize dom.
+  (HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
   Vec progSize Word ->
-  Signal dom (MemAccess f) ->
+  Signal dom MemAccess ->
   Signal dom Word
 mkRAM prog memAccessM =
   combine <$> ram0 <*> ram1 <*> ram2 <*> ram3
   where
-    addr = memAddress <$> memAccessM
+    addr = accessAddr <$> memAccessM
+
+    accessAddr (MemFetch a) = a
+    accessAddr (MemRead a _) = a
+    accessAddr (MemWrite a _ _) = a
 
     mkWrite n =
-      fmap $ \memAccess -> do
-        w <- memVal memAccess
-        pure (memAddress memAccess, extractByte n (extract w))
+      fmap $ \memAccess -> case memAccess of
+        MemWrite a _ w -> Just (a, extractByte n w)
+        _ -> Nothing
 
     extractByte 0 w = slice d7 d0 w
     extractByte 1 w = slice d15 d8 w
@@ -100,6 +102,6 @@ prog3 =
         :>
         -- mem[1 + r0] := r2
         SType Word 4 0 2
-        :> Instruction.break
+        :> Core.Instruction.break
         :> Nil
     )

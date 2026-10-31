@@ -6,7 +6,7 @@ module InstructionSpec (instructionTests) where
 import Clash.Prelude hiding (Ordering (..), Word, break, def, init, lift, log, resize)
 import Control.Monad
 import Data.Maybe (isJust, fromJust)
-import Instruction
+import Core.Instruction
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck

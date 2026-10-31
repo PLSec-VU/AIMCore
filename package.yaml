@@ -19,9 +19,10 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/aimcore#readme>
 
-# The modules under proof-smt/ discharge their properties through an SMT solver
-# while GHC compiles them, so building them needs a solver on PATH and takes as
-# long as the solver does. SymFC goes through SBV, and SBV's Z3 backend is
+# The modules listed under the smt-proof flag in the library discharge their
+# properties through an SMT solver while GHC compiles them, so building them
+# needs a solver on PATH and takes as long as the solver does. SymFC goes
+# through SBV, and SBV's Z3 backend is
 # pointed at a different binary with SBV_Z3; Z3 itself does not finish these in
 # useful time, while bitwuzla discharges each in under a minute:
 #
@@ -109,12 +110,15 @@ library:
     - proof
   when:
     - condition: flag(smt-proof)
-      source-dirs: proof-smt
       exposed-modules:
-        - Proof.Functional.Induction
-        - Proof.Leakage.Induction
-        - Proof.SMT.Array
+        - Proof.Cache.Functional.Solver
+        - Proof.Core.Functional.Solver
+        - Proof.Core.Leakage.Solver
         - Proof.SMT.Axioms
+        - Proof.Cache.SMT.Array
+        - Proof.Cache.SMT.Axioms
+        - Proof.Cache.SMT.Coherent
+        - Proof.Core.Functional.System
         - Proof.SMT.Concrete
         - Proof.SMT.Sanity
         - Proof.SMT.Stepper
@@ -134,32 +138,55 @@ library:
         - Proof.SMT.Stepper.Invariant
         - Proof.SMT.Stepper.Sha256
         - Proof.SMT.Symbolic
-        - Proof.SMT.System
       cpp-options: -DSMT_PROOF
+  # Listed explicitly, with no automatic discovery: the solver modules above
+  # live in proof/ too, and must only be built with the smt-proof flag.
+  other-modules: []
   exposed-modules:
-    - Proof.Machine
-    - Proof.Functional.Driver
-    - Proof.Functional.Invariant
-    - Proof.Functional.Obligation
-    - Proof.Leakage.Model
-    - Proof.Leakage.Simulator
-    - Proof.Leakage.Driver
-    - Proof.Leakage.Invariant
-    - Proof.Leakage.Obligation
+    - Proof.Cache.Functional.Contract
+    - Proof.Cache.Functional.Driver
+    - Proof.Cache.Functional.Invariant
+    - Proof.Cache.Functional.Obligation
+    - Proof.Cache.SMT.Raw
+    - Proof.SMT.Array
+    - Proof.Core.Functional.Machine
+    - Proof.Core.Functional.Driver
+    - Proof.Core.Functional.Invariant
+    - Proof.Core.Functional.Obligation
+    - Proof.Core.Leakage.Model
+    - Proof.Core.Leakage.Simulator
+    - Proof.Core.Leakage.Driver
+    - Proof.Core.Leakage.Invariant
+    - Proof.Core.Leakage.Obligation
     - Access
     - Core
     - Elf.ElfLoader
     - Elf.Syscall
     - HardwareSim
-    - Instruction
-    - ISA
+    - Core.Instruction
+    - Core.ISA
     - Memory.Types
+    - Memory.Ideal
     - Memory.Vec
     - Memory.ST
     - Memory.IO
+    - Memory.Cache4K
+    - Memory.Cache4KServer
     - Pretty
-    - RegFile
+    - Core.RegFile
     - Simulate
+    - Stepper
+    - Stepper.AddrMap
+    - Stepper.Concrete
+    - Stepper.ElfCode
+    - Stepper.Embedding
+    - Stepper.Memory
+    - Stepper.Rel
+    - Stepper.RelMem
+    - Stepper.RelRegs
+    - Stepper.RelState
+    - Stepper.Relational
+    - Stepper.Shift
     - Types
     - Util
 
@@ -179,6 +206,13 @@ tests:
   aimcore-test:
     main:                Spec.hs
     source-dirs:         test
+    # Listed explicitly: Cache4KSpec and CompositionSpec are still written
+    # against the cache's old interface and wait for the cache's leakage proof.
+    other-modules:
+      - BenchmarkSpec
+      - InstructionSpec
+      - IsaSpec
+      - ProofSpec
     when:
       - condition: flag(smt-proof)
         cpp-options: -DSMT_PROOF

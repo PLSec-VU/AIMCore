@@ -9,7 +9,6 @@ module Elf.ElfLoader
   , getElfSegments
   ) where
 
-import Access
 import Clash.Explicit.Prelude (Unsigned, bitCoerce, zeroExtend)
 import Clash.Explicit.Prelude.Safe ((.&.))
 import Control.Monad (forM_, forM)
@@ -23,7 +22,7 @@ import Data.Elf.Constants
 import Data.Elf.Headers
 import Data.Word
 import Types
-import RegFile (modifyRF)
+import Core.RegFile (modifyRF)
 import Memory.Types
 import Util
 import Prelude hiding (Ordering (..), Word, init, log, map, not, repeat, undefined, (&&), (++), (||))
@@ -94,9 +93,9 @@ readStringFromMemory addr count = do
   pure $ P.map chr $ takeWhile (/= 0) bytes
 
 -- | Called when the core halts with a syscall. Return the value to write to a0, or Nothing to truly exit.
-type Instrument f m = Core.State f -> m (Maybe (f Types.Word))
+type Instrument m = Core.State -> m (Maybe Types.Word)
 
-runElf :: forall f m. (Access f, MonadIO m, MonadMemory m) => Instrument f m -> CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m ()
+runElf :: forall m. (MonadIO m, MonadMemory m) => Instrument m -> CircuitSim m Core.Input Core.State Core.Output -> m ()
 runElf instr c = go c
   where
     go sim@(CircuitSim i s step next) = do

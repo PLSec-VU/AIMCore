@@ -12,7 +12,6 @@ module Memory.ST
   )
 where
 
-import Access (Access)
 import Clash.Prelude hiding (Ordering (..), Word, init, lift)
 import Control.Monad (when)
 import Control.Monad.Reader
@@ -104,7 +103,7 @@ runSTSim f sim = f sim
 
 -- | Utility to run a full simulation until halt.
 --   Uses deepseqX to ensure the state is fully evaluated and prevent thunk leaks.
-runUntilHalt :: (NFDataX (f Word), Generic (f Word), MonadMemory m) => CircuitSim m (Core.Input f) (Core.State f) (Core.Output f) -> m (Core.State f)
+runUntilHalt :: (MonadMemory m) => CircuitSim m Core.Input Core.State Core.Output -> m Core.State
 runUntilHalt sim = go sim
   where
     go sim' = do

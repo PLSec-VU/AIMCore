@@ -5,16 +5,15 @@
 
 module Main (main) where
 
-import Access
 import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
 import Data.Maybe (fromJust, isJust)
-import Instruction
+import Core.Instruction
 import InstructionSpec (instructionTests)
-import RegFile
+import Core.RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
@@ -228,7 +227,7 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
+instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
@@ -240,6 +239,7 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
+      <*> pure False
     where
       genMaybeRegFwd = do
         hasFwd <- arbitrary
@@ -247,7 +247,7 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
           then do
             regIdx <- arbitrary
             word <- arbitrary
-            pure $ Just (regIdx, pure word)
+            pure $ Just (regIdx, word)
           else pure Nothing
 
 instance Arbitrary Core.HaltState where
@@ -256,16 +256,15 @@ instance Arbitrary Core.HaltState where
     , Core.Syscall <$> arbitrary
     ]
 
-instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
+instance Arbitrary RegFile where
   arbitrary = do
     vals <- vectorOf 31 arbitrary
     pure $ RegFile $ unsafeFromList vals
 
-instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.State f) where
+instance Arbitrary Core.State where
   arbitrary =
     Core.State
       <$> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
@@ -282,11 +281,11 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
 -- | Half the time a valid instruction encoding, half the time an arbitrary data
 -- word. Whether the core treats it as an instruction is up to the state's
 -- 'Core.stateDeExpInstr'.
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
+instance Arbitrary Input where
   arbitrary = do
     mem <-
       oneof
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    pure $ Input (pure mem)
+    pure $ Input (Just mem)

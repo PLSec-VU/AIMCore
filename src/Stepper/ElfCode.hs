@@ -21,7 +21,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Elf.ElfLoader (getElfSegments, readElf)
 import Control.Monad (unless)
-import Instruction (Instruction (..), Reason4Stall (..), decode', nop)
+import Core.Instruction (Instruction (..), Reason4Stall (..), decode', nop)
 import Language.Haskell.TH
 import Memory.Types (MemFn (..), MemOps (..))
 import Language.Haskell.TH.Syntax (addDependentFile, lift)

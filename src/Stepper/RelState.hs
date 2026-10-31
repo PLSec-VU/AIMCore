@@ -39,10 +39,10 @@ module Stepper.RelState
 
 import Data.Functor.Identity (runIdentity)
 import Clash.Prelude (bitCoerce)
-import ISA (DepReg (..), Func, Instr (..), IsaStateG (..), PC, interp)
-import Instruction (Instruction, decode')
+import Core.ISA (DepReg (..), Func, Instr (..), IsaStateG (..), PC, interp)
+import Core.Instruction (Instruction, decode')
 import Memory.Types (MemOps (..))
-import RegFile (RegFileOps (..))
+import Core.RegFile (RegFileOps (..))
 import Stepper (IsaSys)
 import Stepper.Concrete (concreteAddress)
 import Stepper.Memory (Memory)
@@ -181,7 +181,7 @@ sameState code isa =
     , relCode = code
     , relPc = isaPc isa
     , relFetchHint = Nothing
-    , relRegs = regsFrom (\idx -> Same (runIdentity (lookupRFg idx (isaRegFile isa))))
+    , relRegs = regsFrom (\idx -> Same (lookupRFg idx (isaRegFile isa)))
     , relMem = sameMem (isaMem isa)
     , relWritesCode = False
     }
@@ -193,7 +193,7 @@ pairState code first second =
     , relMem = pairMem (isaMem first) (isaMem second)
     }
   where
-    registerOf isa idx = runIdentity (lookupRFg idx (isaRegFile isa))
+    registerOf isa idx = lookupRFg idx (isaRegFile isa)
 
 withSecretReg :: RegIdx -> Word -> Word -> RelState -> SymFC.Sym RelState
 withSecretReg idx secretA secretB st = do

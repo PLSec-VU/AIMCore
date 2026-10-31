@@ -9,14 +9,13 @@ module Stepper.Relational
   , leakOfReadsAgree
   ) where
 
-import Data.Functor.Identity (Identity (..))
 import Data.Maybe (isJust)
-import ISA (Flow (..), IsaStateG (..), Machine (..), PC, isaStepM)
-import Instruction (Instruction)
-import Instruction qualified as I
+import Core.ISA (Flow (..), IsaStateG (..), Machine (..), PC, isaStepM)
+import Core.Instruction (Instruction)
+import Core.Instruction qualified as I
 import Memory.Types (MemOps (..))
-import Proof.Leakage.Model (leakOf)
-import RegFile (RegFn (..))
+import Proof.Core.Leakage.Model (leakOf)
+import Core.RegFile (RegFn (..))
 import Stepper (Fuel (..))
 import Stepper.Concrete (concreteAddress, concreteRegIdx, knownBool)
 import Stepper.Memory (Memory)
@@ -53,13 +52,13 @@ runStates st here next = Pair (runState left leftMem) (runState right rightMem)
     runState side sideMem =
       IsaState
         { isaPc = relPc st
-        , isaRegFile = RegFn \idx -> Identity (side (readSlot (relRegs st) (AnyRegister idx)))
+        , isaRegFile = RegFn \idx -> side (readSlot (relRegs st) (AnyRegister idx))
         , isaMem = memoryLeakOfReads (sideMem (relMem st))
         }
     memoryLeakOfReads sideMem = case maybe (codeFetch (relCode st) (relPc st + 4)) Just next of
       Just following -> withCodeWord here (withCodeWord following Memory.empty)
       Nothing -> withCodeWord here sideMem
-    withCodeWord instr = memWriteWord Word (fetchedAddress instr) (fetchedWord instr)
+    withCodeWord instr = memWrite (fetchedAddress instr) Word (fetchedWord instr)
 
 leakOfReadsAgree :: Applicative m => (RegIdx -> m Bool) -> m Bool -> Instruction -> m Bool
 leakOfReadsAgree agrees followingAgrees ir = case ir of

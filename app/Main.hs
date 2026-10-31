@@ -5,14 +5,14 @@ import Control.Exception (catch)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Core as Core
-import Data.Functor.Identity
+import Data.IORef
 import Elf.ElfLoader
 import Elf.Syscall (ProgramExitException (..), handleSyscall)
 import Memory.IO (IOMemT, ioMemInitSP, loadProgram, newIOMem, runIOMemT)
 import Memory.Types
 import Numeric (showHex)
 import Options.Applicative
-import RegFile
+import Core.RegFile
 import Simulate
 import System.Exit (ExitCode (..), exitWith)
 import Types (Word)
@@ -56,21 +56,24 @@ programInfo = info (optionsParser <**> helper)
             \  uc-risc-v --verbose benchmark/bench_blake2b" )
 
 -- | Called by 'runElf' whenever the core halts on a syscall: optionally log the
--- state, then service the syscall.
+-- state, remember it as the final state, and service the syscall.
 instrument ::
   (MonadIO m, MonadMemory m) =>
-  Bool -> Instrument Identity m
-instrument shouldLog s = do
+  String -> Bool -> IORef (Maybe Core.State) -> Instrument m
+instrument modeName shouldLog finalStateRef s = do
   let pc = Core.stateExPc s
 
   when shouldLog $ do
     liftIO $ putStrLn "==============================="
+    liftIO $ putStrLn $ "[" P.++ modeName P.++ " MODE]"
     liftIO $ print pc
     let rf = Core.stateRegFile s
     let a0 = lookupRF 10 rf
     let a7 = lookupRF 17 rf
     let s0 = lookupRF 8 rf
     liftIO $ putStrLn $ "PC=0x" P.++ showHex pc "" P.++ " Instr=0x" P.++ show (Core.stateExInstr s) P.++ " a0=" P.++ show a0 P.++ " s0=" P.++ show s0 P.++ " syscall=" P.++ show a7
+
+  liftIO $ writeIORef finalStateRef (Just s)
 
   handleSyscall s
 
@@ -86,15 +89,16 @@ runExecutable Options{..} = do
     putStrLn "Starting execution..."
 
   mem <- newIOMem elf
+  finalStateRef <- newIORef Nothing
   runIOMemT mem $ do
     loadProgram elf
     runElf
-      (instrument optVerbose)
-      (simulator @Identity @(IOMemT IO))
+      (instrument "STANDARD" optVerbose finalStateRef)
+      (simulator @(IOMemT IO))
         { circuitState =
             Core.initAt
               (fromIntegral entryOffset)
-              (modifyRF 2 (pure $ ioMemInitSP mem) (initRF @Identity))
+              (modifyRF 2 (ioMemInitSP mem) initRF)
         }
 
   when optVerbose $ putStrLn "Execution completed successfully"

@@ -22,8 +22,7 @@ import Data.Constraint (Dict (Dict))
 import Memory.Types (MemOps (..))
 import Prelude hiding (Word, read)
 import Types (Size (..))
-import RegFile (RegFileOps (..))
-import Access (extract)
+import Core.RegFile (RegFileOps (..))
 import SymFC.BuiltIn qualified as SymFC
 import SymFC.Clash (BitVec(..))
 
@@ -86,7 +85,7 @@ instance MemOps (Memory 32 8) where
       ++# memReadByte (a + 2) m
       ++# memReadByte (a + 1) m
       ++# memReadByte a m
-  memWriteWord size a w m = case size of
+  memWrite a size w m = case size of
     Byte -> put a b0 m
     Half -> put (a + 1) b1 (put a b0 m)
     Word -> put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
@@ -98,25 +97,22 @@ instance MemOps (Memory 32 8) where
       put = write
 
 -- | Register file for the stepper.
---
--- WARNING: The 'f' parameter is a lie here. We use this only for the stepper
--- where 'f' is 'Identity'.
-newtype RegFile (f :: Type -> Type) where
-  RegFile :: Memory 5 32 -> RegFile f
+newtype RegFile where
+  RegFile :: Memory 5 32 -> RegFile
 
-instance SymFC.Symbolic (RegFile f) where
+instance SymFC.Symbolic RegFile where
   symbolic = RegFile <$> SymFC.symbolic
 
-instance Eq (RegFile f) where
+instance Eq RegFile where
   RegFile lhs == RegFile rhs = lhs == rhs
 
 instance RegFileOps RegFile where
-  lookupRFg idx (RegFile memory) = pure case idx of
+  lookupRFg idx (RegFile memory) = case idx of
     0 -> 0
     _ -> read idx memory
 
   modifyRFg idx value rf@(RegFile memory) = case idx of
     0 -> rf
-    _ -> RegFile $ write idx (extract value) memory
+    _ -> RegFile $ write idx value memory
 
   initRFg = RegFile empty

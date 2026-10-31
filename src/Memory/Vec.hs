@@ -23,4 +23,4 @@ instance (KnownNat n, Monad m, MonadState (Mem n) m) => MonadMemory m where
   ramRead addr _size = readWord addr <$> gets memRAM
   ramWrite addr size w = do
     ram <- gets memRAM
-    modify $ \s -> s {memRAM = write size addr w ram}
+    modify $ \s -> s {memRAM = write addr size w ram}
