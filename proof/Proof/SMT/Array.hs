@@ -40,17 +40,13 @@ module Proof.SMT.Array
   )
 where
 
-import Access
-import qualified Clash.Prelude
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Coerce (Coercible, coerce)
-import Data.Kind (Type)
 import qualified Pantomime.BuiltIn as P
 import qualified Pantomime.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
-import RegFile (RegFileOps (..))
+import Core.RegFile (RegFileOps (..))
 import Types
-import qualified Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | The Haskell-side register file: 32 entries, so the index is exactly a
@@ -120,7 +116,7 @@ storeRAE = coerce go
 
 -- | The all-zero register file.
 --
--- 'Proof.Leakage.Simulator.censor' installs this on every state it builds, so
+-- 'Proof.Core.Leakage.Simulator.censor' installs this on every state it builds, so
 -- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
 -- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
 -- under the term axiom, which is keyed on this name -- hence OPAQUE, for the
@@ -133,18 +129,15 @@ zeroRA = RegArr (Clash.Prelude.repeat 0)
 zeroRAE :: forall arr. (Coercible RegArrSMT arr) => arr
 zeroRAE = coerce (RegArrSMT (P.aconst 0))
 
--- | The array-backed register file, wrapped so it fits 'RegFileOps'.
---
--- The @f@ parameter is phantom: the embedding must be monomorphic, so the
--- element type is fixed to 'Word'. This is a verification-only representation
--- and is used at @f ~ Identity@, where 'unAccess' is the identity.
-newtype RegArrF (f :: Type -> Type) = RegArrF RegArr
+-- | The array-backed register file, wrapped so it fits 'RegFileOps'. A
+-- verification-only representation.
+newtype RegArrF = RegArrF RegArr
 
 instance RegFileOps RegArrF where
-  lookupRFg idx (RegArrF a) = if idx == 0 then pure 0 else pure (loadRA a idx)
+  lookupRFg idx (RegArrF a) = if idx == 0 then 0 else loadRA a idx
   modifyRFg idx v rf@(RegArrF a)
     | idx == 0 = rf
-    | otherwise = RegArrF (storeRA a idx (unAccess v))
+    | otherwise = RegArrF (storeRA a idx v)
 
   -- On the symbolic path; see 'zeroRA'.
   initRFg = RegArrF zeroRA
@@ -262,7 +255,7 @@ instance MemOps MemArr where
   memReadWord a m =
     loadM m (a + 3) ++# loadM m (a + 2) ++# loadM m (a + 1) ++# loadM m a
 
-  memWriteWord size a w m =
+  memWrite a size w m =
     case size of
       Types.Byte -> put a b0 m
       Types.Half -> put (a + 1) b1 (put a b0 m)

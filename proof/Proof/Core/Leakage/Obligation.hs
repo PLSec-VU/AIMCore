@@ -5,33 +5,32 @@
 -- sees only 'leakOf' of the ISA state, produces the same bus observation as the
 -- core on every cycle, and takes the same number of cycles per instruction.
 --
--- Each inductive step assumes the functional invariant ('invAtFree') as a
+-- Each inductive step assumes the functional invariant ('invAt') as a
 -- premise. It pins the core's execute stage to the ISA's next instruction, so
 -- feeding the simulator that instruction's leakage keeps the two machines in
 -- step. The functional proof supplies the invariant for the next hop, so it is
 -- not re-proved here. 'simInv' carries the rest from hop to hop.
-module Proof.Leakage.Obligation
-  ( baseCaseLeakObligation,
-    indStepLeakObligation,
-    indStepLeakObligation1,
-    indStepLeakObligation2,
-    indStepLeakObligation3
+module Proof.Core.Leakage.Obligation
+  ( baseCaseLeak,
+    indStepLeak0,
+    indStepLeak1,
+    indStepLeak2,
+    indStepLeak3
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
 import Memory.Types (MemOps (..))
-import Proof.Functional.Driver
-import Proof.Functional.Invariant (invAtFree)
-import Proof.Functional.Obligation
-import Proof.Leakage.Driver
-import Proof.Leakage.Invariant
-import Proof.Leakage.Model
-import Proof.Leakage.Simulator
-import Proof.Machine
-import RegFile
+import Proof.Core.Functional.Driver
+import Proof.Core.Functional.Invariant (invAt)
+import Proof.Core.Functional.Obligation
+import Proof.Core.Leakage.Driver
+import Proof.Core.Leakage.Invariant
+import Proof.Core.Leakage.Model
+import Proof.Core.Leakage.Simulator
+import Proof.Core.Functional.Machine
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -43,10 +42,10 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- gets no leakage, the simulator's driver gives the same hop length as the
 -- core's, the two make the same bus observations, and 'simInv' holds
 -- afterwards. The register file and memory are arbitrary, as in
--- 'Proof.Functional.Obligation.baseCaseObligation'.
-baseCaseLeakObligation ::
-  (RegFileOps r, MemOps m) => r Identity -> m -> Address -> Bool
-baseCaseLeakObligation rf mem pc =
+-- 'Proof.Core.Functional.Obligation.baseCase'.
+baseCaseLeak ::
+  (RegFileOps r, MemOps m) => Address -> r -> m -> Bool
+baseCaseLeak pc rf mem =
   simDriver Nothing sim == 1
     && obs1 == obsOf out1
     && obs2 == obsOf out2
@@ -67,9 +66,9 @@ baseCaseLeakObligation rf mem pc =
 -- >   ==>  simDriver(leak, sim) = 0 /\ obs(sim) = obs(sys) /\ simInv(sim', sys')
 --
 -- The simulator gets @leakOf isa@ on the hop's first cycle and nothing after.
-indStepLeakObligation ::
+indStepLeak0 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeakObligation wr wa ipc sys sim =
+indStepLeak0 wr wa ipc sys sim =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -79,7 +78,7 @@ indStepLeakObligation wr wa ipc sys sim =
     (sim', obs') = simCircuit sim (Just leak)
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 0
         && simInv sim sys
 
@@ -89,9 +88,9 @@ indStepLeakObligation wr wa ipc sys sim =
         && simInv sim' sys'
 
 -- | The @k = 1@ leakage step: the two-cycle hop.
-indStepLeakObligation1 ::
+indStepLeak1 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeakObligation1 wr wa ipc sys sim =
+indStepLeak1 wr wa ipc sys sim =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -104,7 +103,7 @@ indStepLeakObligation1 wr wa ipc sys sim =
     (sim2, obs2) = simCircuit sim1 Nothing
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 1
         && simInv sim sys
 
@@ -115,9 +114,9 @@ indStepLeakObligation1 wr wa ipc sys sim =
         && simInv sim2 sys2
 
 -- | The @k = 2@ leakage step: the three-cycle hop.
-indStepLeakObligation2 ::
+indStepLeak2 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeakObligation2 wr wa ipc sys sim =
+indStepLeak2 wr wa ipc sys sim =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -133,7 +132,7 @@ indStepLeakObligation2 wr wa ipc sys sim =
     (sim3, obs3) = simCircuit sim2 Nothing
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 2
         && simInv sim sys
 
@@ -145,9 +144,9 @@ indStepLeakObligation2 wr wa ipc sys sim =
         && simInv sim3 sys3
 
 -- | The @k = 3@ leakage step: the four-cycle hop, the longest.
-indStepLeakObligation3 ::
+indStepLeak3 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeakObligation3 wr wa ipc sys sim =
+indStepLeak3 wr wa ipc sys sim =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -166,7 +165,7 @@ indStepLeakObligation3 wr wa ipc sys sim =
     (sim4, obs4) = simCircuit sim3 Nothing
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 3
         && simInv sim sys
 

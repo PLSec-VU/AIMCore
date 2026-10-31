@@ -1,29 +1,33 @@
 -- | The proof obligations, in one place.
 --
--- Both the symbolic properties ("Proof.Functional.Induction") and the QuickCheck harness
+-- Both the symbolic properties ("Proof.Core.Functional.Solver") and the QuickCheck harness
 -- ("ProofSpec") go through these definitions, so the two cannot drift apart.
 -- The only thing they are allowed to differ in is how the system state is
 -- built: symbolic scalars on one side, a generator on the other. That is the
 -- input space, not the property.
-module Proof.Functional.Obligation
+module Proof.Core.Functional.Obligation
   ( isaAt,
-    baseCaseObligation,
-    indStepObligation,
-    indStepObligation1,
-    indStepObligation2,
-    indStepObligation3,
+    flushedRegFile,
+    flushedMem,
+    regFileUnderInv,
+    memUnderInv,
+    baseCase,
+    indStep0,
+    indStep1,
+    indStep2,
+    indStep3,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
+import Data.Maybe (fromMaybe)
 import qualified Core
-import Data.Functor.Identity
-import Proof.Functional.Driver (driver)
-import ISA (IsaStateG (..), StepG (..), isaStep)
-import Proof.Functional.Invariant
+import Proof.Core.Functional.Driver (driver)
+import Core.ISA (IsaStateG (..), StepG (..), isaStep)
+import Proof.Core.Functional.Invariant
 import Memory.Types (MemOps (..))
-import Proof.Machine
-import RegFile
+import Proof.Core.Functional.Machine
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -33,7 +37,7 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- The containers are /derived/ from @sys@ by the flush rather than taken as
 -- further inputs. They have to be: the invariant compares them pointwise, at one
 -- witness register and one witness byte, so a freely quantified register file
--- and memory would be tied to @sys@ only at those two points. 'ISA.isaStep'
+-- and memory would be tied to @sys@ only at those two points. 'Core.ISA.isaStep'
 -- reads memory at @isaPc@ and registers at @rs1@/@rs2@, which are elsewhere, so
 -- the solver could pick an architectural state whose instruction at @isaPc@
 -- bears no relation to the one the core is executing. Deriving them makes the
@@ -45,20 +49,46 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- @stateExPc@ when running and @stateHalt@ once halted. Deriving it from either
 -- one would make the other case unsatisfiable as a premise.
 isaAt :: (RegFileOps r, MemOps m) => Address -> SysG r m -> IsaStateG r m
-isaAt ipc (Sys st inp mem) =
-  IsaState {isaPc = ipc, isaRegFile = frf, isaMem = fm}
-  where
-    (fm, frf) =
-      flushMeStage
-        (Core.stateMeInstr st)
-        (runIdentity (Core.stateMeRes st))
-        (Core.stateMeAddr st)
-        ( flushWbStage
-            (Core.stateWbInstr st)
-            (runIdentity (Core.stateWbRes st))
-            (runIdentity (Core.inputMem inp))
-            (mem, Core.stateRegFile st)
-        )
+isaAt ipc sys =
+  IsaState {isaPc = ipc, isaRegFile = flushedRegFile sys, isaMem = flushedMem sys}
+
+-- | The register file the core stands for: its own, with the writes still in
+-- the pipeline (the memory and writeback stages) applied.
+flushedRegFile :: (RegFileOps r, MemOps m) => SysG r m -> r
+flushedRegFile = snd . flushed
+
+-- | The memory the core stands for: its own, with the stores still in the
+-- pipeline (the memory and writeback stages) applied.
+flushedMem :: (RegFileOps r, MemOps m) => SysG r m -> m
+flushedMem = fst . flushed
+
+-- | The pipeline's pending writes applied to memory and the register file.
+flushed :: (RegFileOps r, MemOps m) => SysG r m -> (m, r)
+flushed (Sys core inp mem) =
+  flushMeStage
+    (Core.stateMeInstr core)
+    (Core.stateMeRes core)
+    (Core.stateMeAddr core)
+    ( flushWbStage
+        (Core.stateWbInstr core)
+        (Core.stateWbRes core)
+        (fromMaybe 0 (Core.inputMem inp))
+        (mem, Core.stateRegFile core)
+    )
+
+-- | The invariant relating the core to the ISA implies that the ISA's register
+-- file is the core's, flushed ('flushedRegFile'), at register @wr@.
+regFileUnderInv :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+regFileUnderInv wr wa isa sys =
+  not (invAt wr wa isa sys)
+    || lookupRFg wr (isaRegFile isa) == lookupRFg wr (flushedRegFile sys)
+
+-- | The invariant relating the core to the ISA implies that the ISA's memory is
+-- the core's, flushed ('flushedMem'), at byte @wa@.
+memUnderInv :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+memUnderInv wr wa isa sys =
+  not (invAt wr wa isa sys)
+    || memReadByte wa (isaMem isa) == memReadByte wa (flushedMem sys)
 
 -- | The base case: the invariant holds once the initial state has taken its
 -- first hop.
@@ -87,13 +117,13 @@ isaAt ipc (Sys st inp mem) =
 -- values on both sides, and the first hop writes neither, so the invariant's
 -- two container equalities hold by construction here and this property alone
 -- would not notice if the core's initial register file and the ISA's
--- ('RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
+-- ('Core.RegFile.initRF') disagreed. The concrete test in "ProofSpec" closes that
 -- gap -- it runs on the real 'Vec'-backed state, where both files are built
 -- independently.
-baseCaseObligation ::
-  (RegFileOps r, MemOps m) => r Identity -> m -> RegIdx -> Address -> Address -> Bool
-baseCaseObligation rf mem wr wa pc =
-  driver sys == 1 && invAtFree wr wa isa sys2
+baseCase ::
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> r -> m -> Bool
+baseCase wr wa pc rf mem =
+  driver sys == 1 && invAt wr wa isa sys2
   where
     isa = IsaState {isaPc = pc, isaRegFile = rf, isaMem = mem}
     sys = Sys (Core.initAt pc rf) Core.initInput mem
@@ -115,9 +145,9 @@ baseCaseObligation rf mem wr wa pc =
 -- core stands still -- the halted cases of the invariant require the
 -- architectural register file and memory to equal the core's, so carrying the
 -- same @isa@ across the step asserts that neither changed.
-indStepObligation ::
+indStep0 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation wr wa ipc sys =
+indStep0 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -128,19 +158,19 @@ indStepObligation wr wa ipc sys =
     sys' = stepSys sys
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 0
 
-    conclusion = invAtFree wr wa isa' sys'
+    conclusion = invAt wr wa isa' sys'
 
 -- | The @k = 1@ inductive step: the driver's two-cycle hop.
 --
 -- The driver also gives the reset state a two-cycle hop, but no obligation
 -- covers it: the invariant does not admit the reset state, and
--- 'Proof.Functional.Induction.baseCase' states that hop directly.
-indStepObligation1 ::
+-- 'Proof.Core.Functional.Solver.baseCase' states that hop directly.
+indStep1 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation1 wr wa ipc sys =
+indStep1 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -152,19 +182,19 @@ indStepObligation1 wr wa ipc sys =
     sys2 = stepSys sys1
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 1
 
-    conclusion = invAtFree wr wa isa' sys2
+    conclusion = invAt wr wa isa' sys2
 
 -- | The @k = 2@ inductive step: the driver's three-cycle hop.
 --
 -- Unlike the shorter hops, this one can execute an environment instruction.
 -- The architectural state then stays at the trapping instruction while the
 -- core reaches one of the two halted invariant cases.
-indStepObligation2 ::
+indStep2 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation2 wr wa ipc sys =
+indStep2 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -177,21 +207,21 @@ indStepObligation2 wr wa ipc sys =
     sys3 = stepSys sys2
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 2
 
-    conclusion = invAtFree wr wa isa' sys3
+    conclusion = invAt wr wa isa' sys3
 
 -- | The @k = 3@ inductive step: the driver's four-cycle hop, the longest.
 --
--- Stated exactly as 'indStepObligation2', one cycle longer. The @IsaHalted@
+-- Stated exactly as 'indStep2', one cycle longer. The @IsaHalted@
 -- alternative is kept even though this hop should not be able to trap -- the
 -- driver routes environment instructions to a three-cycle hop -- because
 -- covering it costs nothing and assuming it away would be an unchecked side
 -- argument.
-indStepObligation3 ::
+indStep3 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> Bool
-indStepObligation3 wr wa ipc sys =
+indStep3 wr wa ipc sys =
   not premises || conclusion
   where
     isa = isaAt ipc sys
@@ -205,7 +235,7 @@ indStepObligation3 wr wa ipc sys =
     sys4 = stepSys sys3
 
     premises =
-      invAtFree wr wa isa sys
+      invAt wr wa isa sys
         && driver sys == 3
 
-    conclusion = invAtFree wr wa isa' sys4
+    conclusion = invAt wr wa isa' sys4

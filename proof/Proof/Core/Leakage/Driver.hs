@@ -1,8 +1,8 @@
 -- | The simulator's driver: how many cycles the simulator takes for an
 -- instruction, computed from its own state and the instruction's leakage. The
--- counterpart of 'Proof.Functional.Driver.driver', case for case; the leakage
+-- counterpart of 'Proof.Core.Functional.Driver.driver', case for case; the leakage
 -- proof's first step is that the two agree.
-module Proof.Leakage.Driver
+module Proof.Core.Leakage.Driver
   ( simDriver,
     simStoreHazard,
     simLoadHazard
@@ -10,9 +10,9 @@ module Proof.Leakage.Driver
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import qualified Instruction
-import Proof.Leakage.Model
-import Proof.Leakage.Simulator
+import qualified Core.Instruction
+import Proof.Core.Leakage.Model
+import Proof.Core.Leakage.Simulator
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | The store-hazard condition of 'Core.decode': the instruction word at the
@@ -20,8 +20,8 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- stage.
 simStoreHazard :: SimInput -> SimState -> Bool
 simStoreHazard inp st =
-  maybe False (Instruction.storeHazard dePc) exStore
-    || maybe False (Instruction.storeHazard dePc) meStore
+  maybe False (Core.Instruction.storeHazard dePc) exStore
+    || maybe False (Core.Instruction.storeHazard dePc) meStore
   where
     dePc = simStateDePc st
     exStore = case inp of

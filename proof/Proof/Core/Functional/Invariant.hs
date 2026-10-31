@@ -4,41 +4,45 @@
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
 -- a system state @((core state), (input), mem)@. It is a disjunction of cases:
 -- one for the running core, and two for the halted core. The reset state is
--- not among them: 'Proof.Functional.Induction.baseCase' steps it two cycles,
+-- not among them: 'Proof.Core.Functional.Solver.baseCase' steps it two cycles,
 -- into the running case, instead.
 --
 -- Two forms of the same predicate live here:
 --
 --   * 'invCases' represents each case as a named list of conjuncts, so a
 --     failing QuickCheck run can report which clause broke ('explain');
---   * 'invAtFree' is the identical predicate built from '&&' and '||' with no
+--   * 'invAt' is the identical predicate built from '&&' and '||' with no
 --     lists, because Pantomime's evaluator diverges on recursion it cannot
 --     prove terminating -- even over a fully concrete list. Symbolic execution
 --     uses this one.
 --
 -- The test \"fold-free invariant agrees with the list version\" keeps the two
 -- from drifting.
-module Proof.Functional.Invariant
+--
+-- The invariant describes the core attached to memory that answers every
+-- request in the next cycle ('Proof.Core.Functional.Machine.stepSys'), so the bus always holds
+-- an answer ('Core.inputMem' is 'Just').
+module Proof.Core.Functional.Invariant
   ( flushWbStage,
     flushMeStage,
     Case (..),
     inv,
-    invAt,
+    invAtList,
     invCases,
     invCasesAt,
-    invAtFree,
+    invAt,
     explain,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
-import Instruction
+import Data.Maybe (fromMaybe, isJust)
+import Core.Instruction
 import Memory.Types
-import ISA (IsaStateG (..), IsaState)
-import Proof.Machine
-import RegFile
+import Core.ISA (IsaStateG (..), IsaState)
+import Proof.Core.Functional.Machine
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 import qualified Prelude as P
@@ -50,8 +54,8 @@ flushWbStage ::
   Instruction ->
   Word ->
   Word ->
-  (m, r Identity) ->
-  (m, r Identity)
+  (m, r) ->
+  (m, r)
 flushWbStage ir res inputWord (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
@@ -65,7 +69,7 @@ flushWbStage ir res inputWord (mem, rf) =
     IType (Env _) _ _ _ -> (mem, rf)
     Nop _ -> (mem, rf)
   where
-    put rd v = modifyRFg rd (pure v) rf
+    put rd v = modifyRFg rd v rf
 
 -- | Apply the pending effect of the memory-stage instruction.
 --
@@ -77,15 +81,15 @@ flushMeStage ::
   Instruction ->
   Word ->
   Address ->
-  (m, r Identity) ->
-  (m, r Identity)
+  (m, r) ->
+  (m, r)
 flushMeStage ir res addr (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
     IType (Arith _) rd _ _ -> (mem, put rd res)
     IType (Load size sign) rd _ _ ->
       (mem, put rd (loadExtend size sign (memReadWord addr mem)))
-    SType size _ _ _ -> (memWriteWord size addr res mem, rf)
+    SType size _ _ _ -> (memWrite addr size res mem, rf)
     BType {} -> (mem, rf)
     JType rd _ -> (mem, put rd res)
     IType Jump rd _ _ -> (mem, put rd res)
@@ -93,7 +97,7 @@ flushMeStage ir res addr (mem, rf) =
     IType (Env _) _ _ _ -> (mem, rf)
     Nop _ -> (mem, rf)
   where
-    put rd v = modifyRFg rd (pure v) rf
+    put rd v = modifyRFg rd v rf
 
 -- | A named case of the invariant, with its conjuncts.
 data Case = Case
@@ -111,11 +115,13 @@ inv isa sys = P.any holds (invCases isa sys)
 -- | The invariant in pointwise form: instead of comparing whole register files
 -- and memories, compare them at one witness register @wr@ and one witness byte
 -- address @wa@. Quantifying over the witnesses recovers the container form.
+-- Pointwise, because function-backed containers have no decidable equality but
+-- can be read at a symbolic point.
 --
--- This is the version symbolic execution can use: function-backed containers
--- have no decidable equality, but they can be read at a symbolic point.
-invAt :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-invAt wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
+-- Built from the named cases ('invCasesAt'), for the tests; the proofs use the
+-- fold-free 'invAt', which the tests check agrees with it.
+invAtList :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+invAtList wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
 
 -- | Human-readable account of why the invariant failed: for each case, the
 -- conjuncts that were false.
@@ -136,7 +142,7 @@ invCasesAt ::
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> [Case]
 invCasesAt wr wa =
   invCasesGen
-    (\a b -> runIdentity (lookupRFg wr a) == runIdentity (lookupRFg wr b))
+    (\a b -> lookupRFg wr a == lookupRFg wr b)
     (\a b -> memReadByte wa a == memReadByte wa b)
 
 -- | The cases of the invariant, parameterised over how register files and
@@ -147,24 +153,24 @@ invCasesAt wr wa =
 -- reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
-  (r Identity -> r Identity -> Bool) ->
+  (r -> r -> Bool) ->
   (m -> m -> Bool) ->
   IsaStateG r m ->
   SysG r m ->
   [Case]
-invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
+invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
   [ runningCase,
     haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
     haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
   ]
   where
-    inputWord = runIdentity (inputMem inp)
+    inputWord = fromMaybe 0 (inputMem inp)
 
     -- Bound once: under symbolic execution a repeated 'decode'' is not shared,
     -- and it is a large decision tree.
     isaInstr = decode' (memReadWord ipc imem)
 
-    dePcWord = memReadWord (stateDePc st) mem
+    dePcWord = memReadWord (stateDePc core) mem
 
     -- The note's four running cases, collapsed.
     --
@@ -178,47 +184,49 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
     -- therefore stated directly as \"not an environment instruction\".
     runningCase =
       Case "running" $
-        [ ("running", stateHalt st == Nothing),
-          ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr st))),
-          ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr st))),
-          ("exPc == isaPc", stateExPc st == ipc),
-          ("ex == decode (mem[isaPc])", stateExInstr st == isaInstr),
-          ("dePc == exPc + 4", stateDePc st == stateExPc st + 4),
-          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr st) (stateMeInstr st))),
+        [ ("running", stateHalt core == Nothing),
+          ("memory answered", isJust (inputMem inp)),
+          ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr core))),
+          ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr core))),
+          ("exPc == isaPc", stateExPc core == ipc),
+          ("ex == decode (mem[isaPc])", stateExInstr core == isaInstr),
+          ("dePc == exPc + 4", stateDePc core == stateExPc core + 4),
+          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr core) (stateMeInstr core))),
           ( "(isaMem, isaRegFile) == flush",
             let (fm, frf) =
                   flushMeStage
-                    (stateMeInstr st)
-                    (runIdentity (stateMeRes st))
-                    (stateMeAddr st)
-                    (flushWbStage (stateWbInstr st) (runIdentity (stateWbRes st)) inputWord (mem, stateRegFile st))
+                    (stateMeInstr core)
+                    (stateMeRes core)
+                    (stateMeAddr core)
+                    (flushWbStage (stateWbInstr core) (stateWbRes core) inputWord (mem, stateRegFile core))
              in eqMem imem fm && eqRF irf frf
           )
         ]
-          P.++ if isMemInstr (stateWbInstr st)
+          P.++ if isMemInstr (stateWbInstr core)
             then
-              [ ("not deExpInstr", P.not (stateDeExpInstr st)),
-                ("fePc == exPc + 4", stateFePc st == stateExPc st + 4)
+              [ ("not deExpInstr", P.not (stateDeExpInstr core)),
+                ("fePc == exPc + 4", stateFePc core == stateExPc core + 4)
               ]
             else
-              [ ("deExpInstr", stateDeExpInstr st),
+              [ ("deExpInstr", stateDeExpInstr core),
                 ("inputMem == mem[dePc]", inputWord == dePcWord),
-                ("fePc == exPc + 8", stateFePc st == stateExPc st + 8)
+                ("fePc == exPc + 8", stateFePc core == stateExPc core + 8)
               ]
 
     -- The halt carries the address the core would resume at, which 'Core.execute'
     -- set from the trapping instruction's own PC. Pinning it to @isaPc + 4@ is
-    -- what fixes @isaPc@ as that instruction's address; "ISA" leaves
+    -- what fixes @isaPc@ as that instruction's address; "Core.ISA" leaves
     -- the architectural state where it was, so the ISA is still \"at\" the trap.
     haltedCase name isKind expected =
       Case
         name
         [ ("isa instruction is of this kind", isKind isaInstr),
-          ("halt state matches", stateHalt st == Just expected),
-          ("wb == Nop Halted", stateWbInstr st == Nop Halted),
-          ("me == Nop Halted", stateMeInstr st == Nop Halted),
-          ("ex == Nop Halted", stateExInstr st == Nop Halted),
-          ("isaRegFile == stateRegFile", eqRF irf (stateRegFile st)),
+          ("halt state matches", stateHalt core == Just expected),
+          ("wb == Nop Halted", stateWbInstr core == Nop Halted),
+          ("memory answered", isJust (inputMem inp)),
+          ("me == Nop Halted", stateMeInstr core == Nop Halted),
+          ("ex == Nop Halted", stateExInstr core == Nop Halted),
+          ("isaRegFile == stateRegFile", eqRF irf (stateRegFile core)),
           ("isaMem == stateMem", eqMem imem mem)
         ]
 
@@ -227,14 +235,14 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys st inp mem) =
 -- | The invariant, pointwise, built from '&&' and '||' with no lists and no
 -- folds. Semantically identical to @'P.any' holds ('invCasesAt' wr wa)@; see
 -- the module header for why both exist.
-invAtFree ::
+invAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx ->
   Address ->
   IsaStateG r m ->
   SysG r m ->
   Bool
-invAtFree wr wa isa sys =
+invAt wr wa isa sys =
   runningCaseAt wr wa isa sys
     || haltedCaseAt HaltBreak wr wa isa sys
     || haltedCaseAt HaltCall wr wa isa sys
@@ -246,53 +254,55 @@ data HaltKind = HaltBreak | HaltCall
 runningCaseAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-runningCaseAt wr wa (IsaState ipc irf imem) (Sys st inp mem) =
-  stateHalt st == Nothing
-    && not (isEnvInstr (stateWbInstr st))
-    && not (isEnvInstr (stateMeInstr st))
-    && stateExPc st == ipc
-    && stateExInstr st == decode' (memReadWord ipc imem)
-    && stateDePc st == stateExPc st + 4
-    && not (loadHazard (stateExInstr st) (stateMeInstr st))
-    && ( if isMemInstr (stateWbInstr st)
-           then not (stateDeExpInstr st) && stateFePc st == stateExPc st + 4
+runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
+  stateHalt core == Nothing
+    && isJust (inputMem inp)
+    && not (isEnvInstr (stateWbInstr core))
+    && not (isEnvInstr (stateMeInstr core))
+    && stateExPc core == ipc
+    && stateExInstr core == decode' (memReadWord ipc imem)
+    && stateDePc core == stateExPc core + 4
+    && not (loadHazard (stateExInstr core) (stateMeInstr core))
+    && ( if isMemInstr (stateWbInstr core)
+           then not (stateDeExpInstr core) && stateFePc core == stateExPc core + 4
            else
-             stateDeExpInstr st
-               && runIdentity (inputMem inp) == memReadWord (stateDePc st) mem
-               && stateFePc st == stateExPc st + 8
+             stateDeExpInstr core
+               && inputMem inp == Just (memReadWord (stateDePc core) mem)
+               && stateFePc core == stateExPc core + 8
        )
     && memReadByte wa imem == memReadByte wa fm
-    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr frf)
+    && lookupRFg wr irf == lookupRFg wr frf
   where
     -- The same flush the container form applies, read at the witness. Writing
-    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWriteWord'
-    -- for no gain: 'Proof.Functional.Obligation.isaAt' already puts this flush
+    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWrite'
+    -- for no gain: 'Proof.Core.Functional.Obligation.isaAt' already puts this flush
     -- into every query, and the solver rewrites @select@ over a @store@ chain
     -- natively.
     (fm, frf) =
       flushMeStage
-        (stateMeInstr st)
-        (runIdentity (stateMeRes st))
-        (stateMeAddr st)
+        (stateMeInstr core)
+        (stateMeRes core)
+        (stateMeAddr core)
         ( flushWbStage
-            (stateWbInstr st)
-            (runIdentity (stateWbRes st))
-            (runIdentity (inputMem inp))
-            (mem, stateRegFile st)
+            (stateWbInstr core)
+            (stateWbRes core)
+            (fromMaybe 0 (inputMem inp))
+            (mem, stateRegFile core)
         )
 
 -- | One halted case.
 haltedCaseAt ::
   (RegFileOps r, MemOps m) =>
   HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys st _ mem) =
+haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys core inp mem) =
   isKind (decode' (memReadWord ipc imem))
-    && stateHalt st == Just expected
-    && stateWbInstr st == Nop Halted
-    && stateMeInstr st == Nop Halted
-    && stateExInstr st == Nop Halted
+    && stateHalt core == Just expected
+    && stateWbInstr core == Nop Halted
+    && isJust (inputMem inp)
+    && stateMeInstr core == Nop Halted
+    && stateExInstr core == Nop Halted
     && memReadByte wa imem == memReadByte wa mem
-    && runIdentity (lookupRFg wr irf) == runIdentity (lookupRFg wr (stateRegFile st))
+    && lookupRFg wr irf == lookupRFg wr (stateRegFile core)
   where
     isKind = case kind of
       HaltBreak -> isBreak

@@ -5,18 +5,18 @@
 -- | The ISA specification: what each instruction means, and how the
 -- architectural state evolves.
 --
--- Two halves, both semantics. 'interp' turns an 'Instruction.Instruction' into
+-- Two halves, both semantics. 'interp' turns an 'Core.Instruction.Instruction' into
 -- an @'Instr' 'Func'@ -- the effect it denotes -- and 'apply' evaluates one of
 -- those 'Func's against the two source-register values and the PC. On top of
 -- that, 'isaStep' says how the @(isaPc, isaRegFile, isaMem)@ triple moves.
 --
 -- The architectural state is parameterised over the register-file and memory
 -- representations because the @Vec@-backed ones cannot be symbolically
--- executed; see 'RegFile.RegFileOps' and 'Memory.Types.MemOps'.
+-- executed; see 'Core.RegFile.RegFileOps' and 'Memory.Types.MemOps'.
 --
 -- This is specification, not proof machinery. The refinement proof is stated
 -- against it, so it must not depend on anything the proof defines.
-module ISA
+module Core.ISA
   ( Func,
     Done (..),
     apply,
@@ -37,14 +37,12 @@ module ISA
   )
 where
 
-import Access
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
 import Core hiding (Syscall)
-import Data.Functor.Identity
-import Instruction (Instruction, Sign, decode', loadExtend)
-import qualified Instruction
+import Core.Instruction (Instruction, Sign, decode', loadExtend)
+import qualified Core.Instruction
 import Memory.Types (MemBytes, MemOps (..))
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (||))
 
@@ -118,46 +116,46 @@ instance DepReg (Instr Func) where
   deps Nop = (empty, empty)
   deps Syscall = (pure 17, empty)
 
-interp :: Instruction.Instruction -> Instr Func
+interp :: Core.Instruction.Instruction -> Instr Func
 interp instr
-  | Instruction.isBreak instr = Break
+  | Core.Instruction.isBreak instr = Break
   | otherwise =
       case instr of
-        Instruction.RType op rd r1 r2 ->
-          Reg rd $ binaryF r1 r2 $ \w1 w2 -> unAccess $ alu op (Identity w1) (Identity w2)
-        Instruction.IType iop rd r1 imm ->
+        Core.Instruction.RType op rd r1 r2 ->
+          Reg rd $ binaryF r1 r2 $ \w1 w2 -> alu op w1 w2
+        Core.Instruction.IType iop rd r1 imm ->
           let op =
                 case iop of
-                  Instruction.Arith op' -> op'
-                  _ -> Instruction.ADD
-              alu_res = unaryF r1 $ \w -> unAccess $ alu op (Identity w) (Identity $ signExtend imm)
+                  Core.Instruction.Arith op' -> op'
+                  _ -> Core.Instruction.ADD
+              alu_res = unaryF r1 $ \w -> alu op w (signExtend imm)
            in case iop of
-                Instruction.Arith {} ->
+                Core.Instruction.Arith {} ->
                   Reg rd alu_res
-                Instruction.Load size sign ->
+                Core.Instruction.Load size sign ->
                   Load size sign rd $ bitCoerce <$> alu_res
-                Instruction.Jump ->
+                Core.Instruction.Jump ->
                   Jump rd (pcF (bitCoerce . (+ 4))) $ bitCoerce <$> alu_res
-                Instruction.Env Instruction.Break ->
+                Core.Instruction.Env Core.Instruction.Break ->
                   Break
-                Instruction.Env Instruction.Call ->
+                Core.Instruction.Env Core.Instruction.Call ->
                   Syscall
-        Instruction.SType size imm r1 r2 -> do
+        Core.Instruction.SType size imm r1 r2 -> do
           let addr_comp = unpack <$> unaryF r1 (+ signExtend imm)
            in Store size addr_comp r2
-        Instruction.BType cmp imm r1 r2 ->
-          let branched_comp = binaryF r1 r2 $ \w1 w2 -> unAccess $ branch cmp (Identity w1) (Identity w2)
+        Core.Instruction.BType cmp imm r1 r2 ->
+          let branched_comp = binaryF r1 r2 $ \w1 w2 -> branch cmp w1 w2
               addr_comp = pcF (+ bitCoerce (signExtend imm))
            in Branch branched_comp addr_comp
-        Instruction.UType Instruction.Zero rd imm ->
+        Core.Instruction.UType Core.Instruction.Zero rd imm ->
           let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ constF imm'
-        Instruction.UType Instruction.PC rd imm -> do
+        Core.Instruction.UType Core.Instruction.PC rd imm -> do
           let imm' = imm ++# (0 :: BitVector 12)
            in Reg rd $ pcF $ \pc -> bitCoerce pc + imm'
-        Instruction.JType rd imm ->
+        Core.Instruction.JType rd imm ->
           Jump rd (pcF (bitCoerce . (+ 4))) $ pcF (+ bitCoerce (signExtend imm))
-        Instruction.Nop _ -> Nop
+        Core.Instruction.Nop _ -> Nop
   where
     constF :: a -> Func a
     constF a =
@@ -190,16 +188,16 @@ interp instr
 -- | Architectural state: the ISA-visible triple.
 data IsaStateG r m = IsaState
   { isaPc :: PC,
-    isaRegFile :: r Identity,
+    isaRegFile :: r,
     isaMem :: m
   }
 
 -- | The concrete architectural state the QuickCheck harness uses.
 type IsaState = IsaStateG RegFile MemBytes
 
-deriving instance (Show (r Identity), Show m) => Show (IsaStateG r m)
+deriving instance (Show r, Show m) => Show (IsaStateG r m)
 
-deriving instance (Eq (r Identity), Eq m) => Eq (IsaStateG r m)
+deriving instance (Eq r, Eq m) => Eq (IsaStateG r m)
 
 -- | The result of one architectural step. 'IsaHalted' covers @ebreak@ and
 -- @ecall@, which is where 'Core' parks in a 'Core.HaltState'.
@@ -209,9 +207,9 @@ data StepG r m
 
 type Step = StepG RegFile MemBytes
 
-deriving instance (Show (r Identity), Show m) => Show (StepG r m)
+deriving instance (Show r, Show m) => Show (StepG r m)
 
-deriving instance (Eq (r Identity), Eq m) => Eq (StepG r m)
+deriving instance (Eq r, Eq m) => Eq (StepG r m)
 
 -- | The instruction the ISA would execute next.
 isaInstrAt :: (MemOps m) => IsaStateG r m -> Instruction
@@ -235,18 +233,18 @@ isaStepDecoded ::
 isaStepDecoded ir st@(IsaState pc rf mem) =
   case instr of
     Reg rd f ->
-      Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (pure (ap f)) rf}
+      Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (ap f) rf}
     Load size sign rd f ->
       let val = loadExtend size sign (memReadWord (ap f) mem)
-       in Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd (pure val) rf}
+       in Next st {isaPc = pc + 4, isaRegFile = modifyRFg rd val rf}
     Jump rd link target ->
       Next
         st
           { isaPc = ap target,
-            isaRegFile = modifyRFg rd (pure (bitCoerce (ap link))) rf
+            isaRegFile = modifyRFg rd (bitCoerce (ap link)) rf
           }
     Store size addr rs2 ->
-      Next st {isaPc = pc + 4, isaMem = memWriteWord size (ap addr) (reg (Just rs2)) mem}
+      Next st {isaPc = pc + 4, isaMem = memWrite (ap addr) size (reg (Just rs2)) mem}
     Branch cond target ->
       Next st {isaPc = if ap cond then ap target else pc + 4}
     Nop -> Next st {isaPc = pc + 4}
@@ -255,7 +253,7 @@ isaStepDecoded ir st@(IsaState pc rf mem) =
   where
     instr = interp ir
 
-    reg = maybe 0 (\idx -> runIdentity (lookupRFg idx rf))
+    reg = maybe 0 (\idx -> lookupRFg idx rf)
 
     -- 'Func' is evaluated against the values of its two dependency
     -- registers and the PC, exactly as 'apply' prescribes.

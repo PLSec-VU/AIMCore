@@ -1,6 +1,6 @@
 -- | The invariant relating the leakage simulator to the core: the leakage
--- counterpart of "Proof.Functional.Invariant".
-module Proof.Leakage.Invariant
+-- counterpart of "Proof.Core.Functional.Invariant".
+module Proof.Core.Leakage.Invariant
   ( simInv
   )
 where
@@ -8,10 +8,10 @@ where
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
 import Data.Maybe (isJust, isNothing)
-import Instruction hiding (Halted)
-import Proof.Leakage.Model
-import Proof.Leakage.Simulator
-import Proof.Machine
+import Core.Instruction hiding (Halted)
+import Proof.Core.Leakage.Model
+import Proof.Core.Leakage.Simulator
+import Proof.Core.Functional.Machine
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | The relation between the simulator and the core that the leakage proof
@@ -32,21 +32,21 @@ simInv ::
   SimState ->
   SysG r m ->
   Bool
-simInv sim (Sys st _ _) =
-  simStateFePc sim == stateFePc st
-    && simStateDePc sim == stateDePc st
-    && simStateDeExpInstr sim == stateDeExpInstr st
+simInv sim (Sys core _ _) =
+  simStateFePc sim == stateFePc core
+    && simStateDePc sim == stateDePc core
+    && simStateDeExpInstr sim == stateDeExpInstr core
     && exStage
     && meStage
   where
     exStage = case simStateExInstrType sim of
-      DecodedInstr -> isNothing (stateHalt st)
-      Halted -> isJust (stateHalt st)
+      DecodedInstr -> isNothing (stateHalt core)
+      Halted -> isJust (stateHalt core)
       _ -> False
 
-    meStage = case (simStateMeInstr sim, stateMeInstr st) of
-      (LLoad size addr _, Instruction.IType (Load size' _) _ _ _) ->
-        size == size' && addr == stateMeAddr st
-      (LStore size addr, Instruction.SType size' _ _ _) ->
-        size == size' && addr == stateMeAddr st
-      (leak, ir) -> not (isMemLeak leak) && not (Instruction.isMemInstr ir)
+    meStage = case (simStateMeInstr sim, stateMeInstr core) of
+      (LLoad size addr _, Core.Instruction.IType (Load size' _) _ _ _) ->
+        size == size' && addr == stateMeAddr core
+      (LStore size addr, Core.Instruction.SType size' _ _ _) ->
+        size == size' && addr == stateMeAddr core
+      (leak, ir) -> not (isMemLeak leak) && not (Core.Instruction.isMemInstr ir)

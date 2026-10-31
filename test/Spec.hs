@@ -6,16 +6,15 @@
 
 module Main (main) where
 
-import Access
 import BenchmarkSpec (benchmarkTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
 import Core
 import Data.Maybe (fromJust, isJust)
-import Instruction
+import Core.Instruction
 import InstructionSpec (instructionTests)
-import RegFile
+import Core.RegFile
 import Simulate
 import Memory.Types
 import Memory.Vec
@@ -24,8 +23,9 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Functional.Induction
-import qualified Proof.Leakage.Induction
+import qualified Proof.Cache.Functional.Solver
+import qualified Proof.Core.Functional.Solver
+import qualified Proof.Core.Leakage.Solver
 #endif
 import IsaSpec (isaConformanceTests)
 import ProofSpec (proofTests)
@@ -59,8 +59,8 @@ mkPureTest s (CPUTest prog expected) =
 -- The first three establish that the Pantomime plugin is wired in and actually
 -- discharging properties -- since pantomime 1821a71 an invalid property no
 -- longer fails the build, so the negative control has to be asserted here.
--- The rest are the proofs themselves; see "Proof.Functional.Induction" and
--- "Proof.Leakage.Induction".
+-- The rest are the proofs themselves; see "Proof.Core.Functional.Solver" and
+-- "Proof.Core.Leakage.Solver".
 sanityTests :: TestTree
 sanityTests =
   testGroup
@@ -71,29 +71,50 @@ sanityTests =
         assertBool "expected a counterexample for 'bogus'" $
           isJust (verdict "bogus"),
       testCase "array embedding round-trips" $
-        lookup "arrRoundTrip" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "arrRoundTripP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
-        lookup "shiftsSane" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "shiftsSaneP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "base case: invariant holds after the reset hop" $
-        lookup "baseCase" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "baseCaseP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
-        lookup "indStep" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep0P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 1 inductive step is valid" $
-        lookup "indStep1" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep1P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 2 inductive step is valid" $
-        lookup "indStep2" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep2P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
-        lookup "indStep3" Proof.Functional.Induction.results @?= Just Nothing,
+        lookup "indStep3P" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant implies the ISA's register file is the core's, flushed" $
+        lookup "regFileUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant implies the ISA's memory is the core's, flushed" $
+        lookup "memUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
-        lookup "baseCaseLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $
-        lookup "indStepLeak" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak0P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 1 leakage step is valid" $
-        lookup "indStepLeak1" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak1P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 2 leakage step is valid" $
-        lookup "indStepLeak2" Proof.Leakage.Induction.results @?= Just Nothing,
+        lookup "indStepLeak2P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 3 leakage step is valid" $
-        lookup "indStepLeak3" Proof.Leakage.Induction.results @?= Just Nothing
+        lookup "indStepLeak3P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
+      testGroup
+        "the 4 KiB cache answers as ideal memory, with delay"
+        [ testCase name $ lookup name Proof.Cache.Functional.Solver.results @?= Just Nothing
+          | name <-
+              [ "cacheArraysP",
+                "coherentDataP",
+                "coherentWriteP",
+                "coherentLayoutP",
+                "baseCaseP",
+                "indStep0P",
+                "indStep4P",
+                "indStep8P",
+                "readyUnderInvP",
+                "readyIdleNoWaitP",
+                "waitsAfterRequestP"
+              ]
+        ]
     ]
   where
     verdict :: String -> Maybe String
@@ -288,7 +309,7 @@ instance Arbitrary Instruction where
       bImmGen = chooseBoundedIntegral (0, 5)
       jImmGen = chooseBoundedIntegral (0, 5)
 
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
+instance Arbitrary Control where
   arbitrary =
     Control
       <$> arbitrary
@@ -300,40 +321,32 @@ instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Control f) where
       <*> arbitrary
       <*> genMaybeRegFwd
       <*> genMaybeRegFwd
+      <*> pure False
     where
-      genAccessWord = do
-        isSecret <- arbitrary
-        word <- arbitrary
-        pure $ conditionalSecret isSecret word
       genMaybeRegFwd = do
         hasFwd <- arbitrary
         if hasFwd
           then do
             regIdx <- arbitrary
-            accessWord <- genAccessWord
-            pure $ Just (regIdx, accessWord)
+            word <- arbitrary
+            pure $ Just (regIdx, word)
           else pure Nothing
-
-instance (Arbitrary a) => Arbitrary (PubSec a) where
-  arbitrary = oneof [Public <$> arbitrary, Secret <$> arbitrary]
 
 instance Arbitrary Core.HaltState where
   arbitrary = oneof
     [ Core.EBreak <$> arbitrary
     , Core.Syscall <$> arbitrary
-    , pure Core.SecurityViolation
     ]
 
-instance (Access f, Arbitrary (f Word)) => Arbitrary (RegFile f) where
+instance Arbitrary RegFile where
   arbitrary = do
     vals <- vectorOf 31 arbitrary
     pure $ RegFile $ unsafeFromList vals
 
-instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.State f) where
+instance Arbitrary Core.State where
   arbitrary =
     Core.State
       <$> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
@@ -350,12 +363,11 @@ instance {-# OVERLAPPING #-} (Access f, Arbitrary (f Word)) => Arbitrary (Core.S
 -- | Half the time a valid instruction encoding, half the time an arbitrary data
 -- word. Whether the core treats it as an instruction is up to the state's
 -- 'Core.stateDeExpInstr'.
-instance {-# OVERLAPPING #-} (Access f) => Arbitrary (Input f) where
+instance Arbitrary Input where
   arbitrary = do
     mem <-
       oneof
         [ fromJust <$> ((encode' <$> arbitrary) `suchThat` isJust),
           arbitrary
         ]
-    isSecretMem <- arbitrary
-    pure $ Input (conditionalSecret isSecretMem mem)
+    pure $ Input (Just mem)

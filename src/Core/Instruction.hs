@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Instruction
+module Core.Instruction
   ( Instruction (..),
     Reason4Stall (..),
     nop,
@@ -25,6 +25,7 @@ module Instruction
     storeHazard,
     loadHazard,
     isMemInstr,
+    isLoad,
     loadExtend,
   )
 where
@@ -35,7 +36,6 @@ import Data.Binary (Binary)
 import Data.Maybe (fromMaybe, isJust)
 import Types
 import Prelude hiding (Ordering (..), Word, break, undefined, (&&), (||))
-import Pantomime.Expr (Literal(Bool))
 
 -- | All arithmetic and logic operations.
 data Arith
@@ -117,8 +117,9 @@ data Reason4Stall
     StoreHazardFirstCycle
   | -- | Second instruction discarded because of a store hazard.
     StoreHazardSecondCycle
-  | -- | No instruction read because of memory bus overload.
-    MemoryBusBusy
+  | -- | No instruction this cycle: the fetch stage did not fetch, because the
+    -- memory stage used the bus.
+    NoInstruction
   | -- | Failed to decode an instruction.
     DecodeFail
   | -- | First cycle.
@@ -402,32 +403,32 @@ encode instr =
 -- | Get the destination register of an instruction, if any.
 getRd :: (Alternative f) => Instruction -> f RegIdx
 getRd = \case
-  Instruction.RType _ rd _ _ -> pure rd
-  Instruction.IType (Env Call) _ _ _ -> pure 10 -- a0
-  Instruction.IType _ rd _ _ -> pure rd
-  Instruction.UType _ rd _ -> pure rd
-  Instruction.JType rd _ -> pure rd
-  Instruction.Nop _ -> pure 0
+  Core.Instruction.RType _ rd _ _ -> pure rd
+  Core.Instruction.IType (Env Call) _ _ _ -> pure 10 -- a0
+  Core.Instruction.IType _ rd _ _ -> pure rd
+  Core.Instruction.UType _ rd _ -> pure rd
+  Core.Instruction.JType rd _ -> pure rd
+  Core.Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the first source register of an instruction, if any.
 getRs1 :: (Alternative f) => Instruction -> f RegIdx
 getRs1 = \case
-  Instruction.RType _ _ rs1 _ -> pure rs1
-  Instruction.IType (Env Call) _ _ _ -> pure 17 -- a7
-  Instruction.IType _ _ rs1 _ -> pure rs1
-  Instruction.SType _ _ rs1 _ -> pure rs1
-  Instruction.BType _ _ rs1 _ -> pure rs1
-  Instruction.Nop _ -> pure 0
+  Core.Instruction.RType _ _ rs1 _ -> pure rs1
+  Core.Instruction.IType (Env Call) _ _ _ -> pure 17 -- a7
+  Core.Instruction.IType _ _ rs1 _ -> pure rs1
+  Core.Instruction.SType _ _ rs1 _ -> pure rs1
+  Core.Instruction.BType _ _ rs1 _ -> pure rs1
+  Core.Instruction.Nop _ -> pure 0
   _ -> empty
 
 -- | Get the second source register of an instruction, if any.
 getRs2 :: (Alternative f) => Instruction -> f RegIdx
 getRs2 = \case
-  Instruction.RType _ _ _ rs2 -> pure rs2
-  Instruction.SType _ _ _ rs2 -> pure rs2
-  Instruction.BType _ _ _ rs2 -> pure rs2
-  Instruction.Nop _ -> pure 0
+  Core.Instruction.RType _ _ _ rs2 -> pure rs2
+  Core.Instruction.SType _ _ _ rs2 -> pure rs2
+  Core.Instruction.BType _ _ _ rs2 -> pure rs2
+  Core.Instruction.Nop _ -> pure 0
   _ -> empty
 
 isBreak :: Instruction -> Bool
@@ -448,6 +449,12 @@ isMemInstr :: Instruction -> Bool
 isMemInstr (IType Load {} _ _ _) = True
 isMemInstr (SType {}) = True
 isMemInstr _ = False
+
+-- | Loads: the instructions whose result arrives over the memory bus in the
+-- writeback stage.
+isLoad :: Instruction -> Bool
+isLoad (IType Load {} _ _ _) = True
+isLoad _ = False
 
 break :: Instruction
 break = IType (Env Break) 0 0 0

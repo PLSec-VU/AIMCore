@@ -1,6 +1,6 @@
 -- | What an attacker sees, and what one architectural instruction leaks.
 --
--- The leakage proof ("Proof.Leakage.Obligation") establishes that an attacker
+-- The leakage proof ("Proof.Core.Leakage.Obligation") establishes that an attacker
 -- watching the memory bus learns nothing beyond 'Leak'. Two definitions carry
 -- that statement:
 --
@@ -18,25 +18,20 @@
 -- load-use hazard against it, which is the one thing the fetch trace does not
 -- already give away, since it decides how long the hop takes.
 --
--- == What 'Leak' is, and is not
+-- == What 'Leak' means
 --
--- It is not a list of secrets. Every field is public in any run that does not
--- halt, because 'Core.execute' computes each one inside @noSecrets'@: the
--- branch condition, the @jalr@ target, and the load and store addresses. The
--- fetched instruction word goes through @noSecrets'@ in 'Core.decode' too, so
--- the program is public even under self-modifying code -- which matters, because
--- store /data/ is not forced public, so a store could otherwise plant a
--- secret-dependent instruction. A secret reaching any of these halts the core
--- with 'Core.SecurityViolation'. The hazard bit is not even data dependent:
--- 'Instruction.loadHazard' compares register /fields/, not their contents.
---
--- So 'Leak' is what the /simulator/ needs in order to replay the observation
--- from the architectural state alone, not what escapes. The security content
--- lives in the @Access@ / @noSecrets@ discipline.
-module Proof.Leakage.Model
+-- The leakage theorem says the bus observation is a function of the ISA-level
+-- leakage trace: an attacker watching the bus learns nothing beyond the 'Leak'
+-- of each executed instruction. The core does not keep any of it secret -- the
+-- branch outcome, the @jalr@ target and the load and store addresses all show.
+-- Whether a program is constant-time is a property of its leakage trace,
+-- checked at the ISA level. The hazard bit is not data dependent:
+-- 'Core.Instruction.loadHazard' compares register /fields/, not their contents.
+module Proof.Core.Leakage.Model
   ( -- * Observation
     Obs (..),
     obsOf,
+    obsReq,
 
     -- * Leakage
     Leak (..),
@@ -49,11 +44,10 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Functor.Identity
-import Instruction
-import ISA (IsaStateG (..), isaInstrAt)
+import Core.Instruction
+import Core.ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))
-import RegFile
+import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -75,13 +69,21 @@ instance Semigroup Obs where
 instance Monoid Obs where
   mempty = NoAccess
 
--- | The observation a cycle's 'Core.Output' produces.
-obsOf :: Output Identity -> Obs
-obsOf o = case outMem o of
+-- | The observation a cycle's 'Core.Output' produces: that of its request.
+obsOf :: Output -> Obs
+obsOf o = obsReq (outMem o)
+
+-- | The observation of a request on the bus: the request without its data.
+--
+-- This is also what a cache in front of the core leaks about each request it
+-- receives ("Proof.Cache.Server4K"), which is what lets the core's leakage proof
+-- and the cache's compose.
+obsReq :: Request -> Obs
+obsReq req = case req of
   Nothing -> NoAccess
-  Just (MemAccess True addr _ _) -> Fetch addr
-  Just (MemAccess False addr size Nothing) -> DataRead addr size
-  Just (MemAccess False addr size (Just _)) -> DataWrite addr size
+  Just (MemFetch addr) -> Fetch addr
+  Just (MemRead addr size) -> DataRead addr size
+  Just (MemWrite addr size _) -> DataWrite addr size
 
 -- Leakage ---------------------------------------------------------------------
 
@@ -132,7 +134,7 @@ leakOf isa@(IsaState pc rf _) =
     IType (Arith _) _ _ _ -> LArith
     UType {} -> LArith
     BType cmp imm rs1 rs2 ->
-      let doBranch = runIdentity $ branch cmp (pure (regv rs1)) (pure (regv rs2))
+      let doBranch = branch cmp (regv rs1) (regv rs2)
       in if doBranch
            then LJump (pc + off imm)
            else LArith
@@ -151,6 +153,6 @@ leakOf isa@(IsaState pc rf _) =
     Nop _ -> LArith
   where
     ir = isaInstrAt isa
-    regv i = runIdentity (lookupRFg i rf)
+    regv i = lookupRFg i rf
     off imm = unpack $ signExtend imm
     addr rs1 imm = unpack $ regv rs1 + signExtend imm

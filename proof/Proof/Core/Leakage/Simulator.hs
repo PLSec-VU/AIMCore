@@ -8,7 +8,7 @@
 -- shows that, fed the ISA's leakage, it produces the same observations as the
 -- core, so everything an attacker on the bus sees is a function of the leakage
 -- alone.
-module Proof.Leakage.Simulator
+module Proof.Core.Leakage.Simulator
   ( SimInput,
     SimOutput,
     SimExInstrType (..),
@@ -25,9 +25,9 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Control.Monad
 import Control.Monad.RWS
 import Data.Maybe (fromMaybe, isJust)
-import Instruction (storeHazard)
+import Core.Instruction (storeHazard)
 import Memory.Types
-import Proof.Leakage.Model
+import Proof.Core.Leakage.Model
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
@@ -52,8 +52,9 @@ data SimExInstrType
     StallStoreHazardFirstCycle
   | -- | Second instruction discarded because of a store hazard.
     StallStoreHazardSecondCycle
-  | -- | No instruction read because of memory bus overload.
-    StallMemoryBusBusy
+  | -- | No instruction this cycle: the fetch stage did not fetch, because the
+    -- memory stage used the bus.
+    StallNoInstruction
   | -- | First cycle.
     FirstCycle
   | -- | The core has halted.
@@ -194,7 +195,7 @@ simDecode = do
   expInstr <- gets simStateDeExpInstr
   ctrl <- gets simStateCtrl
 
-  let irt = if expInstr then DecodedInstr else StallMemoryBusBusy
+  let irt = if expInstr then DecodedInstr else StallNoInstruction
 
   let halted = simCtrlExInstrType ctrl == Just Halted
   let env_instr_current_cycle = simCtrlExEnvInstr ctrl

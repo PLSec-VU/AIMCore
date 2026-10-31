@@ -3,15 +3,15 @@
 -- | Direct validation of the ISA specification against the official RISC-V
 -- conformance suite.
 --
--- The refinement proof is stated against "ISA", so nothing in the proof can
--- tell us whether "ISA" itself is right -- it is the thing being proved
+-- The refinement proof is stated against "Core.ISA", so nothing in the proof can
+-- tell us whether "Core.ISA" itself is right -- it is the thing being proved
 -- against. The @rv32ui@ programs in @test/rv32ui@ are an external reference, so
 -- running the ISA model on them and checking the suite's own pass condition is
 -- evidence about the specification that does not come from the implementation.
 --
--- Without this, the only check on "ISA" is transitive: the core passes
+-- Without this, the only check on "Core.ISA" is transitive: the core passes
 -- @rv32ui@ (see "BenchmarkSpec") and the proof says the core refines
--- "ISA". That validates the specification /through/ the implementation,
+-- "Core.ISA". That validates the specification /through/ the implementation,
 -- which is the wrong direction.
 --
 -- The pass condition is the one "BenchmarkSpec" applies to the core: at the
@@ -20,12 +20,11 @@ module IsaSpec (isaConformanceTests) where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import qualified Data.ByteString as BS
-import Data.Functor.Identity (Identity (..))
 import qualified Data.Map.Strict as M
 import Elf.ElfLoader (baseAddr, getElfSegments, readElf, startAddr)
-import ISA (IsaStateG (..), StepG (..), isaStep)
+import Core.ISA (IsaStateG (..), StepG (..), isaStep)
 import Memory.Types (MemOps (..))
-import RegFile
+import Core.RegFile
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 import "aimcore" Types
@@ -46,7 +45,7 @@ instance MemOps MemMap where
   memReadWord a m =
     memReadByte (a + 3) m ++# memReadByte (a + 2) m ++# memReadByte (a + 1) m ++# memReadByte a m
 
-  memWriteWord size a w (MemMap m) =
+  memWrite a size w (MemMap m) =
     MemMap $ case size of
       Byte -> put a b0 m
       Half -> put (a + 1) b1 (put a b0 m)
@@ -86,7 +85,7 @@ loadProgram path = do
   P.pure
     IsaState
       { isaPc = fromIntegral entry,
-        isaRegFile = modifyRF 2 (Identity sp) initRF,
+        isaRegFile = modifyRF 2 sp initRF,
         isaMem = MemMap bytes
       }
 
@@ -97,8 +96,8 @@ checkPassed st
   | a0 P./= 0 = Left ("a0 = " P.++ show a0 P.++ ", expected 0")
   | otherwise = Right ()
   where
-    gp = runIdentity (lookupRFg 3 (isaRegFile st))
-    a0 = runIdentity (lookupRFg 10 (isaRegFile st))
+    gp = (lookupRFg 3 (isaRegFile st))
+    a0 = (lookupRFg 10 (isaRegFile st))
 
 mkIsaTest :: String -> TestTree
 mkIsaTest name =
