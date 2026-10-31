@@ -23,6 +23,7 @@ module Stepper.RelState
   , Fetched (..)
   , fetched
   , fetchedDecoded
+  , fetchedFromMemory
   , Code (..)
   , writesCode
   , CodeAddresses (..)
@@ -149,18 +150,19 @@ codeFromMemory mem =
 
 -- | Whether a store of this size at this address can touch an instruction.
 -- The span test settles almost every store; the per-word test runs only for
--- a store inside the span.
+-- a store that overlaps the span. Addresses wrap, so a word stored at
+-- @0xfffffffe@ writes bytes 0 and 1.
 writesCode :: Code -> Size -> Address -> Bool
 writesCode code size addr = case (codeSpan code, codeAddresses code) of
-  (Just (lo, hi), KnownAddresses addrs) -> addr < hi && lo <= lastByte && overlapsSome addrs
+  (Just (lo, hi), KnownAddresses addrs) -> storeOverlaps lo (hi - lo) && overlapsSome addrs
   _ -> False
   where
-    lastByte = addr + sizeBytes - 1
+    storeOverlaps start len = start - addr < sizeBytes || addr - start < len
     sizeBytes = case size of
       Byte -> 1
       Half -> 2
       Word -> 4
-    overlapsSome = foldr (\word rest -> (addr < word + 4 && word <= lastByte) || rest) False
+    overlapsSome = foldr (\word rest -> storeOverlaps word 4 || rest) False
 
 data RelState = RelState
   { relPath :: Bool
