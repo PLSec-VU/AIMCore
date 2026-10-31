@@ -2,7 +2,16 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module Proof.SMT.Stepper.Relational
-  ( relStepMatchesIsaStep
+  ( expectValid
+  , expectCounterexample
+  , Probe (..)
+  , freshProbe
+  , Run (..)
+  , valueIn
+  , memoryIn
+  , matchesState
+  , sameWordAt
+  , relStepMatchesIsaStep
   , leakOfReadsOnlyLeakOfReads
   , relStepMismatchFails
   , relStepMatchesIsaStepInBothRuns

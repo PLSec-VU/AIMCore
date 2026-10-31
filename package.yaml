@@ -131,6 +131,7 @@ library:
         - Proof.SMT.Stepper.P256Recode
         - Proof.SMT.Stepper.RelMem
         - Proof.SMT.Stepper.Relational
+        - Proof.SMT.Stepper.Invariant
         - Proof.SMT.Stepper.Sha256
         - Proof.SMT.Symbolic
         - Proof.SMT.System
