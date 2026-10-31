@@ -14,8 +14,6 @@ module Proof.SMT.Stepper.Relational
   , relStepMatchesIsaStep
   , leakOfReadsOnlyLeakOfReads
   , relStepMismatchFails
-  , relStepMatchesIsaStepInBothRuns
-  , relStepSwappedRunsFails
   , addOnSecretNoLeak
   , branchOnPublicNoLeak
   , storeSecretNoLeak
@@ -133,47 +131,6 @@ relStepMatchesIsaStep = do
   probe <- freshProbe
   outcome <- relStep (sameState (codeFromMemory (isaMem isa)) isa)
   expectValid $ matchesIsaStep probe isa outcome
-
-bothRunsMatchIsaStep :: Probe -> IsaSys -> IsaSys -> RelOutcome -> Bool
-bothRunsMatchIsaStep probe first second outcome = case outcome of
-  RelLeaks {} -> True
-  _ -> matchesIsaStepIn FirstRun probe first outcome && matchesIsaStepIn SecondRun probe second outcome
-
-data TwoRuns = TwoRuns
-  { firstRun :: IsaSys
-  , secondRun :: IsaSys
-  , sameInstruction :: Bool
-  }
-
-freshTwoRuns :: SymFC.Sym TwoRuns
-freshTwoRuns = do
-  first <- SymFC.fresh @IsaSys
-  second <- SymFC.fresh @IsaSys
-  let pc = isaPc first
-      secondAtSamePc = second {isaPc = pc}
-  pure (TwoRuns first secondAtSamePc (sameWordAt first secondAtSamePc pc))
-
-stepTwoRuns :: TwoRuns -> SymFC.Sym RelOutcome
-stepTwoRuns runs =
-  relStep (pairState code (firstRun runs) (secondRun runs)) {relPath = sameInstruction runs}
-  where
-    code = codeFromMemory (isaMem (firstRun runs))
-
-{-# ANN relStepMatchesIsaStepInBothRuns (SymFC ['stepperEmbeddings]) #-}
-relStepMatchesIsaStepInBothRuns :: SymFC.Sym ()
-relStepMatchesIsaStepInBothRuns = do
-  runs <- freshTwoRuns
-  probe <- freshProbe
-  outcome <- stepTwoRuns runs
-  expectValid $ not (sameInstruction runs) || bothRunsMatchIsaStep probe (firstRun runs) (secondRun runs) outcome
-
-{-# ANN relStepSwappedRunsFails (SymFC ['stepperEmbeddings]) #-}
-relStepSwappedRunsFails :: SymFC.Sym ()
-relStepSwappedRunsFails = do
-  runs <- freshTwoRuns
-  probe <- freshProbe
-  outcome <- stepTwoRuns runs
-  expectCounterexample $ not (sameInstruction runs) || bothRunsMatchIsaStep probe (secondRun runs) (firstRun runs) outcome
 
 registerOf :: IsaSys -> RegIdx -> Word
 registerOf isa reg = runIdentity (lookupRFg reg (isaRegFile isa))

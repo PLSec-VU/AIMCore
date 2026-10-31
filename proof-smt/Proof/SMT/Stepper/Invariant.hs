@@ -6,6 +6,7 @@ module Proof.SMT.Stepper.Invariant
   , relStepKeepsInvariantAtLastWord
   , relStepKeepsInvariantWithoutHint
   , relStepWrongHintFails
+  , relStepSwappedRunsFails
   ) where
 
 import ISA (IsaStateG (..), PC, StepG (..), isaStep)
@@ -190,19 +191,29 @@ stepKeepsInvariant run probe code isa outcome = case (outcome, isaStep isa) of
   (_, Next isa') -> followsRun run probe isa' outcome && everyBranchKeeps run probe code isa' outcome
   _ -> False
 
-bothRunsKeepInvariant :: Probe -> Reached -> RelOutcome -> Bool
-bothRunsKeepInvariant probe reached outcome =
-  stepKeepsInvariant FirstRun probe code (reachedFirst reached) outcome
-    && stepKeepsInvariant SecondRun probe code (reachedSecond reached) outcome
+bothRunsKeepInvariant :: (Reached -> (IsaSys, IsaSys)) -> Probe -> Reached -> RelOutcome -> Bool
+bothRunsKeepInvariant runsOf probe reached outcome =
+  stepKeepsInvariant FirstRun probe code first outcome
+    && stepKeepsInvariant SecondRun probe code second outcome
   where
     code = relCode (reachedState reached)
+    (first, second) = runsOf reached
+
+inOrder :: Reached -> (IsaSys, IsaSys)
+inOrder reached = (reachedFirst reached, reachedSecond reached)
+
+swapped :: Reached -> (IsaSys, IsaSys)
+swapped reached = (reachedSecond reached, reachedFirst reached)
 
 checkFromReached :: Start -> SymFC.Sym Bool
-checkFromReached start = do
+checkFromReached = checkRunsFromReached inOrder
+
+checkRunsFromReached :: (Reached -> (IsaSys, IsaSys)) -> Start -> SymFC.Sym Bool
+checkRunsFromReached runsOf start = do
   reached <- freshReached start
   probe <- freshProbe
   outcome <- relStep (reachedState reached)
-  pure $ not (relPath (reachedState reached)) || bothRunsKeepInvariant probe reached outcome
+  pure $ not (relPath (reachedState reached)) || bothRunsKeepInvariant runsOf probe reached outcome
 
 {-# ANN relStepKeepsInvariant (SymFC ['stepperEmbeddings]) #-}
 relStepKeepsInvariant :: SymFC.Sym ()
@@ -221,3 +232,7 @@ relStepWrongHintFails :: SymFC.Sym ()
 relStepWrongHintFails = expectCounterexample =<< checkFromReached (Start middlePc wrongHint)
   where
     wrongHint code = (\atEight -> atEight {fetchedAddress = middlePc}) <$> codeFetch code 8
+
+{-# ANN relStepSwappedRunsFails (SymFC ['stepperEmbeddings]) #-}
+relStepSwappedRunsFails :: SymFC.Sym ()
+relStepSwappedRunsFails = expectCounterexample =<< checkRunsFromReached swapped (hintedAt middlePc)
