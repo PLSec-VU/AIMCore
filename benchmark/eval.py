@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rerun the checker on the benchmark binaries and print its verdicts.
 
-Each program proof under proof-smt/Proof/SMT/Stepper passes only if the
+Each program proof under proof/Proof/SMT/Stepper passes only if the
 checker returns the verdict its name states, so a green build is the result.
 This script deletes those modules' compiled files so that GHC rebuilds them,
 runs the build with Bitwuzla, and prints one row per checker run with its
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROOF_SOURCES = ROOT / "proof-smt"
+PROOF_SOURCES = ROOT / "proof"
 CHECKER_PROOFS = {"Relational", "RelMem", "Invariant"}
 PROGRAM_PROOFS = sorted(
     path.relative_to(PROOF_SOURCES).with_suffix("")
