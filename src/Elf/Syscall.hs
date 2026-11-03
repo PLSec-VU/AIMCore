@@ -2,7 +2,20 @@
 
 module Elf.Syscall (handleSyscall, ProgramExitException(..)) where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize, zip, (++))
+import Clash.Prelude
+  hiding
+    ( Log,
+      Ordering (..),
+      Word,
+      break,
+      def,
+      init,
+      lift,
+      log,
+      resize,
+      zip,
+      (++)
+    )
 import Prelude hiding (Ordering (..), Word, break, init, log, map, not, repeat, undefined, (&&), (||))
 import Memory.Types
 import Elf.ElfLoader
@@ -76,7 +89,8 @@ handleSyscall s = do
         "/dev/random"  -> randomFd
         "/dev/urandom" -> randomFd
         _              -> bitCoerce (-1 :: Int32)
-    676767 -> -- mark_memory_region: accepted and ignored; the core tracks no secrets
+    -- mark_memory_region: accepted and ignored; the core tracks no secrets
+    676767 ->
       pure $ Just 0
     n -> do
       liftIO $ putStrLn $ "Syscall: Unknown " ++ show (toInteger n)

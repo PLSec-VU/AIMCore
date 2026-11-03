@@ -103,7 +103,8 @@ data IOperation
   | Jump
   deriving (Eq, Show, Generic, NFDataX)
 
--- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
+-- | Reason for replacing an instruction with a nop. Some of these can be
+-- collapsed if we want to optimize later.
 data Reason4Stall
   = -- | First instruction discarded because of a jump.
     JumpFirstCycle
@@ -373,7 +374,9 @@ encode' instruction =
 
       let rs1' = pack rs1
       let rs2' = pack rs2
-      pure $ imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11 ++# opcode
+      pure $
+        imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11
+          ++# opcode
     UType base rd imm -> do
       let opcode :: BitVector 7 = case base of
             Zero -> 0b011_0111

@@ -21,20 +21,34 @@ topEntity ::
   Signal System Output
 topEntity = exposeClockResetEnable $ system prog3
 
-cpu :: forall dom. (HiddenClockResetEnable dom) => Signal dom Input -> Signal dom Output
+cpu ::
+  forall dom.
+  (HiddenClockResetEnable dom) =>
+  Signal dom Input ->
+  Signal dom Output
 cpu = mealy (circuit @RegFile) (init @RegFile)
 
-system :: forall dom. (HiddenClockResetEnable dom) => Vec PROG_SIZE Word -> Signal dom Output
+system ::
+  forall dom.
+  (HiddenClockResetEnable dom) =>
+  Vec PROG_SIZE Word ->
+  Signal dom Output
 system prog = cpuOut
   where
     cpuInput :: Signal dom Input
     cpuInput = register initInput input
     cpuOut = cpu cpuInput
-    ram = HardwareSim.mkRAM @PROG_SIZE @RAM_SIZE prog (fromMaybe (MemRead 0 Word) . outMem <$> cpuOut)
+    ram =
+      HardwareSim.mkRAM @PROG_SIZE @RAM_SIZE prog
+        (fromMaybe (MemRead 0 Word) . outputMem <$> cpuOut)
     input = Input . Just <$> ram
 
 mkRAM :: forall progSize ramSize dom.
-  (HiddenClockResetEnable dom, KnownNat ((GHC.TypeNats.*) ramSize 4), KnownNat (progSize + ramSize), KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)) =>
+  ( HiddenClockResetEnable dom,
+    KnownNat ((GHC.TypeNats.*) ramSize 4),
+    KnownNat (progSize + ramSize),
+    KnownNat ((GHC.TypeNats.*) (progSize + ramSize) 4)
+  ) =>
   Vec progSize Word ->
   Signal dom MemAccess ->
   Signal dom Word

@@ -56,15 +56,27 @@ simulator =
 runSimulator ::
   forall ramSize progSize a.
   (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
-  ( CircuitSim (State (Mem (MemSizeFrom progSize ramSize))) Input Core.State Output ->
+  ( CircuitSim
+      (State (Mem (MemSizeFrom progSize ramSize)))
+      Input
+      Core.State
+      Output ->
     State (Mem (MemSizeFrom progSize ramSize)) a
   ) ->
   Vec progSize Word ->
   a
 runSimulator f = evalState (f simulator) . Mem . mkRAM
 
-watchSim :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> [(Core.State, Output, Maybe Input)]
+watchSim ::
+  forall ramSize progSize.
+  (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
+  Vec progSize Word ->
+  [(Core.State, Output, Maybe Input)]
 watchSim = runSimulator @ramSize @progSize watch
 
-simResult :: forall ramSize progSize. (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
+simResult ::
+  forall ramSize progSize.
+  (KnownNat ramSize, KnownNat (MemSizeFrom progSize ramSize)) =>
+  Vec progSize Word ->
+  Vec (MemSizeFrom progSize ramSize) Byte
 simResult = runSimulator result

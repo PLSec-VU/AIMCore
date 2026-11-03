@@ -37,22 +37,26 @@ loadElf elf@(Elf classS _) = withSingElfClassI classS $ do
     forM_ (zip [0 ..] bytes) $ \(i, byte) ->
       ramWrite (addr + fromIntegral i) Byte (zeroExtend $ bitCoerce byte)
 
--- | Extract all loadable sections from an ELF into a list of (Address, ByteString)
+-- | Extract all loadable sections from an ELF into a list of (Address,
+-- ByteString)
 getElfSegments :: Elf -> [(Address, BS.ByteString)]
 getElfSegments (Elf classS elfs) = withSingElfClassI classS $
   let loadable = loadableSegments elfs
    in P.concatMap extractSegmentSections loadable
   where
-    extractSegmentSections :: (SingElfClassI a) => ElfXX 'Segment a -> [(Address, BS.ByteString)]
+    extractSegmentSections ::
+      (SingElfClassI a) => ElfXX 'Segment a -> [(Address, BS.ByteString)]
     extractSegmentSections ElfSegment {..} =
       let sections = gatherSections epData
        in -- We ignore epAddMemSize here to avoid massive allocations;
           -- BSS should be handled by the memory model (zero-initialized).
           sections
 
-    gatherSections :: (SingElfClassI a) => ElfListXX a -> [(Address, BS.ByteString)]
+    gatherSections ::
+      (SingElfClassI a) => ElfListXX a -> [(Address, BS.ByteString)]
     gatherSections ElfListNull = []
-    gatherSections (ElfListCons (ElfSection {esData = ElfSectionData d, ..}) xs) =
+    gatherSections
+      (ElfListCons (ElfSection {esData = ElfSectionData d, ..}) xs) =
       (fromIntegral esAddr, BSL.toStrict d) : gatherSections xs
     gatherSections (ElfListCons _ xs) = gatherSections xs
 
@@ -84,7 +88,8 @@ baseAddr (Elf SELFCLASS32 elfs) = go elfs
     go ElfListNull = pure 0
 
 -- | Read a string from memory starting at the given address for count bytes
-readStringFromMemory :: (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m String
+readStringFromMemory ::
+  (MonadMemory m) => Unsigned 32 -> Unsigned 32 -> m String
 readStringFromMemory addr count = do
   bytes <-
     forM [0 .. count - 1] $ \i -> do
@@ -92,10 +97,16 @@ readStringFromMemory addr count = do
       pure $ fromIntegral (byte .&. 0xFF)
   pure $ P.map chr $ takeWhile (/= 0) bytes
 
--- | Called when the core halts with a syscall. Return the value to write to a0, or Nothing to truly exit.
+-- | Called when the core halts with a syscall. Return the value to write to a0,
+-- or Nothing to truly exit.
 type Instrument m = Core.State -> m (Maybe Types.Word)
 
-runElf :: forall m. (MonadIO m, MonadMemory m) => Instrument m -> CircuitSim m Core.Input Core.State Core.Output -> m ()
+runElf ::
+  forall m.
+  (MonadIO m, MonadMemory m) =>
+  Instrument m ->
+  CircuitSim m Core.Input Core.State Core.Output ->
+  m ()
 runElf instr c = go c
   where
     go sim@(CircuitSim i s step next) = do
@@ -111,6 +122,7 @@ runElf instr c = go c
           case mRet of
             Nothing -> pure ()
             Just ret -> do
-              let s'' = Core.initAt resumePc (modifyRF 10 ret (Core.stateRegFile s'))
+              let rf' = modifyRF 10 ret (Core.stateRegFile s')
+                  s'' = Core.initAt resumePc rf'
               go $ sim {circuitInput = Core.initInput, circuitState = s''}
         Just (Core.EBreak _) -> pure ()
