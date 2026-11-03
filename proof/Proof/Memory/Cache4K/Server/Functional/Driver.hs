@@ -26,21 +26,23 @@ import Types
 -- ready, so the server's state is not consulted; elsewhere it need not agree
 -- with 'srvDriverSpec'.
 srvDriver :: CacheSrv m -> Request -> Int
-srvDriver (CacheSrv c _ _) req = case req of
-  Just (MemRead addr size) ->
-    let off = case size of
-          Byte -> 0
-          Half -> 1
-          Word -> 3
+srvDriver (CacheSrv c _ _) req =
+  case req of
+    Just (MemRead addr size) ->
+      let off =
+            case size of
+              Byte -> 0
+              Half -> 1
+              Word -> 3
 
-        hit1stLine = cacheHit addr c
-        penalty1stLine = if hit1stLine then 0 else fromIntegral penalty
+          hit1stLine = cacheHit addr c
+          penalty1stLine = if hit1stLine then 0 else fromIntegral penalty
 
-        hit2ndLine = setOf (addr + off) == setOf addr || cacheHit (addr + off) c
-        penalty2ndLine = if hit2ndLine then 0 else fromIntegral penalty
+          hit2ndLine = setOf (addr + off) == setOf addr || cacheHit (addr + off) c
+          penalty2ndLine = if hit2ndLine then 0 else fromIntegral penalty
 
-    in penalty1stLine + penalty2ndLine
-  _ -> 0
+      in penalty1stLine + penalty2ndLine
+    _ -> 0
 
 -- | The driver is 0, 'penalty' or twice 'penalty': the hop lengths of the
 -- cache's steps ('Proof.Memory.Cache4K.Server.Functional.Obligation.indStep0',

@@ -58,33 +58,35 @@ simInitCacheSrv = SimCacheSrv tagEmpty SimCacheSrvReady
 -- afterwards. A read that misses fills the line's tag and stalls 'penalty'
 -- cycles per missed line; everything else is answered at once.
 simServe :: SimCacheSrv -> Obs -> (SimCacheSrv, Bool)
-simServe (SimCacheSrv t st) obs = case st of
-  SimCacheSrvStall n
-    | n > 0 ->
-        (SimCacheSrv t (SimCacheSrvStall (n - 1)), False)
-    | otherwise ->
-        (SimCacheSrv t SimCacheSrvReady, True)
-  SimCacheSrvReady -> case obs of
-    DataRead addr size ->
-      let off = case size of
-            Byte -> 0
-            Half -> 1
-            Word -> 3
+simServe (SimCacheSrv t st) obs =
+  case st of
+    SimCacheSrvStall n
+      | n > 0 ->
+          (SimCacheSrv t (SimCacheSrvStall (n - 1)), False)
+      | otherwise ->
+          (SimCacheSrv t SimCacheSrvReady, True)
+    SimCacheSrvReady -> case obs of
+      DataRead addr size ->
+        let off =
+              case size of
+                Byte -> 0
+                Half -> 1
+                Word -> 3
 
-          hit1stLine = tagHit addr t
-          penalty1stLine = if hit1stLine then 0 else penalty
-          t1 = if hit1stLine then t else tagFill addr t
+            hit1stLine = tagHit addr t
+            penalty1stLine = if hit1stLine then 0 else penalty
+            t1 = if hit1stLine then t else tagFill addr t
 
-          hit2ndLine = tagHit (addr + off) t1
-          penalty2ndLine = if hit2ndLine then 0 else penalty
-          t2 = if hit2ndLine then t1 else tagFill (addr + off) t1
+            hit2ndLine = tagHit (addr + off) t1
+            penalty2ndLine = if hit2ndLine then 0 else penalty
+            t2 = if hit2ndLine then t1 else tagFill (addr + off) t1
 
-          n = penalty1stLine + penalty2ndLine
+            n = penalty1stLine + penalty2ndLine
 
-      in if n > 0
-           then (SimCacheSrv t2 (SimCacheSrvStall (n - 1)), False)
-           else (SimCacheSrv t2 SimCacheSrvReady, True)
-    _ -> (SimCacheSrv t SimCacheSrvReady, True)
+        in if n > 0
+             then (SimCacheSrv t2 (SimCacheSrvStall (n - 1)), False)
+             else (SimCacheSrv t2 SimCacheSrvReady, True)
+      _ -> (SimCacheSrv t SimCacheSrvReady, True)
 
 -- | Does the line of an address hold its block?
 tagHit :: Address -> TagArr -> Bool

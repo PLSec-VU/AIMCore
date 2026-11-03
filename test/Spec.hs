@@ -188,9 +188,10 @@ sanityTests =
     ]
   where
     verdict :: String -> Maybe String
-    verdict name = case lookup name Sanity.results of
-      Just v -> v
-      Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
+    verdict name =
+      case lookup name Sanity.results of
+        Just v -> v
+        Nothing -> error "Proof.SMT.Sanity.results is missing an expected entry"
 #endif
 
 tests :: TestTree

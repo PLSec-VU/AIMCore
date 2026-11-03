@@ -51,6 +51,7 @@ srvSimInvFunctional wsi sim1 sim2 srv =
 simOf :: CacheSrv m -> SimCacheSrv
 simOf (CacheSrv c _ st) = SimCacheSrv (tagArr c) simSt
   where
-    simSt = case st of
-      CacheSrvReady -> SimCacheSrvReady
-      CacheSrvStall n _ -> SimCacheSrvStall n
+    simSt =
+      case st of
+        CacheSrvReady -> SimCacheSrvReady
+        CacheSrvStall n _ -> SimCacheSrvStall n

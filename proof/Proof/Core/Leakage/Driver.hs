@@ -34,12 +34,14 @@ simStoreHazard inp st =
     || maybe False (Core.Instruction.storeHazard dePc) meStore
   where
     dePc = simStateDePc st
-    exStore = case inp of
-      Just (LStore size addr) -> Just (addr, size)
-      _ -> Nothing
-    meStore = case simStateMeAccess st of
-      SimStore size addr -> Just (addr, size)
-      _ -> Nothing
+    exStore =
+      case inp of
+        Just (LStore size addr) -> Just (addr, size)
+        _ -> Nothing
+    meStore =
+      case simStateMeAccess st of
+        SimStore size addr -> Just (addr, size)
+        _ -> Nothing
 
 -- | The load-hazard condition of 'Core.Pipeline.decode', computed by the ISA as
 -- part of the leakage.
@@ -65,10 +67,11 @@ simDriver inp st
 -- decoded instruction is not, and neither is a halted simulator; the stall
 -- reasons are.
 simIsBubble :: SimState -> Bool
-simIsBubble sim = case simStateExInstrType sim of
-  DecodedInstr -> False
-  Halted -> False
-  _ -> True
+simIsBubble sim =
+  case simStateExInstrType sim of
+    DecodedInstr -> False
+    Halted -> False
+    _ -> True
 
 -- | The operational reading of 'simDriver', as
 -- 'Proof.Core.Functional.Driver.driverSpec' is of the core's: step on the

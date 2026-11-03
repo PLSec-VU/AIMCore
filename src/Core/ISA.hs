@@ -271,6 +271,7 @@ isaStepDecoded ir st@(IsaState pc rf mem) =
 isaRun :: (RegFileOps r, MemOps m) => Int -> IsaStateG r m -> [IsaStateG r m]
 isaRun n st
   | n <= 0 = [st]
-  | otherwise = case isaStep st of
-      IsaHalted -> [st]
-      Next st' -> st : isaRun (n - 1) st'
+  | otherwise =
+    case isaStep st of
+        IsaHalted -> [st]
+        Next st' -> st : isaRun (n - 1) st'

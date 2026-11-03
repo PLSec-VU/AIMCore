@@ -87,9 +87,10 @@ indStep0 wr wa sys =
   not premises || conclusion
   where
     isa = isaOf sys
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
+    isa' =
+      case isaStep isa of
+        Next next -> next
+        IsaHalted -> isa
 
     sys' = stepSys sys
 
@@ -110,9 +111,10 @@ indStep1 wr wa sys =
   not premises || conclusion
   where
     isa = isaOf sys
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
+    isa' =
+      case isaStep isa of
+        Next next -> next
+        IsaHalted -> isa
 
     sys' = stepSysN 1 sys
 
@@ -133,9 +135,10 @@ indStep2 wr wa sys =
   not premises || conclusion
   where
     isa = isaOf sys
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
+    isa' =
+      case isaStep isa of
+        Next next -> next
+        IsaHalted -> isa
 
     sys' = stepSysN 2 sys
 
@@ -158,9 +161,10 @@ indStep3 wr wa sys =
   not premises || conclusion
   where
     isa = isaOf sys
-    isa' = case isaStep isa of
-      Next next -> next
-      IsaHalted -> isa
+    isa' =
+      case isaStep isa of
+        Next next -> next
+        IsaHalted -> isa
 
     sys' = stepSysN 3 sys
 

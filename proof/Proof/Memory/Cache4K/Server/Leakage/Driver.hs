@@ -29,21 +29,23 @@ import Types
 -- 'Proof.Memory.Cache4K.Server.Functional.Driver.srvDriver' computes for the
 -- server. Only ever run from a ready simulator, so its state is not consulted.
 simSrvDriver :: SimCacheSrv -> Obs -> Int
-simSrvDriver (SimCacheSrv t _) obs = case obs of
-  DataRead addr size ->
-    let off = case size of
-          Byte -> 0
-          Half -> 1
-          Word -> 3
+simSrvDriver (SimCacheSrv t _) obs =
+  case obs of
+    DataRead addr size ->
+      let off =
+            case size of
+              Byte -> 0
+              Half -> 1
+              Word -> 3
 
-        hit1stLine = tagHit addr t
-        penalty1stLine = if hit1stLine then 0 else fromIntegral penalty
+          hit1stLine = tagHit addr t
+          penalty1stLine = if hit1stLine then 0 else fromIntegral penalty
 
-        hit2ndLine = setOf (addr + off) == setOf addr || tagHit (addr + off) t
-        penalty2ndLine = if hit2ndLine then 0 else fromIntegral penalty
+          hit2ndLine = setOf (addr + off) == setOf addr || tagHit (addr + off) t
+          penalty2ndLine = if hit2ndLine then 0 else fromIntegral penalty
 
-    in penalty1stLine + penalty2ndLine
-  _ -> 0
+      in penalty1stLine + penalty2ndLine
+    _ -> 0
 
 -- | The operational reading of 'simSrvDriver', as
 -- 'Proof.Memory.Cache4K.Server.Functional.Contract.srvDriverSpec' is of the

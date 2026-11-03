@@ -52,17 +52,19 @@ data TestMem = TestMem (Unsigned 32) (Unsigned 32) [(Address, Byte)]
   deriving (Eq, Show)
 
 instance MemOps TestMem where
-  memReadByte a (TestMem k1 k2 ws) = case P.lookup a ws of
-    Just b -> b
-    Nothing -> slice d7 d0 (pack ((a * (k1 .|. 1) + k2) `xor` (a `shiftR` 9)))
+  memReadByte a (TestMem k1 k2 ws) =
+    case P.lookup a ws of
+      Just b -> b
+      Nothing -> slice d7 d0 (pack ((a * (k1 .|. 1) + k2) `xor` (a `shiftR` 9)))
   memReadWord a m =
     memReadByte (a + 3) m ++# memReadByte (a + 2) m ++# memReadByte (a + 1) m ++# memReadByte a m
   memWrite a size w (TestMem k1 k2 ws) = TestMem k1 k2 (bytes P.++ ws)
     where
-      bytes = case size of
-        Byte -> [(a, b0)]
-        Half -> [(a + 1, b1), (a, b0)]
-        Types.Word -> [(a + 3, b3), (a + 2, b2), (a + 1, b1), (a, b0)]
+      bytes =
+        case size of
+          Byte -> [(a, b0)]
+          Half -> [(a + 1, b1), (a, b0)]
+          Types.Word -> [(a + 3, b3), (a + 2, b2), (a + 1, b1), (a, b0)]
       b0 = slice d7 d0 w
       b1 = slice d15 d8 w
       b2 = slice d23 d16 w

@@ -112,16 +112,18 @@ storeHazard sys@(Sys core _ _) =
     || maybe False (Core.Instruction.storeHazard dePc) meStore
   where
     dePc = stateDePc core
-    exStore = case stateExInstr core of
-      SType size imm rs1 _ ->
-        Just
-          ( unpack (alu ADD (exArg sys rs1) (signExtend imm)),
-            size
-          )
-      _ -> Nothing
-    meStore = case stateMeInstr core of
-      SType size _ _ _ -> Just (stateMeAddr core, size)
-      _ -> Nothing
+    exStore =
+      case stateExInstr core of
+        SType size imm rs1 _ ->
+          Just
+            ( unpack (alu ADD (exArg sys rs1) (signExtend imm)),
+              size
+            )
+        _ -> Nothing
+    meStore =
+      case stateMeInstr core of
+        SType size _ _ _ -> Just (stateMeAddr core, size)
+        _ -> Nothing
 
 -- | The load-hazard condition of 'Core.decode', between the instruction
 -- arriving on 'inputMem' and the one in the execute stage.
@@ -189,11 +191,12 @@ driverCaseName sys@(Sys core _ _)
 -- that has left the execute stage but not yet halted the core -- @Nop Halted@
 -- is a bubble like the stall reasons, so the hop runs on until the core halts.
 isBubble :: SysG r m -> Bool
-isBubble (Sys core _ _) = case stateExInstr core of
-  Nop DecodeFail -> False
-  Nop Halted -> isNothing (stateHalt core)
-  Nop _ -> True
-  _ -> False
+isBubble (Sys core _ _) =
+  case stateExInstr core of
+    Nop DecodeFail -> False
+    Nop Halted -> isNothing (stateHalt core)
+    Nop _ -> True
+    _ -> False
 
 -- | The operational reading of the driver's stated invariant: step until the
 -- execute stage holds something that is not a no-op. Returns the number of
