@@ -1,6 +1,6 @@
 -- | A raw array of 1024 words, indexed like the cache's data array: the
 -- arbitrary contents of a coherent cache's invalid lines
--- ('Proof.Cache.Functional.Obligation.cachedOf'). The term axioms in
+-- ('Proof.Cache.Server.Functional.Obligation.cachedOf'). The term axioms in
 -- "Proof.Cache.SMT.Axioms" embed it as 'Proof.Cache.SMT.Array.DataArrSMT'.
 --
 -- In a module of its own, without the solver's types, so that the obligations

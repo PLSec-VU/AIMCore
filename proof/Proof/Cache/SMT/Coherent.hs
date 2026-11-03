@@ -1,5 +1,5 @@
 -- | The SMT side of a cache that is coherent by construction
--- ('Proof.Cache.Functional.Obligation.cachedOf'): the term axioms in
+-- ('Proof.Cache.Server.Functional.Obligation.cachedOf'): the term axioms in
 -- "Proof.Cache.SMT.Axioms" ('Proof.Cache.SMT.Axioms.coherentAxioms') embed
 -- 'Memory.Cache4K.DataArr' as 'DataC', which carries only arrays:
 --
@@ -46,12 +46,15 @@ dataReadC i a
     e = tagRead si tags
 
 -- | The embedding of 'Memory.Cache4K.dataWrite'.
-dataWriteC :: forall arr. (Coercible DataC arr) => BitVector 10 -> Word -> arr -> arr
-dataWriteC i v a = coerce (DataC (rawWrite i v ws) (rawWrite i 1 written) mem tags raw)
+dataWriteC ::
+  forall arr. (Coercible DataC arr) => BitVector 10 -> Word -> arr -> arr
+dataWriteC i v a =
+  coerce (DataC (rawWrite i v ws) (rawWrite i 1 written) mem tags raw)
   where
     DataC ws written mem tags raw = coerce a
 
--- | The embedding of 'Proof.Cache.Functional.Obligation.mkDataMem': nothing
--- written yet.
-mkDataC :: forall arr. (Coercible DataC arr) => MemArr -> TagArr -> RawData -> arr
+-- | The embedding of 'Proof.Cache.Server.Functional.Obligation.mkDataMem':
+-- nothing written yet.
+mkDataC ::
+  forall arr. (Coercible DataC arr) => MemArr -> TagArr -> RawData -> arr
 mkDataC mem t raw = coerce (DataC rawZero rawZero mem t raw)

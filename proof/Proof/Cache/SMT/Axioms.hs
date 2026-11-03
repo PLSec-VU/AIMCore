@@ -4,11 +4,22 @@
 module Proof.Cache.SMT.Axioms (cacheAxioms, coherentAxioms) where
 
 import qualified Data.Map as Map
-import Memory.Cache4K (DataArr, TagArr, dataRead, dataWrite, dataZero, tagEmpty, tagRead, tagWrite)
+import Memory.Cache4K
+  ( DataArr,
+    TagArr,
+    dataEq,
+    dataRead,
+    dataWrite,
+    dataZero,
+    tagEmpty,
+    tagEq,
+    tagRead,
+    tagWrite,
+  )
 import Pantomime (PluginAxioms (..))
 import Proof.SMT.Axioms (arrayAxioms)
 import Proof.Cache.SMT.Array
-import Proof.Cache.Functional.Obligation (mkDataMem)
+import Proof.Cache.Server.Functional.Obligation (mkDataMem)
 import Proof.Cache.SMT.Coherent
 import Proof.Cache.SMT.Raw
 
@@ -25,18 +36,20 @@ cacheAxioms =
           [ ('tagRead, 'tagReadE),
             ('tagWrite, 'tagWriteE),
             ('tagEmpty, 'tagEmptyE),
+            ('tagEq, 'tagEqE),
             ('dataRead, 'dataReadE),
             ('dataWrite, 'dataWriteE),
-            ('dataZero, 'dataZeroE)
+            ('dataZero, 'dataZeroE),
+            ('dataEq, 'dataEqE)
           ]
       }
 
 -- | The axioms for the cache's proof: as 'cacheAxioms', but the data array is
 -- embedded as 'Proof.Cache.SMT.Coherent.DataC', so that
--- 'Proof.Cache.Functional.Obligation.mkData' builds a cache coherent by
+-- 'Proof.Cache.Server.Functional.Obligation.mkData' builds a cache coherent by
 -- construction (through its 'MemArr' instance,
--- 'Proof.Cache.Functional.Obligation.mkDataMem'). The raw-array and tag axioms
--- come first: an embedding that calls another wrapper ('dataReadC' calls
+-- 'Proof.Cache.Server.Functional.Obligation.mkDataMem'). The raw-array and tag
+-- axioms come first: an embedding that calls another wrapper ('dataReadC' calls
 -- 'rawRead' and 'tagRead') only sees the axioms listed before its own.
 coherentAxioms :: PluginAxioms
 coherentAxioms =

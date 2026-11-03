@@ -3,9 +3,10 @@
 -- many more bytes, so the invariant is stated at a witness byte and a witness
 -- word, and the obligations quantify over them, as the core's invariant does
 -- over a register and a byte.
-module Proof.Cache.Functional.Invariant
+module Proof.Cache.Server.Functional.Invariant
   ( coherentAt,
-    srvInvAt
+    srvInvAt,
+    srvInvFunctional,
   )
 where
 
@@ -30,8 +31,23 @@ coherentAt wsi wwi mem c =
 -- server to ideal memory @ideal@: no miss is pending, the server's memory holds
 -- ideal memory's byte @wa@, and if the line is valid, its word @wwi@ is the
 -- server's memory's.
-srvInvAt :: (MemOps m) => Address -> SetIdx -> WordIdx -> m -> CacheSrv m -> Bool
+srvInvAt ::
+  (MemOps m) => Address -> SetIdx -> WordIdx -> m -> CacheSrv m -> Bool
 srvInvAt wa wsi wwi ideal (CacheSrv c mem st) =
   st == CacheSrvReady &&
   memReadByte wa ideal == memReadByte wa mem &&
   coherentAt wsi wwi mem c
+
+-- | The invariant is functional: two ideal memories it relates to the same
+-- server are equal, at byte @wa@. Quantifying over @wa@ gives equality of the
+-- memories.
+srvInvFunctional ::
+  (MemOps m) =>
+  Address -> SetIdx -> WordIdx -> m -> m -> CacheSrv m -> Bool
+srvInvFunctional wa wsi wwi ideal1 ideal2 srv =
+  not premises || conclusion
+  where
+    premises =
+      srvInvAt wa wsi wwi ideal1 srv && srvInvAt wa wsi wwi ideal2 srv
+
+    conclusion = memReadByte wa ideal1 == memReadByte wa ideal2
