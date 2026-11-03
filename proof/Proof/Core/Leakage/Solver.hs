@@ -1,6 +1,6 @@
 -- | The leakage proof, checked symbolically.
 --
--- 'baseCaseLeakP' plus one property per driver delay: on a hop of that length,
+-- 'baseCaseLeak' plus one property per driver delay: on a hop of that length,
 -- the corresponding obligation in "Proof.Core.Leakage.Obligation" holds. Split
 -- by @k@ because the number of unrolled cycles has to be concrete -- the plugin
 -- cannot recurse on a symbolic count -- and each property pins @driver == k@ so
@@ -17,10 +17,19 @@
 -- only instantiates them.
 --
 -- The system state is a 'KState' plus SMT-array register file and memory (see
--- "Proof.Core.Functional.System"); the simulator state is a fresh value of its
--- own type, since it holds no register file or memory.
+-- "Proof.Core.Functional.System"); the simulator state is drawn directly, since
+-- it holds no register file or memory.
+--
+-- == Running them
+--
+-- Under Bitwuzla, not Z3:
+--
+-- > SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack build
 module Proof.Core.Leakage.Solver
-  ( baseCaseLeakP,
+  ( simDriverMatchesSpecP,
+    simDriverMatchesSpecInitP,
+    simInvFunctionalP,
+    baseCaseLeakP,
     indStepLeak0P,
     indStepLeak1P,
     indStepLeak2P,
@@ -30,15 +39,55 @@ where
 
 import Proof.Core.Functional.Machine (SysG)
 import Proof.Core.Functional.System
+import Proof.Core.Leakage.Driver
+  ( simDriverMatchesSpec,
+    simDriverMatchesSpecInit,
+  )
+import Proof.Core.Leakage.Invariant (simInvFunctional)
 import Proof.Core.Leakage.Obligation
 import Proof.Core.Leakage.Simulator (SimState)
+import Proof.Core.SMT.Array
+import Proof.Core.SMT.Axioms (arrayEmbeddings)
 import Proof.SMT.Array
-import Proof.SMT.Axioms (arrayEmbeddings)
 import Proof.SMT.Symbolic (expectValid)
 import SymFC (SymFC (..))
 import qualified SymFC.BuiltIn as SymFC
 import Types
 import Prelude hiding (Word)
+
+-- The driver -------------------------------------------------------------------
+
+-- | On the simulator states the invariant covers, the simulator's driver agrees
+-- with its operational reading, for the leakage of any instruction.
+{-# ANN simDriverMatchesSpecP (SymFC ['arrayEmbeddings]) #-}
+simDriverMatchesSpecP :: SymFC.Sym ()
+simDriverMatchesSpecP = do
+  wr <- SymFC.fresh
+  wa <- SymFC.fresh
+  leak <- SymFC.fresh
+  sim <- SymFC.fresh
+  sys <- freshSys
+  expectValid $ simDriverMatchesSpec wr wa leak sim sys
+
+-- | On the initial simulator, its driver agrees with its operational reading,
+-- for any start PC.
+{-# ANN simDriverMatchesSpecInitP (SymFC ['arrayEmbeddings]) #-}
+simDriverMatchesSpecInitP :: SymFC.Sym ()
+simDriverMatchesSpecInitP = do
+  pc <- SymFC.fresh
+  expectValid $ simDriverMatchesSpecInit pc
+
+-- The invariant ----------------------------------------------------------------
+
+-- | The invariant is functional: two simulators it relates to the same system
+-- are equal.
+{-# ANN simInvFunctionalP (SymFC ['arrayEmbeddings]) #-}
+simInvFunctionalP :: SymFC.Sym ()
+simInvFunctionalP = do
+  sim1 <- SymFC.fresh
+  sim2 <- SymFC.fresh
+  sys <- freshSys
+  expectValid $ simInvFunctional sim1 sim2 sys
 
 -- The base case ----------------------------------------------------------------
 
@@ -54,16 +103,15 @@ baseCaseLeakP = do
 
 -- The inductive steps ----------------------------------------------------------
 
-type HopLeakObligation = RegIdx -> Address -> Address -> SysG RegArrF MemArr -> SimState -> Bool
+type HopLeakObligation = RegIdx -> Address -> SysG RegArrF MemArr -> SimState -> Bool
 
 holdsOnEveryHop :: HopLeakObligation -> SymFC.Sym ()
 holdsOnEveryHop obligation = do
   wr <- SymFC.fresh
   wa <- SymFC.fresh
-  ipc <- SymFC.fresh
   sys <- freshSys
   sim <- SymFC.fresh
-  expectValid $ obligation wr wa ipc sys sim
+  expectValid $ obligation wr wa sys sim
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
 {-# ANN indStepLeak0P (SymFC ['arrayEmbeddings]) #-}

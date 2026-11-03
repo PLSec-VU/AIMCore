@@ -7,7 +7,8 @@ module Memory.IO
   )
 where
 
-import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
+import Clash.Prelude
+  hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad (forM_)
 import Control.Monad.Reader
@@ -69,6 +70,10 @@ instance {-# OVERLAPPING #-} MonadMemory (IOMemT IO) where
           forM_ (P.zip [0 ..] bytes) $ \(i, byte) ->
             lift $ writeArray ramArray (fromIntegral addr + i) byte
     case size of
-      Byte -> writeBytes [bitCoerce b0] -- Write 1 byte
-      Half -> writeBytes [bitCoerce b0, bitCoerce b1] -- Write 2 bytes (halfword)
-      Word -> writeBytes [bitCoerce b0, bitCoerce b1, bitCoerce b2, bitCoerce b3] -- Write 4 bytes (word)
+      -- Write 1 byte
+      Byte -> writeBytes [bitCoerce b0]
+      -- Write 2 bytes (halfword)
+      Half -> writeBytes [bitCoerce b0, bitCoerce b1]
+      -- Write 4 bytes (word)
+      Word ->
+        writeBytes [bitCoerce b0, bitCoerce b1, bitCoerce b2, bitCoerce b3]

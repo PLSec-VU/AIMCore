@@ -50,7 +50,7 @@ where
 
 import Access
 import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
-import Core hiding (Syscall)
+import Core.Alu (alu, branch)
 import Data.Functor.Identity
 import Core.Instruction (Instruction, Sign, decode', loadExtend)
 import qualified Core.Instruction as Instruction
@@ -218,7 +218,7 @@ deriving instance (Show r, Show m) => Show (IsaStateG r m)
 deriving instance (Eq r, Eq m) => Eq (IsaStateG r m)
 
 -- | The result of one architectural step. 'IsaHalted' covers @ebreak@ and
--- @ecall@, which is where 'Core' parks in a 'Core.HaltState'.
+-- @ecall@, which is where "Core.Pipeline" parks in a 'Core.Pipeline.HaltState'.
 data StepG r m
   = Next (IsaStateG r m)
   | IsaHalted
@@ -336,6 +336,7 @@ isaStepDecoded ir st =
 isaRun :: (RegFileOps r, MemOps m) => Int -> IsaStateG r m -> [IsaStateG r m]
 isaRun n st
   | n <= 0 = [st]
-  | otherwise = case isaStep st of
-      IsaHalted -> [st]
-      Next st' -> st : isaRun (n - 1) st'
+  | otherwise =
+    case isaStep st of
+        IsaHalted -> [st]
+        Next st' -> st : isaRun (n - 1) st'

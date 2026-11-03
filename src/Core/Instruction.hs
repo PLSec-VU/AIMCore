@@ -110,7 +110,8 @@ data IOperation
   deriving (Eq, Show, Generic, NFDataX)
   deriving stock (Lift)
 
--- | Reason for replacing an instruction with a nop. Some of these can be collapsed if we want to optimize later.
+-- | Reason for replacing an instruction with a nop. Some of these can be
+-- collapsed if we want to optimize later.
 data Reason4Stall
   = -- | First instruction discarded because of a jump.
     JumpFirstCycle
@@ -160,9 +161,10 @@ nop = RType ADD 0 0 0
 
 {-# INLINE decode' #-}
 decode' :: Word -> Instruction
-decode' word = case decode word of
-  Just instr -> instr
-  Nothing -> Nop DecodeFail
+decode' word =
+  case decode word of
+    Just instr -> instr
+    Nothing -> Nop DecodeFail
 
 -- | Decode a word to an instruction.
 --
@@ -291,17 +293,18 @@ encode' instruction =
   case instruction of
     RType op rd rs1 rs2 -> do
       let opcode = 0b011_0011 :: BitVector 7
-      let (funct3, funct7) :: (BitVector 3, BitVector 7) = case op of
-            ADD -> (0x0, 0x00)
-            SUB -> (0x0, 0x20)
-            XOR -> (0x4, 0x00)
-            OR -> (0x6, 0x00)
-            AND -> (0x7, 0x00)
-            SLL -> (0x1, 0x00)
-            SRL -> (0x5, 0x00)
-            SRA -> (0x5, 0x20)
-            SLT -> (0x2, 0x00)
-            SLTU -> (0x3, 0x00)
+      let (funct3, funct7) :: (BitVector 3, BitVector 7) =
+            case op of
+              ADD -> (0x0, 0x00)
+              SUB -> (0x0, 0x20)
+              XOR -> (0x4, 0x00)
+              OR -> (0x6, 0x00)
+              AND -> (0x7, 0x00)
+              SLL -> (0x1, 0x00)
+              SRL -> (0x5, 0x00)
+              SRA -> (0x5, 0x20)
+              SLT -> (0x2, 0x00)
+              SLTU -> (0x3, 0x00)
       let rd' = pack rd
       let rs1' = pack rs1
       let rs2' = pack rs2
@@ -343,18 +346,20 @@ encode' instruction =
     IType (Env env) rd rs1 _ -> do
       let opcode = 0b111_0011 :: BitVector 7
       let funct3 = 0x0 :: BitVector 3
-      let imm :: BitVector 12 = case env of
-            Call -> 0
-            Break -> 1
+      let imm :: BitVector 12 =
+            case env of
+              Call -> 0
+              Break -> 1
       let rd' = pack rd
       let rs1' = pack rs1
       pure $ imm ++# rs1' ++# funct3 ++# rd' ++# opcode
     SType size imm rs1 rs2 -> do
       let opcode = 0b010_0011 :: BitVector 7
-      let funct3 :: BitVector 3 = case size of
-            Byte -> 0x0
-            Half -> 0x1
-            Word -> 0x2
+      let funct3 :: BitVector 3 =
+            case size of
+              Byte -> 0x0
+              Half -> 0x1
+              Word -> 0x2
 
       let immU = slice d11 d5 imm
       let immL = slice d4 d0 imm
@@ -364,13 +369,14 @@ encode' instruction =
       pure $ immU ++# rs2' ++# rs1' ++# funct3 ++# immL ++# opcode
     BType cmp imm rs1 rs2 -> do
       let opcode = 0b110_0011 :: BitVector 7
-      let funct3 :: BitVector 3 = case cmp of
-            EQ -> 0x0
-            NE -> 0x1
-            LT -> 0x4
-            GE -> 0x5
-            LTU -> 0x6
-            GEU -> 0x7
+      let funct3 :: BitVector 3 =
+            case cmp of
+              EQ -> 0x0
+              NE -> 0x1
+              LT -> 0x4
+              GE -> 0x5
+              LTU -> 0x6
+              GEU -> 0x7
 
       -- Note: The first bit of the imm is always 0, so we right-shift by 1
       -- to remove it before storing in the instruction
@@ -382,11 +388,14 @@ encode' instruction =
 
       let rs1' = pack rs1
       let rs2' = pack rs2
-      pure $ imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11 ++# opcode
+      pure $
+        imm12 ++# imm10to5 ++# rs2' ++# rs1' ++# funct3 ++# imm4to1 ++# imm11
+          ++# opcode
     UType base rd imm -> do
-      let opcode :: BitVector 7 = case base of
-            Zero -> 0b011_0111
-            PC -> 0b001_0111
+      let opcode :: BitVector 7 =
+            case base of
+              Zero -> 0b011_0111
+              PC -> 0b001_0111
       let rd' = pack rd
       pure $ imm ++# rd' ++# opcode
     JType rd imm -> do

@@ -1,11 +1,11 @@
 -- | The inductive steps of the refinement proof, checked symbolically.
 --
 -- 'baseCase' says the invariant holds once the reset state has taken its first
--- hop. Then one property per driver
--- delay: if the invariant relates @(isa, sys)@ and the driver says the hop takes
--- @k + 1@ cycles, then after those cycles (and one ISA step, where the hop
--- retires an instruction) the invariant relates them again. Base case plus the
--- four steps is the whole refinement theorem.
+-- hop. Then one property per driver delay: if the invariant relates @(isa,
+-- sys)@ and the driver says the hop takes @k + 1@ cycles, then after those
+-- cycles (and one ISA step, where the hop retires an instruction) the invariant
+-- relates them again. Base case plus the four steps is the whole refinement
+-- theorem.
 --
 -- Checking one @k@ at a time keeps the number of unrolled cycles concrete,
 -- which sidesteps the plugin's termination check: @stepSysN (driver sys + 1)@
@@ -21,24 +21,41 @@
 module Proof.Core.Functional.Solver
   ( arrRoundTripP,
     shiftsSaneP,
+    driverMatchesSpecP,
+    driverMatchesSpecInitP,
+    driverValuesP,
     baseCaseP,
     indStep0P,
     indStep1P,
     indStep2P,
     indStep3P,
+    pcUnderInvP,
     regFileUnderInvP,
     memUnderInvP,
+    invFunctionalP,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import qualified Core
+import qualified Core.Alu
 import Core.ISA (IsaStateG (..))
+import Proof.Core.Functional.Driver
+  ( driverMatchesSpec,
+    driverMatchesSpecInit,
+    driverValues,
+  )
+import Proof.Core.Functional.Invariant
+  ( invFunctional,
+    memUnderInv,
+    pcUnderInv,
+    regFileUnderInv,
+  )
 import Proof.Core.Functional.Machine (SysG)
 import Proof.Core.Functional.Obligation
 import Proof.Core.Functional.System
+import Proof.Core.SMT.Array
+import Proof.Core.SMT.Axioms (arrayEmbeddings)
 import Proof.SMT.Array
-import Proof.SMT.Axioms (arrayEmbeddings)
 import Proof.SMT.Symbolic (expectValid)
 import SymFC (SymFC (..))
 import qualified SymFC.BuiltIn as SymFC
@@ -47,9 +64,9 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 
 -- Sanity probes for the trusted embeddings -------------------------------------
 --
--- The term axioms in "Proof.SMT.Axioms" replace Haskell functions by hand-written SMT
--- counterparts, so they are trusted, not proved. These two probes check each
--- embedding against facts a broken one would get wrong.
+-- The term embeddings in "Proof.SMT.Axioms" replace Haskell functions by
+-- hand-written SMT counterparts, so they are trusted, not proved. These two
+-- probes check each embedding against facts a broken one would get wrong.
 
 -- | The register-file array embedding: a read after a write at the same index
 -- gives the written value.
@@ -70,12 +87,85 @@ shiftsSaneP = do
   x <- SymFC.fresh @Word
   let sign = slice d31 d31 x
   expectValid $
-    Core.sllWord x 0 == x
-      && Core.srlWord x 0 == x
-      && Core.sraWord x 0 == x
-      && Core.sllWord x 1 == x + x
-      && Core.srlWord x 31 == (if sign == 1 then 1 else 0)
-      && Core.sraWord x 31 == (if sign == 1 then 0xFFFFFFFF else 0)
+    Core.Alu.sllWord x 0 == x
+      && Core.Alu.srlWord x 0 == x
+      && Core.Alu.sraWord x 0 == x
+      && Core.Alu.sllWord x 1 == x + x
+      && Core.Alu.srlWord x 31 == (if sign == 1 then 1 else 0)
+      && Core.Alu.sraWord x 31 == (if sign == 1 then 0xFFFFFFFF else 0)
+
+-- The driver -------------------------------------------------------------------
+
+-- | The driver is 0 to 3, on any system.
+{-# ANN driverValuesP (SymFC ['arrayEmbeddings]) #-}
+driverValuesP :: SymFC.Sym ()
+driverValuesP = do
+  sys <- freshSys
+  expectValid $ driverValues sys
+
+type IsaObligation = RegIdx -> Address -> IsaStateG RegArrF MemArr -> SysG RegArrF MemArr -> Bool
+
+-- | Checked for any ISA state, not only one derived from the core.
+holdsForFreeIsa :: IsaObligation -> SymFC.Sym ()
+holdsForFreeIsa obligation = do
+  wr <- SymFC.fresh
+  wa <- SymFC.fresh
+  isa <- freshIsa
+  sys <- freshSys
+  expectValid $ obligation wr wa isa sys
+
+freshIsa :: SymFC.Sym (IsaStateG RegArrF MemArr)
+freshIsa = IsaState <$> SymFC.fresh <*> (RegArrF <$> freshRA) <*> freshMA
+
+-- | On states the invariant relates to a free ISA state, the driver agrees
+-- with its operational reading.
+{-# ANN driverMatchesSpecP (SymFC ['arrayEmbeddings]) #-}
+driverMatchesSpecP :: SymFC.Sym ()
+driverMatchesSpecP = holdsForFreeIsa driverMatchesSpec
+
+-- | On the initial system, the driver agrees with its operational reading, for
+-- any start PC, register file and memory.
+{-# ANN driverMatchesSpecInitP (SymFC ['arrayEmbeddings]) #-}
+driverMatchesSpecInitP :: SymFC.Sym ()
+driverMatchesSpecInitP = do
+  pc <- SymFC.fresh
+  ra <- freshRA
+  ma <- freshMA
+  expectValid $ driverMatchesSpecInit pc (RegArrF ra) ma
+
+-- The invariant and the architectural state -------------------------------------
+
+-- | The invariant relating the core to the ISA implies that the ISA's PC is
+-- the core's architectural one. The ISA state is free, not derived from the
+-- core.
+{-# ANN pcUnderInvP (SymFC ['arrayEmbeddings]) #-}
+pcUnderInvP :: SymFC.Sym ()
+pcUnderInvP = holdsForFreeIsa pcUnderInv
+
+-- | The invariant relating the core to the ISA implies that the ISA's register
+-- file is the core's architectural one. The ISA state is free, not derived from
+-- the core.
+{-# ANN regFileUnderInvP (SymFC ['arrayEmbeddings]) #-}
+regFileUnderInvP :: SymFC.Sym ()
+regFileUnderInvP = holdsForFreeIsa regFileUnderInv
+
+-- | The invariant relating the core to the ISA implies that the ISA's memory is
+-- the core's architectural one.
+{-# ANN memUnderInvP (SymFC ['arrayEmbeddings]) #-}
+memUnderInvP :: SymFC.Sym ()
+memUnderInvP = holdsForFreeIsa memUnderInv
+
+-- | The invariant is functional: two ISA states, both free, related to the
+-- same system are equal.
+{-# ANN invFunctionalP (SymFC ['arrayEmbeddings]) #-}
+invFunctionalP :: SymFC.Sym ()
+invFunctionalP = do
+  wr <- SymFC.fresh
+  wa <- SymFC.fresh
+  isa1 <- freshIsa
+  isa2 <- freshIsa
+  sys <- freshSys
+  expectValid $ invFunctional wr wa isa1 isa2 sys
 
 -- The base case ----------------------------------------------------------------
 
@@ -91,15 +181,14 @@ baseCaseP = do
 
 -- The inductive steps ----------------------------------------------------------
 
-type HopObligation = RegIdx -> Address -> Address -> SysG RegArrF MemArr -> Bool
+type HopObligation = RegIdx -> Address -> SysG RegArrF MemArr -> Bool
 
 holdsOnEveryHop :: HopObligation -> SymFC.Sym ()
 holdsOnEveryHop obligation = do
   wr <- SymFC.fresh
   wa <- SymFC.fresh
-  ipc <- SymFC.fresh
   sys <- freshSys
-  expectValid $ obligation wr wa ipc sys
+  expectValid $ obligation wr wa sys
 
 -- | @k = 0@: the one-cycle hop (steady, writeback non-memory).
 {-# ANN indStep0P (SymFC ['arrayEmbeddings]) #-}
@@ -123,30 +212,3 @@ indStep2P = holdsOnEveryHop indStep2
 {-# ANN indStep3P (SymFC ['arrayEmbeddings]) #-}
 indStep3P :: SymFC.Sym ()
 indStep3P = holdsOnEveryHop indStep3
-
--- The invariant and the flush ---------------------------------------------------
-
-type FlushObligation = RegIdx -> Address -> IsaStateG RegArrF MemArr -> SysG RegArrF MemArr -> Bool
-
--- | Checked for any ISA state, not only one derived from the core.
-holdsUnderInv :: FlushObligation -> SymFC.Sym ()
-holdsUnderInv obligation = do
-  wr <- SymFC.fresh
-  wa <- SymFC.fresh
-  ipc <- SymFC.fresh
-  ira <- freshRA
-  ima <- freshMA
-  sys <- freshSys
-  expectValid $ obligation wr wa (IsaState ipc (RegArrF ira) ima) sys
-
--- | The invariant relating the core to the ISA implies that the ISA's register
--- file is the core's, flushed.
-{-# ANN regFileUnderInvP (SymFC ['arrayEmbeddings]) #-}
-regFileUnderInvP :: SymFC.Sym ()
-regFileUnderInvP = holdsUnderInv regFileUnderInv
-
--- | The invariant relating the core to the ISA implies that the ISA's memory is
--- the core's, flushed.
-{-# ANN memUnderInvP (SymFC ['arrayEmbeddings]) #-}
-memUnderInvP :: SymFC.Sym ()
-memUnderInvP = holdsUnderInv memUnderInv

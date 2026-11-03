@@ -12,11 +12,12 @@ module Proof.SMT.Symbolic
 where
 
 import Clash.Prelude (Generic)
-import qualified Core
+import qualified Core.Pipeline as Core
 import Core.Instruction
 import Memory.Cache4KServer (CacheSrvState (..))
-import Proof.Core.Leakage.Model (Leak)
-import Proof.Core.Leakage.Simulator (SimControl, SimExInstrType, SimState)
+import Proof.Core.Leakage.Model (Leak, Obs)
+import Proof.Core.Leakage.Simulator (SimControl, SimExInstrType, SimMemAccess, SimState)
+import Proof.Memory.Cache4K.Server.Leakage.Simulator (SimCacheSrvState (..))
 import qualified SymFC.Base ()
 import qualified SymFC.BuiltIn as SymFC
 import qualified SymFC.Clash ()
@@ -53,6 +54,14 @@ deriving instance Generic CacheSrvState
 instance SymFC.Symbolic CacheSrvState
 
 instance SymFC.Symbolic Leak
+
+instance SymFC.Symbolic Obs
+
+instance SymFC.Symbolic SimMemAccess
+
+deriving instance Generic SimCacheSrvState
+
+instance SymFC.Symbolic SimCacheSrvState
 
 instance SymFC.Symbolic SimExInstrType
 

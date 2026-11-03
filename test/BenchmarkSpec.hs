@@ -11,7 +11,7 @@ import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.ST (stToIO, RealWorld)
-import qualified Core as Core
+import qualified Core.Pipeline as Core
 import Elf.ElfLoader
 import Elf.Syscall (handleSyscall)
 import Numeric (showHex)
@@ -69,7 +69,7 @@ mkBenchmarkTest testName _benchmark =
     -- Run the simulator with STMemory and MonadMemory interface; loadElf
     -- copies the program's segments into memory.
     stMem <- stToIO $ newSTMemory (fromIntegral entryOffset) (fromIntegral base)
-    
+
     _ <- runSTMemoryT stMem $ do
       loadElf elf
       let sim :: CircuitSim (STMemoryT RealWorld IO) (Core.Input) (Core.State) (Core.Output)

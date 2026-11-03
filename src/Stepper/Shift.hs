@@ -15,7 +15,7 @@ module Stepper.Shift
 where
 
 import Clash.Prelude (Nat, Type)
-import Core (sllWord, sraWord, srlWord)
+import Core.Alu (sllWord, sraWord, srlWord)
 import Data.Coerce (coerce)
 import SymFC (Embeddings (..))
 import qualified SymFC.BuiltIn as P
@@ -24,7 +24,7 @@ import qualified SymFC.Clash as Clash
 
 -- | The ALU shifts, mapped to the SMT bitvector shifts.
 --
--- See 'Core.sllWord' for why the wrappers exist: they keep the shift amount a
+-- See 'Core.Alu.sllWord' for why the wrappers exist: they keep the shift amount a
 -- bitvector, so a query stays in the bitvector-and-array fragment that Bitwuzla
 -- and Yices can read.
 shiftEmbeddings :: Embeddings
@@ -40,7 +40,7 @@ shiftEmbeddings =
 
 -- Shifts as SMT bitvector shifts ----------------------------------------------
 --
--- Embeddings for 'Core.sllWord', 'Core.srlWord' and 'Core.sraWord'. See the note
+-- Embeddings for 'Core.Alu.sllWord', 'Core.Alu.srlWord' and 'Core.Alu.sraWord'. See the note
 -- on those functions for why they exist: without them each shift site converts
 -- its five-bit amount through 'Integer', and the resulting @ubv_to_int@ /
 -- @int_to_bv@ pair makes every query unreadable to the bitvector-only solvers.

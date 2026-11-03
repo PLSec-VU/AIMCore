@@ -6,7 +6,7 @@
 --
 -- NOTE: this module -- and every other property the plugin checks -- only
 -- builds at @-O1@ or above. Under @stack build --fast@ (@-O0@) GHC creates no
--- unfoldings, so the plugin cannot see through @$@ or @Pantomime.boolean@ and
+-- unfoldings, so the plugin cannot see through @$@ or @SymFC.boolean@ and
 -- stops with @Unbound variable in symbolise@, which fails the build rather
 -- than reporting a failed proof. Use a plain @stack build@ for anything that
 -- touches the proof.
@@ -21,11 +21,11 @@ import SymFC.Base qualified as Base
 import SymFC.BuiltIn (Sym)
 import SymFC.BuiltIn qualified as SymFC
 
--- | The example from the Pantomime README: de Morgan over all booleans.
+-- | The example from the SymFC README: de Morgan over all booleans.
 --
--- NOTE: unlike the README, this needs 'Base.axioms'. GHC compiles @(==) \@Bool@
--- down to the @dataToTagSmall#@ primop, which only 'Base.axioms' maps onto a
--- Pantomime primitive.
+-- NOTE: unlike the README, this needs 'Base.embeddings'. GHC compiles @(==) \@Bool@
+-- down to the @dataToTagSmall#@ primop, which only 'Base.embeddings' maps onto a
+-- SymFC primitive.
 {-# ANN deMorgan (SymFC ['Base.embeddings]) #-}
 deMorgan :: Sym ()
 deMorgan = do
@@ -37,7 +37,7 @@ deMorgan = do
     SymFC.None -> pure ()
     _ -> SymFC.halt
 
--- | The example from the Pantomime install guide, which additionally exercises
+-- | The example from the SymFC install guide, which additionally exercises
 -- the 'base' axioms (i.e. the embedding of 'Int' into the theory of bitvectors).
 {-# ANN doubling (SymFC ['Base.embeddings]) #-}
 doubling :: Sym ()

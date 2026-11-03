@@ -6,10 +6,12 @@
 module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
+import Cache4KSpec (cache4KTests)
+import CacheProofSpec (cacheProofTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Core
+import Core.Pipeline as Core
 import Data.Maybe (fromJust, isJust)
 import Core.Instruction
 import InstructionSpec (instructionTests)
@@ -50,6 +52,8 @@ tests =
   testGroup
     "All Tests"
     [ proofTests,
+      cache4KTests,
+      cacheProofTests,
       isaConformanceTests,
       instructionTests,
       testGroup

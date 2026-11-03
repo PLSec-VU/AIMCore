@@ -6,7 +6,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {- HLINT ignore "Functor law" -}
 
-module Core
+module Core.Pipeline
   ( initInput,
     initAt,
     init,
@@ -26,11 +26,6 @@ module Core
     MemAccess (..),
     Request,
     Control (..),
-    alu,
-    branch,
-    sllWord,
-    srlWord,
-    sraWord,
     topEntity,
   )
 where
@@ -39,6 +34,7 @@ import Clash.Prelude hiding (Ordering (..), Word, def, init, lift)
 import Control.Monad
 import Control.Monad.RWS
 import Data.Maybe (fromMaybe, isJust, isNothing)
+import Core.Alu (alu, branch)
 import Core.Instruction hiding (decode)
 import Memory.Types
 import Core.RegFile
@@ -74,7 +70,7 @@ type Request = Maybe MemAccess
 -- | The output of the CPU.
 newtype Output = Output
   { -- | A memory access.
-    outMem :: Request
+    outputMem :: Request
   }
   deriving (Show, Generic, NFDataX)
 
@@ -152,12 +148,14 @@ data Control = Control
     -- | Stores the jump address if the instruction in the `execute` stage
     --   results in a jump.
     ctrlExJumpAddr :: Maybe Address,
-    -- | Stores the write address and size if the instruction in the `execute` stage
+    -- | Stores the write address and size if the instruction in the `execute`
+    -- stage
     --   is a store.
     ctrlExStoreAddrSize :: Maybe (Address, Size),
     -- | `True` when the instruction in the `memory` stage is a store or a load.
     ctrlMeMemInstr :: Bool,
-    -- | Stores the write address and size if the instruction in the `memory` stage
+    -- | Stores the write address and size if the instruction in the `memory`
+    -- stage
     --   is a store.
     ctrlMeStoreAddrSize :: Maybe (Address, Size),
     -- | Forwards the `rd` register from the `memory` stage to the `execute`
@@ -234,9 +232,9 @@ initCtrl =
       ctrlMemNotReady = False
     }
 
--- | Fetch stage. Holds while memory has not answered (see 'writeback'), like the
--- other stages before writeback: a stall then leaves every pipeline register
--- as it was.
+-- | Fetch stage. Holds while memory has not answered (see 'writeback'), like
+-- the other stages before writeback: a stall then leaves every pipeline
+-- register as it was.
 fetch :: CPUM r ()
 fetch = do
   notReady <- gets (ctrlMemNotReady . stateCtrl)
@@ -297,8 +295,10 @@ decodeFresh = do
   let break_current_cycle = maybe False isBreak (ctrlExInstr ctrl)
 
   let jump_previous_cycle = ctrlExInstr ctrl == Just (Nop JumpFirstCycle)
-  let store_hazard_previous_cycle = ctrlExInstr ctrl == Just (Nop StoreHazardFirstCycle)
-  let load_hazard_previous_cycle = ctrlExInstr ctrl == Just (Nop LoadHazardFirstCycle)
+  let store_hazard_previous_cycle =
+        ctrlExInstr ctrl == Just (Nop StoreHazardFirstCycle)
+  let load_hazard_previous_cycle =
+        ctrlExInstr ctrl == Just (Nop LoadHazardFirstCycle)
 
   let jump_current_cycle = isJust (ctrlExJumpAddr ctrl)
 
@@ -439,67 +439,6 @@ executeFresh = do
             pure fwdVal
       pure $ fromMaybe def (pick ctrlMeRegFwd <|> pick ctrlWbRegFwd)
 
-alu :: Arith -> Word -> Word -> Word
-alu op lhs rhs = case op of
-  ADD -> lhs + rhs
-  SUB -> lhs - rhs
-  XOR -> lhs .^. rhs
-  OR -> lhs .|. rhs
-  AND -> lhs .&. rhs
-  SLL -> sllWord lhs (shiftBits rhs)
-  SRL -> srlWord lhs (shiftBits rhs)
-  SRA -> sraWord lhs (shiftBits rhs)
-  SLT -> set (sign lhs < sign rhs)
-  SLTU -> set (lhs < rhs)
-  where
-    shiftBits = slice d4 d0
-    sign = unpack @(Signed 32)
-    set b = if b then 1 else 0
-
--- | The three RISC-V shifts, with the shift amount kept as a bitvector.
---
--- RISC-V takes the amount from the low five bits of the second operand, so no
--- amount can reach the word width and these agree with the SMT shifts on the
--- nose.
---
--- They exist as named 'OPAQUE' functions, rather than 'shiftL' applied inline,
--- for the verifier's sake. 'Data.Bits.shiftL' takes an 'Int', so an inline
--- amount forces @fromIntegral@ on the five-bit slice, and that is modelled
--- through 'Integer': every shift site then emits an integer round trip
--- (@ubv_to_int@ to @int_to_bv@) wrapped in two overflow guards. Those few terms
--- pull integer arithmetic into a query that is otherwise pure bitvectors and
--- arrays, and Bitwuzla and Yices have no integer theory at all -- they reject
--- such a query outright rather than solve it slowly. Keeping the amount a
--- 'BitVector' behind a name lets "Axioms" map each shift to its SMT
--- counterpart; see 'ArrayRF.sllWordE'.
---
--- OPAQUE is essential, for the same reason as 'ArrayRF.loadRA': the axiom is
--- keyed on the name, so an inlined wrapper would leave nothing to rewrite.
-{-# OPAQUE sllWord #-}
-sllWord :: Word -> BitVector 5 -> Word
-sllWord x n = shiftL x (fromIntegral n)
-
--- | Logical right shift; 'BitVector' is unsigned, so 'shiftR' is @bvlshr@.
-{-# OPAQUE srlWord #-}
-srlWord :: Word -> BitVector 5 -> Word
-srlWord x n = shiftR x (fromIntegral n)
-
--- | Arithmetic right shift, via 'Signed' as the ISA prescribes.
-{-# OPAQUE sraWord #-}
-sraWord :: Word -> BitVector 5 -> Word
-sraWord x n = pack (shiftR (unpack x :: Signed 32) (fromIntegral n))
-
-branch :: Comparison -> Word -> Word -> Bool
-branch op lhs rhs = case op of
-  EQ -> lhs == rhs
-  NE -> lhs /= rhs
-  LT -> sign lhs < sign rhs
-  GE -> sign lhs >= sign rhs
-  LTU -> lhs < rhs
-  GEU -> lhs >= rhs
-  where
-    sign = unpack @(Signed 32)
-
 -- | Memory stage. Holds while memory has not answered (see 'writeback').
 memory :: CPUM r ()
 memory = do
@@ -596,16 +535,16 @@ readPC :: (MonadWriter Output m) => Address -> m ()
 readPC addr =
   tell $
     (mempty :: Output)
-      { outMem = pure $ MemFetch addr }
+      { outputMem = pure $ MemFetch addr }
 
 readRAM :: (MonadWriter Output m) => Address -> Size -> m ()
 readRAM addr size =
   tell $
     (mempty :: Output)
-      { outMem = pure $ MemRead addr size }
+      { outputMem = pure $ MemRead addr size }
 
 writeRAM :: (MonadWriter Output m) => Address -> Size -> Word -> m ()
 writeRAM addr size val =
   tell $
     (mempty :: Output)
-      { outMem = pure $ MemWrite addr size val }
+      { outputMem = pure $ MemWrite addr size val }

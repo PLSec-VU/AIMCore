@@ -1,37 +1,45 @@
--- | The axiom set used by the proof properties.
+{-# LANGUAGE MagicHash #-}
+
+-- | The embedding sets every proof builds on: the embeddings of 'base', of the
+-- Clash numeric types and of the ALU shifts, and memory as an SMT array
+-- ("Proof.SMT.Array"). The core's register file adds its own in
+-- "Proof.Core.SMT.Axioms".
 --
 -- This lives in its own module because GHC's stage restriction requires a value
 -- mentioned in an @ANN@ pragma to be imported rather than defined locally.
-module Proof.SMT.Axioms (embeddings, arrayEmbeddings) where
+module Proof.SMT.Axioms (embeddings, memEmbeddings) where
 
+import qualified Clash.Sized.Internal.Unsigned as Unsigned
 import Proof.SMT.Array
 import Stepper.Concrete (baseEmbeddings)
 import SymFC (Embeddings (..))
 
--- | 'base' embeddings plus the Clash numeric types ('BitVector', 'Unsigned',
--- 'Signed', 'Bit'), which is what this core's types are built from, plus this
--- core's own shift wrappers. The stepper uses the same set.
+-- | The stepper's base set ('base', the Clash numeric types and the ALU
+-- shifts), plus the conversion of 'Unsigned' to 'Integer'.
 embeddings :: Embeddings
-embeddings = baseEmbeddings
+embeddings = baseEmbeddings <> unsignedEmbeddings
 
--- | The register-file-as-SMT-array embedding, on top of the base set.
+-- | What symfc-clash leaves out for 'Unsigned': its conversion to 'Integer',
+-- which 'fromIntegral' goes through.
+unsignedEmbeddings :: Embeddings
+unsignedEmbeddings =
+  Embeddings
+    { typeEmbeddings = [],
+      termEmbeddings = [('Unsigned.toInteger#, 'unsignedToIntegerE)]
+    }
+
+-- | The memory-as-SMT-array embedding, on top of the base set.
 --
 -- Monomorphic by necessity: an array needs concrete index and element sorts.
-arrayEmbeddings :: Embeddings
-arrayEmbeddings =
+memEmbeddings :: Embeddings
+memEmbeddings =
   embeddings
     <> Embeddings
-      { typeEmbeddings =
-        [ (''RegArr, ''RegArrSMT),
-          (''MemArr, ''MemArrSMT)
-        ],
+      { typeEmbeddings = [(''MemArr, ''MemArrSMT)],
         termEmbeddings =
-          [ ('freshRA, 'freshRAE),
-            ('freshMA, 'freshMAE),
-            ('loadRA, 'loadRAE),
-            ('zeroRA, 'zeroRAE),
-            ('storeRA, 'storeRAE),
+          [ ('freshMA, 'freshMAE),
             ('loadM, 'loadME),
-            ('storeM, 'storeME)
+            ('storeM, 'storeME),
+            ('eqM, 'eqME)
           ]
       }

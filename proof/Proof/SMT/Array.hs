@@ -1,17 +1,19 @@
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MonoLocalBinds #-}
 
--- | A register file embedded as an SMT array.
+-- | Memory embedded as an SMT array, shared by every proof, and the
+-- conversion of 'Unsigned' to 'Integer' that symfc-clash leaves out. The
+-- core's register file is embedded the same way in "Proof.Core.SMT.Array".
 --
 -- The embedding has to be /monomorphic/: an SMT array needs concrete index and
 -- element sorts, so there is no way to map @Vec n a@ polymorphically. The
 -- pattern is therefore:
 --
---   * a monomorphic newtype ('RegArr') for the Haskell side,
---   * a matching newtype ('RegArrSMT') wrapping the SMT array,
+--   * a monomorphic newtype ('MemArr') for the Haskell side,
+--   * a matching newtype ('MemArrSMT') wrapping the SMT array,
 --   * a type axiom relating the two,
---   * monomorphic wrappers ('loadRA', 'storeRA') that the verified code calls
+--   * monomorphic wrappers ('loadM', 'storeM') that the verified code calls
 --     instead of Clash's polymorphic @(!!)@ and @replace@, each with a term
 --     axiom pointing at an embedding written with 'coerce'.
 --
@@ -20,161 +22,39 @@
 -- Haskell implementations, which the axioms replace before symbolic execution
 -- ever sees them.
 module Proof.SMT.Array
-  ( RegArr (..),
-    RegArrF (..),
-    MemArr (..),
+  ( MemArr (..),
     MemArrSMT (..),
     loadM,
     storeM,
     loadME,
     storeME,
-    RegArrSMT (..),
-    freshRA,
-    freshRAE,
+    eqM,
+    eqME,
     freshMA,
     freshMAE,
-    loadRA,
-    storeRA,
-    zeroRA,
-    zeroRAE,
-    loadRAE,
-    storeRAE,
+    unsignedToIntegerE,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Data.Coerce (Coercible, coerce)
+import Data.Coerce (coerce)
 import qualified SymFC.BuiltIn as P
+import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
 import qualified SymFC.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
-import Core.RegFile (RegFileOps (..))
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
-import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
-
--- | The Haskell-side register file: 32 entries, so the index is exactly a
--- 'RegIdx' with no offset arithmetic. Slot 0 is present but never used --
--- @x0@ is handled by the caller, outside the array operations.
-newtype RegArr = RegArr (Vec 32 Word)
-
--- | The SMT-side counterpart. Same arity (zero), which is what lets the type
--- axiom relate them.
-newtype RegArrSMT = RegArrSMT (P.Array (P.BitVec 5) (P.BitVec 32))
-
--- | Read. Replaced by 'loadRAE' under the term axiom.
---
--- OPAQUE is essential: the axiom is keyed on this /name/, so if GHC inlines
--- the wrapper then only the polymorphic @index_int@ survives into Core and the
--- axiom never fires.
-{-# OPAQUE loadRA #-}
-loadRA :: RegArr -> RegIdx -> Word
-loadRA (RegArr v) i = v !! i
-
--- | Write. Replaced by 'storeRAE' under the term axiom. OPAQUE for the same
--- reason as 'loadRA'.
-{-# OPAQUE storeRA #-}
-storeRA :: RegArr -> RegIdx -> Word -> RegArr
-storeRA (RegArr v) i x = RegArr (replace i x v)
-
--- | Embedding of 'loadRA' as an array select.
---
--- Two subtleties. First, the source types are type /variables/ with
--- constructor-level 'Coercible' givens: congruence lifts @Coercible f g@ to
--- @Coercible (f a) (g a)@ when the head is a variable, but not through a
--- concrete constructor with nominal parameter roles.
---
--- Second, the array is indexed by the /primitive/ @SymFC.BuiltIn.BitVec@,
--- not by pantomime-clash's @BitVec@. The latter is a GADT admitting
--- zero-width vectors, so it is neither coercible to the primitive nor a
--- 'P.Primitive' itself, and cannot be an array index or element. So we unwrap
--- at the boundary with 'Clash.BitVecP'.
-loadRAE ::
-  forall arr (bvI :: Nat -> Type) (bvV :: Nat -> Type).
-  Embeddable arr RegArrSMT =>
-  Embeddable bvI Clash.BitVec =>
-  Embeddable bvV Clash.BitVec =>
-  arr ->
-  bvI 5 ->
-  bvV 32
-loadRAE
-  | Embedding <- embedding @arr
-  , Embedding <- embedding @bvI
-  , Embedding <- embedding @bvV = coerce go
-  where
-    go :: RegArrSMT -> Clash.BitVec 5 -> Clash.BitVec 32
-    go (RegArrSMT arr) (Clash.BitVecP k) = Clash.BitVecP (P.aselect arr k)
-
--- | Embedding of 'storeRA' as an array store.
-storeRAE ::
-  forall arr (bvI :: Nat -> Type) (bvV :: Nat -> Type).
-  Embeddable arr RegArrSMT =>
-  Embeddable bvI Clash.BitVec =>
-  Embeddable bvV Clash.BitVec =>
-  arr ->
-  bvI 5 ->
-  bvV 32 ->
-  arr
-storeRAE
-  | Embedding <- embedding @arr
-  , Embedding <- embedding @bvI
-  , Embedding <- embedding @bvV = coerce go
-  where
-    go :: RegArrSMT -> Clash.BitVec 5 -> Clash.BitVec 32 -> RegArrSMT
-    go (RegArrSMT arr) (Clash.BitVecP k) (Clash.BitVecP v) =
-      RegArrSMT (P.astore arr k v)
-
--- | The all-zero register file.
---
--- 'Proof.Core.Leakage.Simulator.censor' installs this on every state it builds, so
--- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
--- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
--- under the term axiom, which is keyed on this name -- hence OPAQUE, for the
--- same reason as 'loadRA'.
-{-# OPAQUE zeroRA #-}
-zeroRA :: RegArr
-zeroRA = RegArr (Clash.Prelude.repeat 0)
-
--- | Embedding of 'zeroRA' as a constant array.
-zeroRAE :: forall arr. Embeddable arr RegArrSMT => arr
-zeroRAE | Embedding <- embedding @arr = coerce (RegArrSMT (P.aconst 0))
-
--- | A fresh symbolic register file.
---
--- A 'Vec' has no symbolic counterpart, so this has no Haskell meaning: the body
--- halts, and 'freshRAE' replaces it under the term axiom. If the axiom ever
--- stops firing, the property halts and the build fails instead of silently
--- checking a concrete register file.
-{-# OPAQUE freshRA #-}
-freshRA :: P.Sym RegArr
-freshRA = P.halt
-
--- | Embedding of 'freshRA' as a fresh SMT array.
-freshRAE :: forall arr. Embeddable arr RegArrSMT => P.Sym arr
-freshRAE | Embedding <- embedding @arr = coerce . RegArrSMT <$> P.fresh
-
--- | The array-backed register file, wrapped so it fits 'RegFileOps'. A
--- verification-only representation.
-newtype RegArrF = RegArrF RegArr
-
-instance RegFileOps RegArrF where
-  lookupRFg idx (RegArrF a) = if idx == 0 then 0 else loadRA a idx
-  modifyRFg idx v rf@(RegArrF a)
-    | idx == 0 = rf
-    | otherwise = RegArrF (storeRA a idx v)
-
-  -- On the symbolic path; see 'zeroRA'.
-  initRFg = RegArrF zeroRA
 
 -- Memory as an SMT array ------------------------------------------------------
 
 -- | The Haskell-side memory.
 --
--- A 'Vec', mirroring 'RegArr'. The size is irrelevant to verification: the type
--- axiom maps this to an array over the whole 32-bit address space, and the body
--- is never symbolically executed, because 'loadM' and 'storeM' are replaced by
--- their embeddings first. A function would arguably be the more honest Haskell
--- representation, since memory spans 32 bits; whether one would also work here
--- is untested.
+-- A 'Vec', mirroring 'Proof.Core.SMT.Array.RegArr'. The size is irrelevant to
+-- verification: the type axiom maps this to an array over the whole 32-bit
+-- address space, and the body is never symbolically executed, because 'loadM'
+-- and 'storeM' are replaced by their embeddings first. A function would
+-- arguably be the more honest Haskell representation, since memory spans 32
+-- bits; whether one would also work here is untested.
 newtype MemArr = MemArr (Vec MEM_SIZE_BYTES Byte)
 
 -- | The SMT-side counterpart: byte-granular, so sub-word stores stay natural.
@@ -225,8 +105,29 @@ storeME
     go (MemArrSMT arr) (Clash.BitVecP a) (Clash.BitVecP v) =
       MemArrSMT (P.astore arr a v)
 
--- | A fresh symbolic memory. No Haskell meaning, for the same reason as
--- 'freshRA'.
+-- | Equality, so that whole memories can be compared. Replaced by 'eqME' under
+-- the term axiom; OPAQUE for the same reason as 'loadM'.
+{-# OPAQUE eqM #-}
+eqM :: MemArr -> MemArr -> Bool
+eqM (MemArr v) (MemArr w) = v == w
+
+instance Eq MemArr where
+  (==) = eqM
+
+-- | Embedding of 'eqM' as array equality.
+eqME :: forall arr. Embeddable arr MemArrSMT => arr -> arr -> Bool
+eqME
+  | Embedding <- embedding @arr = coerce go
+  where
+    go :: MemArrSMT -> MemArrSMT -> Bool
+    go (MemArrSMT a) (MemArrSMT b) = a == b
+
+-- | A fresh symbolic memory.
+--
+-- A 'Vec' has no symbolic counterpart, so this has no Haskell meaning: the body
+-- halts, and 'freshMAE' replaces it under the term axiom. If the axiom ever
+-- stops firing, the property halts and the build fails instead of silently
+-- checking a concrete memory.
 {-# OPAQUE freshMA #-}
 freshMA :: P.Sym MemArr
 freshMA = P.halt
@@ -245,10 +146,33 @@ instance MemOps MemArr where
     case size of
       Types.Byte -> put a b0 m
       Types.Half -> put (a + 1) b1 (put a b0 m)
-      Types.Word -> put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
+      Types.Word ->
+        put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
     where
       b0 = slice d7 d0 w
       b1 = slice d15 d8 w
       b2 = slice d23 d16 w
       b3 = slice d31 d24 w
       put i v mm = storeM mm i v
+
+-- Unsigned to Integer ---------------------------------------------------------
+--
+-- symfc-clash embeds @toInteger@ on 'BitVector' but not on 'Unsigned', and
+-- Clash's primitive is @OPAQUE@, so even a literal such as
+-- 'Memory.Cache4KServer.penalty' converted with 'fromIntegral' stops symbolic
+-- execution. Both types are embedded as 'Clash.BitVec', so the embedding is
+-- the same. On a constant, the solver library folds the conversion away, so
+-- the query stays in the bitvector fragment.
+
+-- | @toInteger@ on an 'Unsigned' as @ubv_to_int@.
+unsignedToIntegerE ::
+  forall (bv :: Nat -> Type) (n :: Nat).
+  Embeddable bv Clash.BitVec =>
+  bv n ->
+  Integer
+unsignedToIntegerE
+  | Embedding <- embedding @bv = coerce go
+  where
+    go :: Clash.BitVec n -> Integer
+    go Clash.BitVecZ = 0
+    go (Clash.BitVecP x) = P.toInteger (P.bvu2i x)

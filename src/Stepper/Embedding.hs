@@ -26,21 +26,11 @@ embeddings' :: Embeddings
 embeddings' = Embeddings
   { typeEmbeddings =
     [ (''Stepper.Memory, ''Memory)
-    -- , (''StepperRegFile, ''RegFile)
     ]
   , termEmbeddings =
     [ ('Memory.empty, 'emptyM)
-    -- , ('Memory.read, 'readM)
-    -- , ('Memory.write, 'writeM)
-    -- , ('Memory.eq, 'eqM)
-    -- , ('RegFile.initRF, 'emptyR)
-    -- , ('RegFile.modifyRF, undefined)
-    -- , ('RegFile.modifyRF, undefined)
-    -- , ('RegFile.eqRF, 'eqR)
     ]
   }
-
--- type StepperRegFile = Stepper.RegFile Identity
 
 newtype Memory k v where
   Memory :: SymFC.Array (SymFC.BitVec k) (SymFC.BitVec v) -> Memory k v

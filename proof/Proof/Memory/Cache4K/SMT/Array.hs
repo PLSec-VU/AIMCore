@@ -2,15 +2,16 @@
 
 -- | The arrays of "Memory.Cache4K" embedded as SMT arrays, as "Proof.SMT.Array"
 -- embeds the register file and memory: a monomorphic SMT newtype per array, and
--- an embedding per wrapper, which the term axioms in "Proof.Cache.SMT.Axioms"
--- put in place of the wrapper.
-module Proof.Cache.SMT.Array
+-- an embedding per wrapper, which the term axioms in
+-- "Proof.Memory.Cache4K.SMT.Axioms" put in place of the wrapper.
+module Proof.Memory.Cache4K.SMT.Array
   ( TagArrSMT (..),
     freshTag,
     freshTagE,
     tagReadE,
     tagWriteE,
     tagEmptyE,
+    tagEqE,
     DataArrSMT (..),
     freshData,
     freshRaw,
@@ -18,13 +19,14 @@ module Proof.Cache.SMT.Array
     dataReadE,
     dataWriteE,
     dataZeroE,
+    dataEqE,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Data.Coerce (coerce)
 import Memory.Cache4K (DataArr, TagArr)
-import Proof.Cache.SMT.Raw (RawData)
+import Proof.Memory.Cache4K.SMT.Raw (RawData)
 import qualified SymFC.BuiltIn as P
 import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
 import qualified SymFC.Clash as Clash
@@ -73,10 +75,17 @@ tagWriteE
   , Embedding <- embedding @bvV = coerce go
   where
     go :: Clash.BitVec 8 -> Clash.BitVec 21 -> TagArrSMT -> TagArrSMT
-    go (Clash.BitVecP k) (Clash.BitVecP v) (TagArrSMT arr) = TagArrSMT (P.astore arr k v)
+    go (Clash.BitVecP k) (Clash.BitVecP v) (TagArrSMT arr) =
+      TagArrSMT (P.astore arr k v)
 
 tagEmptyE :: forall arr. Embeddable arr TagArrSMT => arr
 tagEmptyE | Embedding <- embedding @arr = coerce (TagArrSMT (P.aconst 0))
+
+tagEqE :: forall arr. Embeddable arr TagArrSMT => arr -> arr -> Bool
+tagEqE | Embedding <- embedding @arr = coerce go
+  where
+    go :: TagArrSMT -> TagArrSMT -> Bool
+    go (TagArrSMT a) (TagArrSMT b) = a == b
 
 -- | 'Memory.Cache4K.DataArr' on the SMT side.
 newtype DataArrSMT = DataArrSMT (P.Array (P.BitVec 10) (P.BitVec 32))
@@ -125,7 +134,14 @@ dataWriteE
   , Embedding <- embedding @bvV = coerce go
   where
     go :: Clash.BitVec 10 -> Clash.BitVec 32 -> DataArrSMT -> DataArrSMT
-    go (Clash.BitVecP k) (Clash.BitVecP v) (DataArrSMT arr) = DataArrSMT (P.astore arr k v)
+    go (Clash.BitVecP k) (Clash.BitVecP v) (DataArrSMT arr) =
+      DataArrSMT (P.astore arr k v)
 
 dataZeroE :: forall arr. Embeddable arr DataArrSMT => arr
 dataZeroE | Embedding <- embedding @arr = coerce (DataArrSMT (P.aconst 0))
+
+dataEqE :: forall arr. Embeddable arr DataArrSMT => arr -> arr -> Bool
+dataEqE | Embedding <- embedding @arr = coerce go
+  where
+    go :: DataArrSMT -> DataArrSMT -> Bool
+    go (DataArrSMT a) (DataArrSMT b) = a == b

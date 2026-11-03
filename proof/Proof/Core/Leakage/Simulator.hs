@@ -1,6 +1,6 @@
 -- | The leakage simulator: a pipeline with the same stage structure and timing
--- as "Core", which sees only the leakage -- never the program, the register
--- file or memory contents.
+-- as "Core.Pipeline", which sees only the leakage -- never the program, the
+-- register file or memory contents.
 --
 -- Each cycle it may receive the 'Leak' of the instruction entering its execute
 -- stage ('SimInput'; 'Nothing' when there is none) and emits the bus
@@ -12,6 +12,7 @@ module Proof.Core.Leakage.Simulator
   ( SimInput,
     SimOutput,
     SimExInstrType (..),
+    SimMemAccess (..),
     SimState (..),
     SimControl (..),
     SimM,
@@ -31,7 +32,8 @@ import Proof.Core.Leakage.Model
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
--- | The input of the simulator.
+-- | The input of the simulator: the leakage of the instruction a hop starts
+-- with, or 'Nothing' in the middle of a driver hop.
 type SimInput = Maybe Leak
 
 -- | The output of the simulator.
@@ -57,8 +59,23 @@ data SimExInstrType
     StallNoInstruction
   | -- | First cycle.
     FirstCycle
+  | -- | First cycle after an environment instruction: the halt is on its way
+    -- through the pipeline, in the memory stage.
+    PendingHaltFirstCycle
+  | -- | Second cycle after an environment instruction: the halt is in the
+    -- writeback stage, which halts the core.
+    PendingHaltSecondCycle
   | -- | The core has halted.
     Halted
+  deriving (Eq, Show, Generic, NFDataX)
+
+-- | What the instruction in the memory stage does with memory: nothing, or a
+-- load or a store of a size at an address. The only part of an instruction's
+-- leakage the memory stage uses, so the simulator keeps no more of it.
+data SimMemAccess
+  = SimNoAccess
+  | SimLoad Size Address
+  | SimStore Size Address
   deriving (Eq, Show, Generic, NFDataX)
 
 -- | The internal state of the simulator.
@@ -71,8 +88,8 @@ data SimState = SimState
     simStateDeExpInstr :: Bool,
     -- | Instruction execute stage.
     simStateExInstrType :: SimExInstrType,
-    -- | Instruction memory stage.
-    simStateMeInstr :: Leak,
+    -- | What the instruction in the memory stage does with memory.
+    simStateMeAccess :: SimMemAccess,
     -- | Control/forwarding lines.
     simStateCtrl :: SimControl
   }
@@ -87,8 +104,8 @@ data SimControl = SimControl
     --   a store hazard with the instruction in the `execute` stage or the
     --   instruction in the `memory` stage.
     simCtrlDeStoreHazard :: Maybe Address,
-    -- | Stores the type of instruction in the `execute` stage (if it's a decoded
-    -- instruction versus various stalls).
+    -- | Stores the type of instruction in the `execute` stage (if it's a
+    -- decoded instruction versus various stalls).
     simCtrlExInstrType :: Maybe SimExInstrType,
     -- | `True` when the leaked instruction is an environment instruction. To
     -- maintain consistency with the core, the execute stage is the only one
@@ -97,7 +114,8 @@ data SimControl = SimControl
     -- | Stores the jump address if the instruction in the `execute` stage
     --   results in a jump.
     simCtrlExJumpAddr :: Maybe Address,
-    -- | Stores the write address and size if the instruction in the `execute` stage
+    -- | Stores the write address and size if the instruction in the `execute`
+    -- stage
     --   is a store.
     simCtrlExStoreAddrSize :: Maybe (Address, Size),
     -- | Stores the load hazard bit if the instruction in the `execute` stage
@@ -105,7 +123,8 @@ data SimControl = SimControl
     simCtrlExLoadHazard :: Maybe Bool,
     -- | `True` when the instruction in the `memory` stage is a store or a load.
     simCtrlMeMemInstr :: Bool,
-    -- | Stores the write address and size if the instruction in the `memory` stage
+    -- | Stores the write address and size if the instruction in the `memory`
+    -- stage
     --   is a store.
     simCtrlMeStoreAddrSize :: Maybe (Address, Size)
   }
@@ -130,6 +149,9 @@ simPipe = do
   simExecute
   simDecode
   simFetch
+  -- The lines only carry values within a tick, so none of them survives it,
+  -- as in 'Core.Pipeline.pipe'.
+  modify $ \s -> s {simStateCtrl = simInitCtrl}
 
 simInit :: SimState
 simInit =
@@ -138,7 +160,7 @@ simInit =
       simStateDePc = 0,
       simStateDeExpInstr = False,
       simStateExInstrType = FirstCycle,
-      simStateMeInstr = LArith,
+      simStateMeAccess = SimNoAccess,
       simStateCtrl = simInitCtrl
     }
 
@@ -198,31 +220,41 @@ simDecode = do
   let irt = if expInstr then DecodedInstr else StallNoInstruction
 
   let halted = simCtrlExInstrType ctrl == Just Halted
-  let env_instr_current_cycle = simCtrlExEnvInstr ctrl
-  
+  let env_instr_two_cycles_ago =
+        simCtrlExInstrType ctrl == Just PendingHaltSecondCycle
+  let env_instr_previous_cycle =
+        simCtrlExInstrType ctrl == Just PendingHaltFirstCycle
   let jump_previous_cycle = simCtrlExInstrType ctrl == Just StallJumpFirstCycle
-  let store_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallStoreHazardFirstCycle
-  let load_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallLoadHazardFirstCycle
+  let store_hazard_previous_cycle =
+        simCtrlExInstrType ctrl == Just StallStoreHazardFirstCycle
+  let load_hazard_previous_cycle =
+        simCtrlExInstrType ctrl == Just StallLoadHazardFirstCycle
 
+  let env_instr_current_cycle = simCtrlExEnvInstr ctrl
   let jump_current_cycle = isJust (simCtrlExJumpAddr ctrl)
 
   let store_hazard_current_cycle =
         maybe False (storeHazard pc) (simCtrlExStoreAddrSize ctrl) ||
         maybe False (storeHazard pc) (simCtrlMeStoreAddrSize ctrl)
 
-  let load_hazard_current_cycle = expInstr && fromMaybe False (simCtrlExLoadHazard ctrl)
+  let load_hazard_current_cycle =
+        expInstr && fromMaybe False (simCtrlExLoadHazard ctrl)
 
   let irt'
-        -- Halt if the core is not running anymore.
+        -- Stay halted once the core has halted.
         | halted = Halted
-        -- Halt if there is an environment instruction in this cycle.
-        | env_instr_current_cycle = Halted
+        -- The halt reaches the writeback stage after the second pending cycle.
+        | env_instr_two_cycles_ago = Halted
+        -- The halt moves on from the memory stage to the writeback stage.
+        | env_instr_previous_cycle = PendingHaltSecondCycle
         -- Stall if there was a jump in the previous cycle.
         | jump_previous_cycle = StallJumpSecondCycle
         -- Stall if there was a store hazard in the previous cycle.
         | store_hazard_previous_cycle = StallStoreHazardSecondCycle
         -- Stall if there was a load hazard in the previous cycle.
         | load_hazard_previous_cycle = StallLoadHazardSecondCycle
+        -- An environment instruction in this cycle starts the halt.
+        | env_instr_current_cycle = PendingHaltFirstCycle
         -- Stall if there is a jump in this cycle.
         | jump_current_cycle = StallJumpFirstCycle
         -- Stall if there is a store hazard in this cycle.
@@ -247,42 +279,43 @@ simExecute = do
   irt <- gets simStateExInstrType
 
   simSetLines $ \c -> c {simCtrlExInstrType = Just irt}
-  
+
   case irt of
     DecodedInstr ->
       case input of
         Just ir -> do
-          modify $ \s -> s {simStateMeInstr = ir}
-
           case ir of
-            LArith -> pure ()
-            LJump addr ->
+            LArith ->
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
+            LJump addr -> do
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
               simSetLines $ \c -> c {simCtrlExJumpAddr = Just addr}
-            LLoad _ _ haz ->
+            LLoad size addr haz -> do
+              modify $ \s -> s {simStateMeAccess = SimLoad size addr}
               simSetLines $ \c -> c {simCtrlExLoadHazard = Just haz}
-            LStore size addr ->
+            LStore size addr -> do
+              modify $ \s -> s {simStateMeAccess = SimStore size addr}
               simSetLines $ \c -> c {simCtrlExStoreAddrSize = Just (addr, size)}
-            LEnv ->
+            LEnv -> do
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
               simSetLines $ \c -> c {simCtrlExEnvInstr = True}
-        Nothing -> modify $ \s -> s {simStateMeInstr = LArith}
-    _ -> modify $ \s -> s {simStateMeInstr = LArith}
+        Nothing -> modify $ \s -> s {simStateMeAccess = SimNoAccess}
+    _ -> modify $ \s -> s {simStateMeAccess = SimNoAccess}
 
 -- | Memory stage.
 simMemory :: SimM ()
 simMemory = do
-  ir <- gets simStateMeInstr
+  ir <- gets simStateMeAccess
 
   case ir of
-    LArith -> pure ()
-    LJump _ -> pure ()
-    LLoad size addr _ -> do
+    SimNoAccess -> pure ()
+    SimLoad size addr -> do
       simSetLines $ \c -> c {simCtrlMeMemInstr = True}
       simReadRAM addr size
-    LStore size addr -> do
+    SimStore size addr -> do
       simSetLines $ \c ->
         c {simCtrlMeMemInstr = True, simCtrlMeStoreAddrSize = Just (addr, size)}
       simWriteRAM addr size
-    LEnv -> pure ()
 
 -- | Writeback stage.
 simWriteback :: SimM ()

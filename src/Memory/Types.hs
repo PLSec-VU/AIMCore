@@ -36,9 +36,9 @@ type MemBytes = Vec MEM_SIZE_BYTES Byte
 
 -- | The operations a memory representation has to provide.
 --
--- Parameterised for the same reason as 'Core.RegFile.RegFileOps': the @Vec@-backed
--- 'MemBytes' cannot be symbolically executed, while the function-backed 'MemFn'
--- can.
+-- Parameterised for the same reason as 'Core.RegFile.RegFileOps': the
+-- @Vec@-backed 'MemBytes' cannot be symbolically executed, while the
+-- function-backed 'MemFn' can.
 class MemOps m where
   memReadWord :: Address -> m -> Word
   memWrite :: Address -> Size -> Word -> m -> m
@@ -121,7 +121,11 @@ mkProg prog =
 type MemSizeFrom progSize ramSizeBytes =
   ramSizeBytes + ((GHC.TypeNats.*) progSize 4)
 
-mkRAM :: forall progSize ramSize. (KnownNat ramSize) => Vec progSize Word -> Vec (MemSizeFrom progSize ramSize) Byte
+mkRAM ::
+  forall progSize ramSize.
+  (KnownNat ramSize) =>
+  Vec progSize Word ->
+  Vec (MemSizeFrom progSize ramSize) Byte
 mkRAM prog =
   (repeat 0 :: Vec ramSize Byte) ++ Clash.Prelude.concatMap splitWord prog
   where
