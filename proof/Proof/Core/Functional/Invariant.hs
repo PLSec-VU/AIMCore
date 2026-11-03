@@ -20,11 +20,11 @@
 -- from drifting.
 --
 -- The invariant describes the core attached to memory that answers every
--- request in the next cycle ('Proof.Core.Functional.Machine.stepSys'), so the bus always holds
--- an answer ('Core.inputMem' is 'Just').
+-- request in the next cycle ('Proof.Core.Functional.Machine.stepSys'), so the
+-- bus always holds an answer ('Core.inputMem' is 'Just').
 module Proof.Core.Functional.Invariant
-  ( flushWbStage,
-    flushMeStage,
+  ( applyWbStage,
+    applyMeStage,
     Case (..),
     inv,
     invAtList,
@@ -32,6 +32,15 @@ module Proof.Core.Functional.Invariant
     invCasesAt,
     invAt,
     explain,
+    isaOf,
+    sysInvAt,
+    archPc,
+    archRegFile,
+    archMem,
+    pcUnderInv,
+    regFileUnderInv,
+    memUnderInv,
+    invFunctional,
   )
 where
 
@@ -49,18 +58,19 @@ import qualified Prelude as P
 
 -- | Apply the pending effect of the writeback-stage instruction. The load case
 -- reads its value off @inputMem@, matching 'Core.writeback'.
-flushWbStage ::
+applyWbStage ::
   (RegFileOps r) =>
   Instruction ->
   Word ->
   Word ->
   (m, r) ->
   (m, r)
-flushWbStage ir res inputWord (mem, rf) =
+applyWbStage ir res inputWord (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
     IType (Arith _) rd _ _ -> (mem, put rd res)
-    IType (Load size sign) rd _ _ -> (mem, put rd (loadExtend size sign inputWord))
+    IType (Load size sign) rd _ _ ->
+      (mem, put rd (loadExtend size sign inputWord))
     SType {} -> (mem, rf)
     BType {} -> (mem, rf)
     JType rd _ -> (mem, put rd res)
@@ -73,17 +83,17 @@ flushWbStage ir res inputWord (mem, rf) =
 
 -- | Apply the pending effect of the memory-stage instruction.
 --
--- The two jump cases write @rd@, matching 'flushWbStage': an instruction in the
--- memory stage this cycle is in the writeback stage the next one, so its pending
--- effect has to be counted the same way in both.
-flushMeStage ::
+-- The two jump cases write @rd@, matching 'applyWbStage': an instruction in the
+-- memory stage this cycle is in the writeback stage the next one, so its
+-- pending effect has to be counted the same way in both.
+applyMeStage ::
   (RegFileOps r, MemOps m) =>
   Instruction ->
   Word ->
   Address ->
   (m, r) ->
   (m, r)
-flushMeStage ir res addr (mem, rf) =
+applyMeStage ir res addr (mem, rf) =
   case ir of
     RType _ rd _ _ -> (mem, put rd res)
     IType (Arith _) rd _ _ -> (mem, put rd res)
@@ -120,7 +130,9 @@ inv isa sys = P.any holds (invCases isa sys)
 --
 -- Built from the named cases ('invCasesAt'), for the tests; the proofs use the
 -- fold-free 'invAt', which the tests check agrees with it.
-invAtList :: (RegFileOps r, MemOps m) => RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+invAtList ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
 invAtList wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
 
 -- | Human-readable account of why the invariant failed: for each case, the
@@ -128,7 +140,10 @@ invAtList wr wa isa sys = P.any holds (invCasesAt wr wa isa sys)
 explain :: IsaState -> Sys -> String
 explain isa sys =
   unlines
-    [ "  case " P.++ caseName c P.++ ": failed " P.++ show (P.map fst (P.filter (P.not . snd) (caseConjuncts c)))
+    [ "  case "
+        P.++ caseName c
+        P.++ ": failed "
+        P.++ show (P.map fst (P.filter (P.not . snd) (caseConjuncts c)))
       | c <- invCases isa sys
     ]
 
@@ -148,9 +163,9 @@ invCasesAt wr wa =
 -- | The cases of the invariant, parameterised over how register files and
 -- memories are compared.
 --
--- No case constrains @stateCtrl@. The control lines carry no information between
--- cycles: 'Core.pipe' resets them at the start of each cycle, before any stage
--- reads them.
+-- No case constrains @stateCtrl@. The control lines carry no information
+-- between cycles: 'Core.pipe' resets them at the start of each cycle, before
+-- any stage reads them.
 invCasesGen ::
   (RegFileOps r, MemOps m) =>
   (r -> r -> Bool) ->
@@ -186,19 +201,30 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
       Case "running" $
         [ ("running", stateHalt core == Nothing),
           ("memory answered", isJust (inputMem inp)),
-          ("wb is not an env instruction", P.not (isEnvInstr (stateWbInstr core))),
-          ("me is not an env instruction", P.not (isEnvInstr (stateMeInstr core))),
+          ( "wb is not an env instruction",
+            P.not (isEnvInstr (stateWbInstr core))
+          ),
+          ( "me is not an env instruction",
+            P.not (isEnvInstr (stateMeInstr core))
+          ),
           ("exPc == isaPc", stateExPc core == ipc),
           ("ex == decode (mem[isaPc])", stateExInstr core == isaInstr),
           ("dePc == exPc + 4", stateDePc core == stateExPc core + 4),
-          ("no load-use hazard me->ex", P.not (loadHazard (stateExInstr core) (stateMeInstr core))),
-          ( "(isaMem, isaRegFile) == flush",
+          ( "no load-use hazard me->ex",
+            P.not (loadHazard (stateExInstr core) (stateMeInstr core))
+          ),
+          ( "(isaMem, isaRegFile) == pending writes applied",
             let (fm, frf) =
-                  flushMeStage
+                  applyMeStage
                     (stateMeInstr core)
                     (stateMeRes core)
                     (stateMeAddr core)
-                    (flushWbStage (stateWbInstr core) (stateWbRes core) inputWord (mem, stateRegFile core))
+                    ( applyWbStage
+                        (stateWbInstr core)
+                        (stateWbRes core)
+                        inputWord
+                        (mem, stateRegFile core)
+                    )
              in eqMem imem fm && eqRF irf frf
           )
         ]
@@ -213,10 +239,11 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
                 ("fePc == exPc + 8", stateFePc core == stateExPc core + 8)
               ]
 
-    -- The halt carries the address the core would resume at, which 'Core.execute'
-    -- set from the trapping instruction's own PC. Pinning it to @isaPc + 4@ is
-    -- what fixes @isaPc@ as that instruction's address; "Core.ISA" leaves
-    -- the architectural state where it was, so the ISA is still \"at\" the trap.
+    -- The halt carries the address the core would resume at, which
+    -- 'Core.execute' set from the trapping instruction's own PC. Pinning it to
+    -- @isaPc + 4@ is what fixes @isaPc@ as that instruction's address;
+    -- "Core.ISA" leaves the architectural state where it was, so the ISA is
+    -- still \"at\" the trap.
     haltedCase name isKind expected =
       Case
         name
@@ -264,7 +291,9 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
     && stateDePc core == stateExPc core + 4
     && not (loadHazard (stateExInstr core) (stateMeInstr core))
     && ( if isMemInstr (stateWbInstr core)
-           then not (stateDeExpInstr core) && stateFePc core == stateExPc core + 4
+           then
+             not (stateDeExpInstr core)
+               && stateFePc core == stateExPc core + 4
            else
              stateDeExpInstr core
                && inputMem inp == Just (memReadWord (stateDePc core) mem)
@@ -273,17 +302,16 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
     && memReadByte wa imem == memReadByte wa fm
     && lookupRFg wr irf == lookupRFg wr frf
   where
-    -- The same flush the container form applies, read at the witness. Writing
-    -- it out pointwise by hand would duplicate 'flushMeStage' and 'memWrite'
-    -- for no gain: 'Proof.Core.Functional.Obligation.isaAt' already puts this flush
-    -- into every query, and the solver rewrites @select@ over a @store@ chain
-    -- natively.
+    -- The pending writes the container form applies, read at the witness.
+    -- Writing it out pointwise by hand would duplicate 'applyMeStage' and
+    -- 'memWrite' for no gain: 'isaOf' already puts them into every query, and
+    -- the solver rewrites @select@ over a @store@ chain natively.
     (fm, frf) =
-      flushMeStage
+      applyMeStage
         (stateMeInstr core)
         (stateMeRes core)
         (stateMeAddr core)
-        ( flushWbStage
+        ( applyWbStage
             (stateWbInstr core)
             (stateWbRes core)
             (fromMaybe 0 (inputMem inp))
@@ -310,3 +338,120 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys core inp mem) =
     expected = case kind of
       HaltBreak -> EBreak (ipc + 4)
       HaltCall -> Syscall (ipc + 4)
+
+-- The architectural state, and properties of the invariant --------------------
+
+-- | The architectural state that the invariant claims @sys@ corresponds to:
+-- its PC, register file and memory ('archPc', 'archRegFile', 'archMem').
+--
+-- The containers are /derived/ from @sys@ ('archRegFile', 'archMem') rather
+-- than taken as further inputs. They have to be: the invariant compares them
+-- pointwise, at one witness register and one witness byte, so a freely
+-- quantified register file and memory would be tied to @sys@ only at those two
+-- points. 'Core.ISA.isaStep' reads memory at @isaPc@ and registers at
+-- @rs1@/@rs2@, which are elsewhere, so the solver could pick an architectural
+-- state whose instruction at @isaPc@ bears no relation to the one the core is
+-- executing. Deriving them makes the container equalities hold by construction,
+-- and what is left in the premise is the scalar conjuncts, assumed in full.
+--
+-- @isaPc@ is derived as well. The invariant pins it via a different conjunct
+-- in each case -- @stateExPc@ when running and @stateHalt@ once halted -- and
+-- 'archPc' splits on the case accordingly, so deriving it makes neither case
+-- unsatisfiable as a premise.
+isaOf :: (RegFileOps r, MemOps m) => SysG r m -> IsaStateG r m
+isaOf sys =
+  IsaState
+    { isaPc = archPc sys,
+      isaRegFile = archRegFile sys,
+      isaMem = archMem sys
+    }
+
+-- | The system is one the invariant covers: it is related to its own
+-- architectural state ('isaOf'), at register @wr@ and byte @wa@.
+sysInvAt :: (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
+sysInvAt wr wa sys = invAt wr wa (isaOf sys) sys
+
+-- | The PC the core stands for: the execute stage's while running; once halted,
+-- the trapping instruction's, which is the resume address the halt carries
+-- minus 4.
+archPc :: SysG r m -> Address
+archPc (Sys core _ _) = case Core.stateHalt core of
+  Nothing -> Core.stateExPc core
+  Just (EBreak resume) -> resume - 4
+  Just (Syscall resume) -> resume - 4
+
+-- | The register file the core stands for: its own, with the writes still in
+-- the pipeline (the memory and writeback stages) applied.
+archRegFile :: (RegFileOps r, MemOps m) => SysG r m -> r
+archRegFile = snd . archMemRegFile
+
+-- | The memory the core stands for: its own, with the stores still in the
+-- pipeline (the memory and writeback stages) applied.
+archMem :: (RegFileOps r, MemOps m) => SysG r m -> m
+archMem = fst . archMemRegFile
+
+-- | The pipeline's pending writes applied to memory and the register file.
+archMemRegFile :: (RegFileOps r, MemOps m) => SysG r m -> (m, r)
+archMemRegFile (Sys core inp mem) =
+  applyMeStage
+    (Core.stateMeInstr core)
+    (Core.stateMeRes core)
+    (Core.stateMeAddr core)
+    ( applyWbStage
+        (Core.stateWbInstr core)
+        (Core.stateWbRes core)
+        (fromMaybe 0 (Core.inputMem inp))
+        (mem, Core.stateRegFile core)
+    )
+
+-- | The invariant relating the core to the ISA implies that the ISA's PC is
+-- the core's architectural one ('archPc').
+pcUnderInv ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+pcUnderInv wr wa isa sys =
+  not premises || conclusion
+  where
+    premises = invAt wr wa isa sys
+
+    conclusion = isaPc isa == archPc sys
+
+-- | The invariant relating the core to the ISA implies that the ISA's register
+-- file is the core's architectural one ('archRegFile'), at register @wr@.
+regFileUnderInv ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+regFileUnderInv wr wa isa sys =
+  not premises || conclusion
+  where
+    premises = invAt wr wa isa sys
+
+    conclusion = lookupRFg wr (isaRegFile isa) == lookupRFg wr (archRegFile sys)
+
+-- | The invariant relating the core to the ISA implies that the ISA's memory is
+-- the core's architectural one ('archMem'), at byte @wa@.
+memUnderInv ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+memUnderInv wr wa isa sys =
+  not premises || conclusion
+  where
+    premises = invAt wr wa isa sys
+
+    conclusion = memReadByte wa (isaMem isa) == memReadByte wa (archMem sys)
+
+-- | The invariant is functional: two ISA states it relates to the same system
+-- are equal, at register @wr@ and byte @wa@. Quantifying over @wr@ and @wa@
+-- gives equality of the states.
+invFunctional ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> IsaStateG r m -> SysG r m -> Bool
+invFunctional wr wa isa1 isa2 sys =
+  not premises || conclusion
+  where
+    premises = invAt wr wa isa1 sys && invAt wr wa isa2 sys
+
+    conclusion =
+      isaPc isa1 == isaPc isa2
+        && lookupRFg wr (isaRegFile isa1) == lookupRFg wr (isaRegFile isa2)
+        && memReadByte wa (isaMem isa1) == memReadByte wa (isaMem isa2)

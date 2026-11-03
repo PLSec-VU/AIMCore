@@ -13,6 +13,7 @@
 module Proof.Core.Functional.Machine
   ( SysG (..),
     Sys,
+    initSys,
     stepSys,
     stepSysOut,
   )
@@ -23,6 +24,7 @@ import Core
 import Memory.Types
 import Memory.Ideal (idealServe)
 import Core.RegFile
+import Types (Address)
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | Core state, the input it is about to consume, and memory.
@@ -44,6 +46,11 @@ instance (Eq r, Eq m) => Eq (SysG r m) where
       && inputMem i1 == inputMem i2
       && m1 == m2
 
+-- | The system at start: the core at start with PC @pc@ and register file @rf@
+-- ('Core.initAt'), its input at start ('Core.initInput'), and memory @mem@.
+initSys :: Address -> r -> m -> SysG r m
+initSys pc rf mem = Sys (Core.initAt pc rf) Core.initInput mem
+
 -- | One system step: run the pipeline for a cycle, then service whatever
 -- memory access it emitted. Mirrors 'Simulate.simulator', except that a halted
 -- core simply stops changing instead of ending the stream.
@@ -61,5 +68,5 @@ stepSys = fst . stepSysOut
 stepSysOut :: (RegFileOps r, MemOps m) => SysG r m -> (SysG r m, Output)
 stepSysOut (Sys core inp mem) =
   let (core', o) = Core.circuit core inp
-      (mem', inp') = idealServe mem (outMem o)
+      (mem', inp') = idealServe mem (outputMem o)
    in (Sys core' inp' mem', o)

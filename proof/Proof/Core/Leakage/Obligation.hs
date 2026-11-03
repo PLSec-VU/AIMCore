@@ -20,11 +20,9 @@ module Proof.Core.Leakage.Obligation
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
 import Memory.Types (MemOps (..))
 import Proof.Core.Functional.Driver
-import Proof.Core.Functional.Invariant (invAt)
-import Proof.Core.Functional.Obligation
+import Proof.Core.Functional.Invariant (invAt, isaOf)
 import Proof.Core.Leakage.Driver
 import Proof.Core.Leakage.Invariant
 import Proof.Core.Leakage.Model
@@ -33,6 +31,15 @@ import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
+
+-- | The observations of a run, cycle by cycle: what the attacker sees over a
+-- hop. A type of its own, rather than a list, so that its equality is derived
+-- here and the solver can unroll it; the equality of lists comes from @base@,
+-- whose definitions the solver cannot see.
+data Trace = TraceSingle Obs | TraceCons Obs Trace
+  deriving (Show, Eq)
+
+-- The base case ----------------------------------------------------------------
 
 -- | The base case: from the initial state, the core and the simulator agree
 -- on the first hop.
@@ -47,132 +54,143 @@ baseCaseLeak ::
   (RegFileOps r, MemOps m) => Address -> r -> m -> Bool
 baseCaseLeak pc rf mem =
   simDriver Nothing sim == 1
-    && obs1 == obsOf out1
-    && obs2 == obsOf out2
-    && simInv sim2 sys2
+    && tr1 == tr2
+    && simInv sim' sys'
   where
-    sys = Sys (Core.initAt pc rf) Core.initInput mem
+    sys = initSys pc rf mem
     sim = simInit {simStateFePc = pc}
 
-    (sys1, out1) = stepSysOut sys
-    (sim1, obs1) = simCircuit sim Nothing
+    (tr1, sys') = stepSysOutN 1 sys
+    (tr2, sim') = simCircuitN 1 sim Nothing
 
-    (sys2, out2) = stepSysOut sys1
-    (sim2, obs2) = simCircuit sim1 Nothing
+-- The inductive steps ----------------------------------------------------------
 
 -- | The @k = 0@ leakage step: the one-cycle hop.
 --
 -- > inv(isa, sys) /\ simInv(sim, sys) /\ driver(sys) = 0
--- >   ==>  simDriver(leak, sim) = 0 /\ obs(sim) = obs(sys) /\ simInv(sim', sys')
+-- >   ==>  simDriver(leak, sim) = 0 /\ obs(sim) = obs(sys)
+-- >          /\ simInv(sim', sys')
 --
 -- The simulator gets @leakOf isa@ on the hop's first cycle and nothing after.
 indStepLeak0 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeak0 wr wa ipc sys sim =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> SimState -> Bool
+indStepLeak0 wr wa sys sim =
   not premises || conclusion
   where
-    isa = isaAt ipc sys
+    isa = isaOf sys
     leak = leakOf isa
 
-    (sys', out') = stepSysOut sys
-    (sim', obs') = simCircuit sim (Just leak)
+    hopLength = 0
+
+    (tr1, sys') = stepSysOutN hopLength sys
+    (tr2, sim') = simCircuitN hopLength sim (Just leak)
 
     premises =
       invAt wr wa isa sys
-        && driver sys == 0
         && simInv sim sys
+        && driver sys == hopLength
 
     conclusion =
-      simDriver (Just leak) sim == 0
-        && obs' == obsOf out'
+      simDriver (Just leak) sim == hopLength
+        && tr1 == tr2
         && simInv sim' sys'
 
 -- | The @k = 1@ leakage step: the two-cycle hop.
 indStepLeak1 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeak1 wr wa ipc sys sim =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> SimState -> Bool
+indStepLeak1 wr wa sys sim =
   not premises || conclusion
   where
-    isa = isaAt ipc sys
+    isa = isaOf sys
     leak = leakOf isa
 
-    (sys1, out1) = stepSysOut sys
-    (sim1, obs1) = simCircuit sim (Just leak)
+    hopLength = 1
 
-    (sys2, out2) = stepSysOut sys1
-    (sim2, obs2) = simCircuit sim1 Nothing
+    (tr1, sys') = stepSysOutN hopLength sys
+    (tr2, sim') = simCircuitN hopLength sim (Just leak)
 
     premises =
       invAt wr wa isa sys
-        && driver sys == 1
         && simInv sim sys
+        && driver sys == hopLength
 
     conclusion =
-      simDriver (Just leak) sim == 1
-        && obs1 == obsOf out1
-        && obs2 == obsOf out2
-        && simInv sim2 sys2
+      simDriver (Just leak) sim == hopLength
+        && tr1 == tr2
+        && simInv sim' sys'
 
 -- | The @k = 2@ leakage step: the three-cycle hop.
 indStepLeak2 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeak2 wr wa ipc sys sim =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> SimState -> Bool
+indStepLeak2 wr wa sys sim =
   not premises || conclusion
   where
-    isa = isaAt ipc sys
+    isa = isaOf sys
     leak = leakOf isa
 
-    (sys1, out1) = stepSysOut sys
-    (sim1, obs1) = simCircuit sim (Just leak)
+    hopLength = 2
 
-    (sys2, out2) = stepSysOut sys1
-    (sim2, obs2) = simCircuit sim1 Nothing
-
-    (sys3, out3) = stepSysOut sys2
-    (sim3, obs3) = simCircuit sim2 Nothing
+    (tr1, sys') = stepSysOutN hopLength sys
+    (tr2, sim') = simCircuitN hopLength sim (Just leak)
 
     premises =
       invAt wr wa isa sys
-        && driver sys == 2
         && simInv sim sys
+        && driver sys == hopLength
 
     conclusion =
-      simDriver (Just leak) sim == 2
-        && obs1 == obsOf out1
-        && obs2 == obsOf out2
-        && obs3 == obsOf out3
-        && simInv sim3 sys3
+      simDriver (Just leak) sim == hopLength
+        && tr1 == tr2
+        && simInv sim' sys'
 
 -- | The @k = 3@ leakage step: the four-cycle hop, the longest.
 indStepLeak3 ::
-  (RegFileOps r, MemOps m) => RegIdx -> Address -> Address -> SysG r m -> SimState -> Bool
-indStepLeak3 wr wa ipc sys sim =
+  (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> SimState -> Bool
+indStepLeak3 wr wa sys sim =
   not premises || conclusion
   where
-    isa = isaAt ipc sys
+    isa = isaOf sys
     leak = leakOf isa
 
-    (sys1, out1) = stepSysOut sys
-    (sim1, obs1) = simCircuit sim (Just leak)
+    hopLength = 3
 
-    (sys2, out2) = stepSysOut sys1
-    (sim2, obs2) = simCircuit sim1 Nothing
-
-    (sys3, out3) = stepSysOut sys2
-    (sim3, obs3) = simCircuit sim2 Nothing
-
-    (sys4, out4) = stepSysOut sys3
-    (sim4, obs4) = simCircuit sim3 Nothing
+    (tr1, sys') = stepSysOutN hopLength sys
+    (tr2, sim') = simCircuitN hopLength sim (Just leak)
 
     premises =
       invAt wr wa isa sys
-        && driver sys == 3
         && simInv sim sys
+        && driver sys == hopLength
 
     conclusion =
-      simDriver (Just leak) sim == 3
-        && obs1 == obsOf out1
-        && obs2 == obsOf out2
-        && obs3 == obsOf out3
-        && obs4 == obsOf out4
-        && simInv sim4 sys4
+      simDriver (Just leak) sim == hopLength
+        && tr1 == tr2
+        && simInv sim' sys'
+
+-- Helpers ----------------------------------------------------------------------
+
+-- | A hop of the system: @n + 1@ steps ('stepSysOut' repeated). Returns the
+-- trace of its bus observations and the system after the hop. Recursive on
+-- @n@, which each step fixes to a literal.
+stepSysOutN ::
+  (RegFileOps r, MemOps m) => Int -> SysG r m -> (Trace, SysG r m)
+stepSysOutN n sys
+  | n == 0 = (TraceSingle obs, sys')
+  | otherwise =
+    let (tr, sys'') = stepSysOutN (n - 1) sys'
+    in (TraceCons obs tr, sys'')
+  where
+    (sys', out) = stepSysOut sys
+    obs = obsOf out
+
+-- | The simulator's counterpart of 'stepSysOutN' ('simCircuit' repeated): its
+-- input in the first cycle, then no input, as in the middle of a driver hop.
+-- Returns the trace of its bus observations and the simulator after the hop.
+simCircuitN :: Int -> SimState -> SimInput -> (Trace, SimState)
+simCircuitN n sim inp
+  | n == 0 = (TraceSingle obs, sim')
+  | otherwise =
+    let (tr, sim'') = simCircuitN (n - 1) sim' Nothing
+    in (TraceCons obs tr, sim'')
+  where
+    (sim', obs) = simCircuit sim inp

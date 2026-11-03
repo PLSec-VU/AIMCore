@@ -1,3 +1,5 @@
+{-# LANGUAGE MagicHash #-}
+
 -- | The axiom set used by the proof properties.
 --
 -- This lives in its own module because GHC's stage restriction requires a value
@@ -10,18 +12,28 @@ import qualified Data.Map as Map
 import Pantomime (PluginAxioms (..))
 import qualified Pantomime.Base as Base
 import qualified Pantomime.Clash as Clash
+import qualified Clash.Sized.Internal.Unsigned as Unsigned
 
 -- | 'base' embeddings plus the Clash numeric types ('BitVector', 'Unsigned',
 -- 'Signed', 'Bit'), which is what this core's types are built from, plus this
 -- core's own shift wrappers.
 --
 -- The shift axioms belong here rather than in 'arrayAxioms' because they are
--- part of the core's semantics, not of the container encoding: any property that
--- runs the ALU needs them. Without them 'Core.sllWord' and friends are OPAQUE
--- names with no unfolding, and symbolic execution stops with \"Unbound variable
--- in symbolise\".
+-- part of the core's semantics, not of the container encoding: any property
+-- that runs the ALU needs them. Without them 'Core.sllWord' and friends are
+-- OPAQUE names with no unfolding, and symbolic execution stops with \"Unbound
+-- variable in symbolise\".
 axioms :: PluginAxioms
-axioms = Base.axioms <> Clash.axioms <> shiftAxioms
+axioms = Base.axioms <> Clash.axioms <> unsignedAxioms <> shiftAxioms
+
+-- | What pantomime-clash leaves out for 'Unsigned': its conversion to
+-- 'Integer', which 'fromIntegral' goes through.
+unsignedAxioms :: PluginAxioms
+unsignedAxioms =
+  PluginAxioms
+    { typeAxioms = Map.empty,
+      termAxioms = [('Unsigned.toInteger#, 'unsignedToIntegerE)]
+    }
 
 -- | The ALU shifts, mapped to the SMT bitvector shifts.
 --
@@ -55,7 +67,9 @@ arrayAxioms =
           [ ('loadRA, 'loadRAE),
             ('zeroRA, 'zeroRAE),
             ('storeRA, 'storeRAE),
+            ('eqRA, 'eqRAE),
             ('loadM, 'loadME),
-            ('storeM, 'storeME)
+            ('storeM, 'storeME),
+            ('eqM, 'eqME)
           ]
       }

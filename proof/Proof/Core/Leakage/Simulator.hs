@@ -31,7 +31,8 @@ import Proof.Core.Leakage.Model
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
--- | The input of the simulator.
+-- | The input of the simulator: the leakage of the instruction a hop starts
+-- with, or 'Nothing' in the middle of a driver hop.
 type SimInput = Maybe Leak
 
 -- | The output of the simulator.
@@ -57,6 +58,12 @@ data SimExInstrType
     StallNoInstruction
   | -- | First cycle.
     FirstCycle
+  | -- | First cycle after an environment instruction: the halt is on its way
+    -- through the pipeline, in the memory stage.
+    PendingHaltFirstCycle
+  | -- | Second cycle after an environment instruction: the halt is in the
+    -- writeback stage, which halts the core.
+    PendingHaltSecondCycle
   | -- | The core has halted.
     Halted
   deriving (Eq, Show, Generic, NFDataX)
@@ -87,8 +94,8 @@ data SimControl = SimControl
     --   a store hazard with the instruction in the `execute` stage or the
     --   instruction in the `memory` stage.
     simCtrlDeStoreHazard :: Maybe Address,
-    -- | Stores the type of instruction in the `execute` stage (if it's a decoded
-    -- instruction versus various stalls).
+    -- | Stores the type of instruction in the `execute` stage (if it's a
+    -- decoded instruction versus various stalls).
     simCtrlExInstrType :: Maybe SimExInstrType,
     -- | `True` when the leaked instruction is an environment instruction. To
     -- maintain consistency with the core, the execute stage is the only one
@@ -97,7 +104,8 @@ data SimControl = SimControl
     -- | Stores the jump address if the instruction in the `execute` stage
     --   results in a jump.
     simCtrlExJumpAddr :: Maybe Address,
-    -- | Stores the write address and size if the instruction in the `execute` stage
+    -- | Stores the write address and size if the instruction in the `execute`
+    -- stage
     --   is a store.
     simCtrlExStoreAddrSize :: Maybe (Address, Size),
     -- | Stores the load hazard bit if the instruction in the `execute` stage
@@ -105,7 +113,8 @@ data SimControl = SimControl
     simCtrlExLoadHazard :: Maybe Bool,
     -- | `True` when the instruction in the `memory` stage is a store or a load.
     simCtrlMeMemInstr :: Bool,
-    -- | Stores the write address and size if the instruction in the `memory` stage
+    -- | Stores the write address and size if the instruction in the `memory`
+    -- stage
     --   is a store.
     simCtrlMeStoreAddrSize :: Maybe (Address, Size)
   }
@@ -130,6 +139,9 @@ simPipe = do
   simExecute
   simDecode
   simFetch
+  -- The lines only carry values within a tick, so none of them survives it,
+  -- as in 'Core.pipe'.
+  modify $ \s -> s {simStateCtrl = simInitCtrl}
 
 simInit :: SimState
 simInit =
@@ -198,31 +210,41 @@ simDecode = do
   let irt = if expInstr then DecodedInstr else StallNoInstruction
 
   let halted = simCtrlExInstrType ctrl == Just Halted
-  let env_instr_current_cycle = simCtrlExEnvInstr ctrl
-  
+  let env_instr_two_cycles_ago =
+        simCtrlExInstrType ctrl == Just PendingHaltSecondCycle
+  let env_instr_previous_cycle =
+        simCtrlExInstrType ctrl == Just PendingHaltFirstCycle
   let jump_previous_cycle = simCtrlExInstrType ctrl == Just StallJumpFirstCycle
-  let store_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallStoreHazardFirstCycle
-  let load_hazard_previous_cycle = simCtrlExInstrType ctrl == Just StallLoadHazardFirstCycle
+  let store_hazard_previous_cycle =
+        simCtrlExInstrType ctrl == Just StallStoreHazardFirstCycle
+  let load_hazard_previous_cycle =
+        simCtrlExInstrType ctrl == Just StallLoadHazardFirstCycle
 
+  let env_instr_current_cycle = simCtrlExEnvInstr ctrl
   let jump_current_cycle = isJust (simCtrlExJumpAddr ctrl)
 
   let store_hazard_current_cycle =
         maybe False (storeHazard pc) (simCtrlExStoreAddrSize ctrl) ||
         maybe False (storeHazard pc) (simCtrlMeStoreAddrSize ctrl)
 
-  let load_hazard_current_cycle = expInstr && fromMaybe False (simCtrlExLoadHazard ctrl)
+  let load_hazard_current_cycle =
+        expInstr && fromMaybe False (simCtrlExLoadHazard ctrl)
 
   let irt'
-        -- Halt if the core is not running anymore.
+        -- Stay halted once the core has halted.
         | halted = Halted
-        -- Halt if there is an environment instruction in this cycle.
-        | env_instr_current_cycle = Halted
+        -- The halt reaches the writeback stage after the second pending cycle.
+        | env_instr_two_cycles_ago = Halted
+        -- The halt moves on from the memory stage to the writeback stage.
+        | env_instr_previous_cycle = PendingHaltSecondCycle
         -- Stall if there was a jump in the previous cycle.
         | jump_previous_cycle = StallJumpSecondCycle
         -- Stall if there was a store hazard in the previous cycle.
         | store_hazard_previous_cycle = StallStoreHazardSecondCycle
         -- Stall if there was a load hazard in the previous cycle.
         | load_hazard_previous_cycle = StallLoadHazardSecondCycle
+        -- An environment instruction in this cycle starts the halt.
+        | env_instr_current_cycle = PendingHaltFirstCycle
         -- Stall if there is a jump in this cycle.
         | jump_current_cycle = StallJumpFirstCycle
         -- Stall if there is a store hazard in this cycle.
@@ -247,7 +269,7 @@ simExecute = do
   irt <- gets simStateExInstrType
 
   simSetLines $ \c -> c {simCtrlExInstrType = Just irt}
-  
+
   case irt of
     DecodedInstr ->
       case input of

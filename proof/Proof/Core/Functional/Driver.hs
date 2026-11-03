@@ -1,10 +1,10 @@
--- | The driver: how many cycles 'Proof.Core.Functional.Machine.stepSys' should advance the core
--- before its state is compared against the ISA again. Its stated invariant is
--- operational -- \"step until the instruction in the execute phase is no longer
--- a no-op\" -- so this module provides both:
+-- | The driver: how many cycles 'Proof.Core.Functional.Machine.stepSys' should
+-- advance the core before its state is compared against the ISA again. Its
+-- stated invariant is operational -- \"step until the instruction in the
+-- execute phase is no longer a no-op\" -- so this module provides both:
 --
 --   * 'driver', a case table over the pipeline state, and
---   * 'driverRef', the operational reading, obtained by actually stepping.
+--   * 'driverSpec', the operational reading, obtained by actually stepping.
 --
 -- Checking these two against each other is the first thing the test suite does.
 --
@@ -16,7 +16,10 @@
 module Proof.Core.Functional.Driver
   ( driver,
     driverCaseName,
-    driverRef,
+    driverSpec,
+    driverMatchesSpecInit,
+    driverMatchesSpec,
+    driverValues,
     takingJump,
     storeHazard,
     loadHazard,
@@ -27,10 +30,12 @@ where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Core
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Core.Instruction hiding (loadHazard, storeHazard)
 import qualified Core.Instruction
 import Memory.Types (MemOps (..))
+import Core.ISA (IsaStateG)
+import Proof.Core.Functional.Invariant (invAt)
 import Proof.Core.Functional.Machine
 import Core.RegFile
 import Types
@@ -57,7 +62,8 @@ wbFwd (Sys core inp _) =
   case stateWbInstr core of
     RType _ rd _ _ -> Just (rd, res)
     IType (Arith _) rd _ _ -> Just (rd, res)
-    IType (Load size sign) rd _ _ -> Just (rd, loadExtend size sign (fromMaybe 0 (inputMem inp)))
+    IType (Load size sign) rd _ _ ->
+      Just (rd, loadExtend size sign (fromMaybe 0 (inputMem inp)))
     JType rd _ -> Just (rd, res)
     IType Jump rd _ _ -> Just (rd, res)
     UType _ rd _ -> Just (rd, res)
@@ -83,7 +89,7 @@ takingJump :: (RegFileOps r) => SysG r m -> Bool
 takingJump sys@(Sys core _ _) =
   case stateExInstr core of
     BType cmp _ rs1 rs2 ->
-      (branch cmp (exArg sys rs1) (exArg sys rs2))
+      branch cmp (exArg sys rs1) (exArg sys rs2)
     JType _ _ -> True
     IType Jump _ _ _ -> True
     _ -> False
@@ -92,12 +98,13 @@ takingJump sys@(Sys core _ _) =
 -- decode-stage PC overlaps a store either in the execute stage or in the memory
 -- stage.
 --
--- The overlap test is 'Core.Instruction.storeHazard', the core's own, which is why
--- the store's size is carried alongside its address: a byte store and a word
--- store at the same address clash with different sets of PCs. 'Core.decode'
--- reads the pair off @ctrlExStoreAddrSize@ / @ctrlMeStoreAddrSize@; here the
--- execute-stage address is recomputed from the forwarded operand, as
--- 'Core.execute' would, and the memory-stage one is already in @stateMeAddr@.
+-- The overlap test is 'Core.Instruction.storeHazard', the core's own, which is
+-- why the store's size is carried alongside its address: a byte store and a
+-- word store at the same address clash with different sets of PCs.
+-- 'Core.decode' reads the pair off @ctrlExStoreAddrSize@ /
+-- @ctrlMeStoreAddrSize@; here the execute-stage address is recomputed from the
+-- forwarded operand, as 'Core.execute' would, and the memory-stage one is
+-- already in @stateMeAddr@.
 storeHazard :: (RegFileOps r) => SysG r m -> Bool
 storeHazard sys@(Sys core _ _) =
   maybe False (Core.Instruction.storeHazard dePc) exStore
@@ -129,7 +136,7 @@ loadHazard (Sys core inp _) =
 -- | The driver's case table. The cases are checked in order. The driver is
 -- only ever run from states that satisfy the invariant
 -- ('Proof.Core.Functional.Invariant.invAt'); elsewhere it need not agree
--- with 'driverRef'.
+-- with 'driverSpec'.
 driver :: (RegFileOps r) => SysG r m -> Int
 driver sys@(Sys core _ _)
   | stateExInstr core == Nop FirstCycle = 1
@@ -143,6 +150,14 @@ driver sys@(Sys core _ _)
   | not (isMemInstr (stateExInstr core)) = 2
   | otherwise = 3
 
+-- | The driver is 0 to 3: the hop lengths of the core's steps
+-- ('Proof.Core.Functional.Obligation.indStep0' to
+-- 'Proof.Core.Functional.Obligation.indStep3'), which so cover every hop.
+driverValues :: (RegFileOps r) => SysG r m -> Bool
+driverValues sys = k == 0 || k == 1 || k == 2 || k == 3
+  where
+    k = driver sys
+
 -- | Which case of the table 'driver' fired. Used to measure how much of the
 -- table the tests actually reach.
 driverCaseName :: (RegFileOps r) => SysG r m -> String
@@ -151,38 +166,70 @@ driverCaseName sys@(Sys core _ _)
   | stateExInstr core == Nop Halted = "halted"
   | isEnvInstr (stateExInstr core) = "env"
   | takingJump sys = "jump"
-  | storeHazard sys = if isMemInstr (stateExInstr core) then "storeHazard/mem" else "storeHazard/nomem"
+  | storeHazard sys =
+      if isMemInstr (stateExInstr core)
+        then "storeHazard/mem"
+        else "storeHazard/nomem"
   | loadHazard sys = "loadHazard"
   | not (isMemInstr (stateWbInstr core)) = "steady/wb-nomem"
   | not (isMemInstr (stateMeInstr core)) = "steady/me-nomem"
   | not (isMemInstr (stateExInstr core)) = "steady/ex-nomem"
   | otherwise = "steady/all-mem"
 
--- | Is this a pipeline bubble, as opposed to a real instruction?
+-- | Does the execute stage hold a pipeline bubble, as opposed to a real
+-- instruction?
 --
 -- The driver's stated invariant is \"step until the execute stage is no longer
 -- a no-op\", but that is slightly too coarse: @Nop DecodeFail@ is what an
 -- undecodable memory word decodes to, so it /is/ the architectural instruction
--- at that PC and the ISA steps over it like any other. Only the stall reasons
--- are genuine bubbles.
-isBubble :: Instruction -> Bool
-isBubble (Nop DecodeFail) = False
-isBubble (Nop _) = True
-isBubble _ = False
+-- at that PC and the ISA steps over it like any other. Nor is @Nop Halted@
+-- once the core has halted: it then stays where it is, as the ISA does. While
+-- the halt is still on its way through the pipeline -- an @ecall@ or @ebreak@
+-- that has left the execute stage but not yet halted the core -- @Nop Halted@
+-- is a bubble like the stall reasons, so the hop runs on until the core halts.
+isBubble :: SysG r m -> Bool
+isBubble (Sys core _ _) = case stateExInstr core of
+  Nop DecodeFail -> False
+  Nop Halted -> isNothing (stateHalt core)
+  Nop _ -> True
+  _ -> False
 
 -- | The operational reading of the driver's stated invariant: step until the
 -- execute stage holds something that is not a no-op. Returns the number of
--- 'Proof.Core.Functional.Machine.stepSys' steps taken, or 'Nothing' if @fuel@ ran out (which is what
--- happens once the core has halted, since the execute stage then holds
--- @Nop Halted@ forever).
+-- 'Proof.Core.Functional.Machine.stepSys' steps taken after the first, so that
+-- it agrees with 'driver', or 'Nothing' if @fuel@ ran out.
 --
 -- \"No longer a no-op\" is read as 'isBubble': @Nop DecodeFail@ counts
 -- as a real instruction, since it is what an undecodable word in memory
 -- decodes to.
-driverRef :: (RegFileOps r, MemOps m) => Int -> SysG r m -> Maybe Int
-driverRef fuel sys0 = go 1 (stepSys sys0)
+driverSpec :: (RegFileOps r, MemOps m) => Int -> SysG r m -> Maybe Int
+driverSpec fuel sys0 = go 0 (stepSys sys0)
   where
-    go n s@(Sys core _ _)
-      | not (isBubble (stateExInstr core)) = Just n
+    go n s
+      | not (isBubble s) = Just n
       | n >= fuel = Nothing
       | otherwise = go (n + 1) (stepSys s)
+
+-- | On the initial system the driver agrees with its operational reading: the
+-- first hop, from the start PC @pc@ with register file @rf@ and memory @mem@
+-- ('Proof.Core.Functional.Machine.initSys'). The invariant does not cover the
+-- initial system, so 'driverMatchesSpec' does not either.
+driverMatchesSpecInit ::
+  (RegFileOps r, MemOps m) => Address -> r -> m -> Bool
+driverMatchesSpecInit pc rf mem =
+  driverSpec 3 sys == Just (driver sys)
+  where
+    sys = initSys pc rf mem
+
+-- | On every other hop -- from the states the invariant relates to an ISA
+-- state -- the driver agrees with its operational reading as well. Three cycles
+-- of fuel cover the longest hop.
+driverMatchesSpec ::
+  (RegFileOps r, MemOps m) =>
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+driverMatchesSpec wr wa isa sys =
+  not premises || conclusion
+  where
+    premises = invAt wr wa isa sys
+
+    conclusion = driverSpec 3 sys == Just (driver sys)

@@ -1,4 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE MagicHash #-}
 
 -- | A register file embedded as an SMT array.
@@ -27,6 +28,8 @@ module Proof.SMT.Array
     storeM,
     loadME,
     storeME,
+    eqM,
+    eqME,
     RegArrSMT (..),
     loadRA,
     storeRA,
@@ -34,9 +37,12 @@ module Proof.SMT.Array
     zeroRAE,
     loadRAE,
     storeRAE,
+    eqRA,
+    eqRAE,
     sllWordE,
     srlWordE,
     sraWordE,
+    unsignedToIntegerE,
   )
 where
 
@@ -114,10 +120,26 @@ storeRAE = coerce go
     go (RegArrSMT arr) (Clash.BitVecP k) (Clash.BitVecP v) =
       RegArrSMT (P.astore arr k v)
 
+-- | Equality, so that whole register files can be compared. Replaced by 'eqRAE'
+-- under the term axiom; OPAQUE for the same reason as 'loadRA'.
+{-# OPAQUE eqRA #-}
+eqRA :: RegArr -> RegArr -> Bool
+eqRA (RegArr v) (RegArr w) = v == w
+
+instance Eq RegArr where
+  (==) = eqRA
+
+-- | Embedding of 'eqRA' as array equality.
+eqRAE :: forall arr. (Coercible RegArrSMT arr) => arr -> arr -> Bool
+eqRAE = coerce go
+  where
+    go :: RegArrSMT -> RegArrSMT -> Bool
+    go (RegArrSMT a) (RegArrSMT b) = a == b
+
 -- | The all-zero register file.
 --
--- 'Proof.Core.Leakage.Simulator.censor' installs this on every state it builds, so
--- unlike 'Core.init' it is on the symbolic path and has to be embeddable.
+-- 'Proof.Core.Leakage.Simulator.censor' installs this on every state it builds,
+-- so unlike 'Core.init' it is on the symbolic path and has to be embeddable.
 -- 'Clash.Prelude.repeat' gives the Haskell semantics; 'zeroRAE' replaces it
 -- under the term axiom, which is keyed on this name -- hence OPAQUE, for the
 -- same reason as 'loadRA'.
@@ -132,6 +154,7 @@ zeroRAE = coerce (RegArrSMT (P.aconst 0))
 -- | The array-backed register file, wrapped so it fits 'RegFileOps'. A
 -- verification-only representation.
 newtype RegArrF = RegArrF RegArr
+  deriving (Eq)
 
 instance RegFileOps RegArrF where
   lookupRFg idx (RegArrF a) = if idx == 0 then 0 else loadRA a idx
@@ -144,10 +167,11 @@ instance RegFileOps RegArrF where
 
 -- Shifts as SMT bitvector shifts ----------------------------------------------
 --
--- Embeddings for 'Core.sllWord', 'Core.srlWord' and 'Core.sraWord'. See the note
--- on those functions for why they exist: without them each shift site converts
--- its five-bit amount through 'Integer', and the resulting @ubv_to_int@ /
--- @int_to_bv@ pair makes every query unreadable to the bitvector-only solvers.
+-- Embeddings for 'Core.sllWord', 'Core.srlWord' and 'Core.sraWord'. See the
+-- note on those functions for why they exist: without them each shift site
+-- converts its five-bit amount through 'Integer', and the resulting
+-- @ubv_to_int@ / @int_to_bv@ pair makes every query unreadable to the
+-- bitvector-only solvers.
 --
 -- The amount is zero-extended to the word width because SMT's shifts require
 -- both operands to have the same sort. That is exact rather than a choice: the
@@ -194,6 +218,27 @@ sraWordE = coerce go
     go :: Clash.BitVec 32 -> Clash.BitVec 5 -> Clash.BitVec 32
     go (Clash.BitVecP x) (Clash.BitVecP n) =
       Clash.BitVecP (P.bvashr x (P.bvzext n))
+
+-- Unsigned to Integer ---------------------------------------------------------
+--
+-- pantomime-clash embeds @toInteger@ on 'BitVector' but not on 'Unsigned', and
+-- Clash's primitive is @OPAQUE@, so even a literal such as
+-- 'Memory.Cache4KServer.penalty' converted with 'fromIntegral' stops symbolic
+-- execution. Both types are embedded as 'Clash.BitVec', so the embedding is
+-- the same. On a constant, the solver library folds the conversion away, so
+-- the query stays in the bitvector fragment.
+
+-- | @toInteger@ on an 'Unsigned' as @ubv_to_int@.
+unsignedToIntegerE ::
+  forall (bv :: Nat -> Type) (n :: Nat).
+  (Coercible Clash.BitVec bv) =>
+  bv n ->
+  Integer
+unsignedToIntegerE = coerce go
+  where
+    go :: Clash.BitVec n -> Integer
+    go Clash.BitVecZ = 0
+    go (Clash.BitVecP x) = P.toInteger (P.bvu2i x)
 
 -- Memory as an SMT array ------------------------------------------------------
 
@@ -249,6 +294,22 @@ storeME = coerce go
     go (MemArrSMT arr) (Clash.BitVecP a) (Clash.BitVecP v) =
       MemArrSMT (P.astore arr a v)
 
+-- | Equality, so that whole memories can be compared. Replaced by 'eqME' under
+-- the term axiom; OPAQUE for the same reason as 'loadM'.
+{-# OPAQUE eqM #-}
+eqM :: MemArr -> MemArr -> Bool
+eqM (MemArr v) (MemArr w) = v == w
+
+instance Eq MemArr where
+  (==) = eqM
+
+-- | Embedding of 'eqM' as array equality.
+eqME :: forall arr. (Coercible MemArrSMT arr) => arr -> arr -> Bool
+eqME = coerce go
+  where
+    go :: MemArrSMT -> MemArrSMT -> Bool
+    go (MemArrSMT a) (MemArrSMT b) = a == b
+
 instance MemOps MemArr where
   memReadByte a m = loadM m a
 
@@ -259,7 +320,8 @@ instance MemOps MemArr where
     case size of
       Types.Byte -> put a b0 m
       Types.Half -> put (a + 1) b1 (put a b0 m)
-      Types.Word -> put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
+      Types.Word ->
+        put (a + 3) b3 (put (a + 2) b2 (put (a + 1) b1 (put a b0 m)))
     where
       b0 = slice d7 d0 w
       b1 = slice d15 d8 w
