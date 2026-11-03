@@ -32,17 +32,14 @@ module Proof.Memory.Cache4K.CachedCore.Functional.Solver
     indStep0P,
     indStep4P,
     indStep8P,
-    results,
   )
 where
 
-import qualified Core.Pipeline as Core
 import Memory.Cache4K
-import Memory.Cache4KServer (CacheSrv (..), CacheSrvState)
-import Pantomime (Theory (..))
-import qualified Pantomime.BuiltIn as Pantomime
-import Proof.Memory.Cache4K.SMT.Axioms (cacheAxioms, coherentAxioms)
-import Proof.Memory.Cache4K.SMT.Raw (RawData)
+import Memory.Cache4KServer (CacheSrv (..))
+import Proof.Core.Functional.Machine (SysG (..))
+import Proof.Core.Functional.System (freshSys)
+import Proof.Core.SMT.Array (RegArrF (..), freshRA)
 import Proof.Memory.Cache4K.CachedCore.Functional.Driver
   ( cachedDriverMatchesSpec,
     cachedDriverValues,
@@ -50,130 +47,115 @@ import Proof.Memory.Cache4K.CachedCore.Functional.Driver
 import Proof.Memory.Cache4K.CachedCore.Functional.Invariant (cachedInvFunctional)
 import Proof.Memory.Cache4K.CachedCore.Functional.Machine (CachedSysG (..))
 import Proof.Memory.Cache4K.CachedCore.Functional.Obligation
-import Proof.Core.Functional.Machine (SysG (..))
-import Proof.Core.Functional.System (KState, sysOf)
-import Proof.Core.SMT.Array (RegArr, RegArrF (..))
-import Proof.SMT.Array (MemArr)
-import Proof.SMT.Logged (pantomime)
+import Proof.Memory.Cache4K.SMT.Array (freshData, freshRaw, freshTag)
+import Proof.Memory.Cache4K.SMT.Axioms (cacheEmbeddings, coherentEmbeddings)
+import Proof.Memory.Cache4K.SMT.Raw (RawData)
+import Proof.SMT.Array (MemArr, freshMA)
+import Proof.SMT.Symbolic (expectValid)
+import SymFC (SymFC (..))
+import qualified SymFC.BuiltIn as SymFC
 import Types
 
 -- The driver -------------------------------------------------------------------
 --
--- The cached system has the ideal system's core and input, and a cache with
+-- The cached system has a symbolic system's core and input, and a cache with
 -- arbitrary tags, data, memory and state.
+
+-- | A cached system: the core and input of a fresh system, behind a cache with
+-- arbitrary tags, data, memory and state.
+freshCachedSys :: SymFC.Sym (CachedSysG RegArrF MemArr)
+freshCachedSys = do
+  sys <- freshSys
+  tags <- freshTag
+  dat <- freshData
+  cma <- freshMA
+  st <- SymFC.fresh
+  pure $
+    CachedSys (sysCore sys) (sysInput sys) (CacheSrv (Cache4K tags dat) cma st)
 
 -- | On systems the invariant relates to an ideal system, the driver agrees with
 -- its operational reading.
-{-# ANN cachedDriverMatchesSpecP (Theory cacheAxioms) #-}
-cachedDriverMatchesSpecP ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState ->
-  Pantomime.Bool
-cachedDriverMatchesSpecP wa wsi wwi ss i ra ma tags dat cma st =
-  Pantomime.boolean $ cachedDriverMatchesSpec wa wsi wwi sys csys
-  where
-    sys = sysOf ss i ra ma
-    csys =
-      CachedSys
-        (sysCore sys)
-        (sysInput sys)
-        (CacheSrv (Cache4K tags dat) cma st)
+{-# ANN cachedDriverMatchesSpecP (SymFC ['cacheEmbeddings]) #-}
+cachedDriverMatchesSpecP :: SymFC.Sym ()
+cachedDriverMatchesSpecP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  sys <- freshSys
+  tags <- freshTag
+  dat <- freshData
+  cma <- freshMA
+  st <- SymFC.fresh
+  let csys =
+        CachedSys (sysCore sys) (sysInput sys) (CacheSrv (Cache4K tags dat) cma st)
+  expectValid $ cachedDriverMatchesSpec wa wsi wwi sys csys
 
 -- | The driver is 0, 'penalty' or twice 'penalty', on any system.
-{-# ANN cachedDriverValuesP (Theory cacheAxioms) #-}
-cachedDriverValuesP ::
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState ->
-  Pantomime.Bool
-cachedDriverValuesP ss i ra ma tags dat cma st =
-  Pantomime.boolean $ cachedDriverValues csys
-  where
-    sys = sysOf ss i ra ma
-    csys =
-      CachedSys
-        (sysCore sys)
-        (sysInput sys)
-        (CacheSrv (Cache4K tags dat) cma st)
+{-# ANN cachedDriverValuesP (SymFC ['cacheEmbeddings]) #-}
+cachedDriverValuesP :: SymFC.Sym ()
+cachedDriverValuesP = expectValid . cachedDriverValues =<< freshCachedSys
 
 -- The invariant ----------------------------------------------------------------
 
 -- | The invariant is functional: two ideal systems related to the same cached
 -- system are equal. The cached system's core and input come from a third
 -- symbolic system; its cache is arbitrary.
-{-# ANN cachedInvFunctionalP (Theory cacheAxioms) #-}
-cachedInvFunctionalP ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  KState -> Core.Input -> RegArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState ->
-  Pantomime.Bool
-cachedInvFunctionalP
-  wa wsi wwi ss1 i1 ra1 ma1 ss2 i2 ra2 ma2 ss i ra tags dat cma st =
-    Pantomime.boolean $ cachedInvFunctional wa wsi wwi sys1 sys2 csys
-  where
-    sys1 = sysOf ss1 i1 ra1 ma1
-    sys2 = sysOf ss2 i2 ra2 ma2
-    csys0 = sysOf ss i ra cma
-    csys =
-      CachedSys
-        (sysCore csys0)
-        (sysInput csys0)
-        (CacheSrv (Cache4K tags dat) cma st)
+{-# ANN cachedInvFunctionalP (SymFC ['cacheEmbeddings]) #-}
+cachedInvFunctionalP :: SymFC.Sym ()
+cachedInvFunctionalP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  sys1 <- freshSys
+  sys2 <- freshSys
+  csys <- freshCachedSys
+  expectValid $ cachedInvFunctional wa wsi wwi sys1 sys2 csys
 
 -- The base case ----------------------------------------------------------------
 
--- | Under 'cacheAxioms': the initial cache is the empty one
+-- | Under 'cacheEmbeddings': the initial cache is the empty one
 -- ('Memory.Cache4K.dataZero'), not a constructed one.
-{-# ANN baseCaseP (Theory cacheAxioms) #-}
-baseCaseP ::
-  Address -> SetIdx -> WordIdx -> Address -> RegArr -> MemArr -> Pantomime.Bool
-baseCaseP wa wsi wwi pc ra ma =
-  Pantomime.boolean $ baseCase wa wsi wwi pc (RegArrF ra) ma
+{-# ANN baseCaseP (SymFC ['cacheEmbeddings]) #-}
+baseCaseP :: SymFC.Sym ()
+baseCaseP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  pc <- SymFC.fresh
+  ra <- freshRA
+  ma <- freshMA
+  expectValid $ baseCase wa wsi wwi pc (RegArrF ra) ma
 
 -- The inductive steps ----------------------------------------------------------
 --
--- The ideal system is built from symbolic parts as in the core's proof
--- ('Proof.Core.Functional.System.sysOf'); the cache adds its tags and the
+-- The ideal system is a fresh system as in the core's proof
+-- ('Proof.Core.Functional.System.freshSys'); the cache adds its tags and the
 -- contents of its invalid lines.
 
+type HopObligation =
+  Address -> SetIdx -> WordIdx -> SysG RegArrF MemArr -> TagArr -> RawData -> Bool
+
+holdsOnEveryHop :: HopObligation -> SymFC.Sym ()
+holdsOnEveryHop obligation = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  sys <- freshSys
+  tags <- freshTag
+  raw <- freshRaw
+  expectValid $ obligation wa wsi wwi sys tags raw
+
 -- | The one-cycle hop: a request the cache answers at once.
-{-# ANN indStep0P (Theory coherentAxioms) #-}
-indStep0P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStep0P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStep0 wa wsi wwi (sysOf ss i ra ma) tags raw
+{-# ANN indStep0P (SymFC ['coherentEmbeddings]) #-}
+indStep0P :: SymFC.Sym ()
+indStep0P = holdsOnEveryHop indStep0
 
 -- | The hop of a read that misses one line.
-{-# ANN indStep4P (Theory coherentAxioms) #-}
-indStep4P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStep4P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStep4 wa wsi wwi (sysOf ss i ra ma) tags raw
+{-# ANN indStep4P (SymFC ['coherentEmbeddings]) #-}
+indStep4P :: SymFC.Sym ()
+indStep4P = holdsOnEveryHop indStep4
 
 -- | The hop of a read that misses both its lines.
-{-# ANN indStep8P (Theory coherentAxioms) #-}
-indStep8P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStep8P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStep8 wa wsi wwi (sysOf ss i ra ma) tags raw
-
--- | The verdicts, spliced in by the plugin at compile time: 'Nothing' when the
--- property is valid.
-results :: [(String, Maybe String)]
-results =
-  [ ("cachedDriverMatchesSpecP", $(pantomime 'cachedDriverMatchesSpecP)),
-    ("cachedDriverValuesP", $(pantomime 'cachedDriverValuesP)),
-    ("cachedInvFunctionalP", $(pantomime 'cachedInvFunctionalP)),
-    ("baseCaseP", $(pantomime 'baseCaseP)),
-    ("indStep0P", $(pantomime 'indStep0P)),
-    ("indStep4P", $(pantomime 'indStep4P)),
-    ("indStep8P", $(pantomime 'indStep8P))
-  ]
+{-# ANN indStep8P (SymFC ['coherentEmbeddings]) #-}
+indStep8P :: SymFC.Sym ()
+indStep8P = holdsOnEveryHop indStep8

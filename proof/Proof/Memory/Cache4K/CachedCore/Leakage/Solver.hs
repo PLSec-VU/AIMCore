@@ -24,115 +24,106 @@ module Proof.Memory.Cache4K.CachedCore.Leakage.Solver
     indStepLeak0P,
     indStepLeak4P,
     indStepLeak8P,
-    results,
   )
 where
 
-import qualified Core.Pipeline as Core
 import Memory.Cache4K
-import Memory.Cache4KServer (CacheSrv (..), CacheSrvState)
-import Pantomime (Theory (..))
-import qualified Pantomime.BuiltIn as Pantomime
+import Memory.Cache4KServer (CacheSrv (..))
 import Proof.Core.Functional.Machine (SysG (..))
+import Proof.Core.Functional.System (freshSys)
+import Proof.Core.SMT.Array (RegArrF (..), freshRA)
 import Proof.Memory.Cache4K.CachedCore.Functional.Machine (CachedSysG (..))
 import Proof.Memory.Cache4K.CachedCore.Leakage.Driver (simCachedDriverMatchesSpec)
 import Proof.Memory.Cache4K.CachedCore.Leakage.Invariant (cachedSimInvFunctional)
-import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..))
-import Proof.Core.Leakage.Model (Obs)
-import Proof.Memory.Cache4K.Server.Leakage.Simulator
-  ( SimCacheSrv (..),
-    SimCacheSrvState,
-  )
 import Proof.Memory.Cache4K.CachedCore.Leakage.Obligation
-import Proof.Memory.Cache4K.SMT.Axioms (cacheAxioms, coherentAxioms)
+import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..))
+import Proof.Memory.Cache4K.SMT.Array (freshData, freshRaw, freshTag)
+import Proof.Memory.Cache4K.SMT.Axioms (cacheEmbeddings, coherentEmbeddings)
 import Proof.Memory.Cache4K.SMT.Raw (RawData)
-import Proof.Core.Functional.System (KState, sysOf)
-import Proof.Core.SMT.Array (RegArr, RegArrF (..))
-import Proof.SMT.Array (MemArr)
-import Proof.SMT.Logged (pantomime)
+import Proof.Memory.Cache4K.Server.Leakage.Simulator (SimCacheSrv (..))
+import Proof.SMT.Array (MemArr, freshMA)
+import Proof.SMT.Symbolic (expectValid)
+import SymFC (SymFC (..))
+import qualified SymFC.BuiltIn as SymFC
 import Types
+
+-- | A simulator with arbitrary tags, state and answer flag.
+freshSimCachedSys :: SymFC.Sym SimCachedSys
+freshSimCachedSys =
+  SimCachedSys <$> (SimCacheSrv <$> freshTag <*> SymFC.fresh) <*> SymFC.fresh
 
 -- The driver -------------------------------------------------------------------
 
 -- | From a ready simulator, its driver agrees with its operational reading, for
 -- the observation of any request.
-{-# ANN simCachedDriverMatchesSpecP (Theory cacheAxioms) #-}
-simCachedDriverMatchesSpecP ::
-  TagArr -> SimCacheSrvState -> Bool -> Obs -> Pantomime.Bool
-simCachedDriverMatchesSpecP tags sst answered obs =
-  Pantomime.boolean $ simCachedDriverMatchesSpec sim obs
-  where
-    sim = SimCachedSys (SimCacheSrv tags sst) answered
+{-# ANN simCachedDriverMatchesSpecP (SymFC ['cacheEmbeddings]) #-}
+simCachedDriverMatchesSpecP :: SymFC.Sym ()
+simCachedDriverMatchesSpecP = do
+  sim <- freshSimCachedSys
+  obs <- SymFC.fresh
+  expectValid $ simCachedDriverMatchesSpec sim obs
 
 -- The invariant ----------------------------------------------------------------
 
 -- | The invariant is functional: two simulators it relates to the same cached
 -- system agree at the witness set. The cached system is a symbolic system
 -- behind an arbitrary cache.
-{-# ANN cachedSimInvFunctionalP (Theory cacheAxioms) #-}
-cachedSimInvFunctionalP ::
-  SetIdx ->
-  TagArr -> SimCacheSrvState -> Bool ->
-  TagArr -> SimCacheSrvState -> Bool ->
-  KState -> Core.Input -> RegArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState ->
-  Pantomime.Bool
-cachedSimInvFunctionalP
-  wsi tags1 sst1 answered1 tags2 sst2 answered2 ss i ra tags dat ma st =
-    Pantomime.boolean $ cachedSimInvFunctional wsi sim1 sim2 csys
-  where
-    sim1 = SimCachedSys (SimCacheSrv tags1 sst1) answered1
-    sim2 = SimCachedSys (SimCacheSrv tags2 sst2) answered2
-    sys = sysOf ss i ra ma
-    csys =
-      CachedSys (sysCore sys) (sysInput sys) (CacheSrv (Cache4K tags dat) ma st)
+{-# ANN cachedSimInvFunctionalP (SymFC ['cacheEmbeddings]) #-}
+cachedSimInvFunctionalP :: SymFC.Sym ()
+cachedSimInvFunctionalP = do
+  wsi <- SymFC.fresh
+  sim1 <- freshSimCachedSys
+  sim2 <- freshSimCachedSys
+  sys <- freshSys
+  tags <- freshTag
+  dat <- freshData
+  st <- SymFC.fresh
+  let csys =
+        CachedSys
+          (sysCore sys)
+          (sysInput sys)
+          (CacheSrv (Cache4K tags dat) (sysMem sys) st)
+  expectValid $ cachedSimInvFunctional wsi sim1 sim2 csys
 
 -- The base case ----------------------------------------------------------------
 
 -- | The simulator at start agrees with the system at start, for any start
 -- PC, register file and memory.
-{-# ANN baseCaseLeakP (Theory cacheAxioms) #-}
-baseCaseLeakP :: SetIdx -> Address -> RegArr -> MemArr -> Pantomime.Bool
-baseCaseLeakP wsi pc ra ma =
-  Pantomime.boolean $ baseCaseLeak wsi pc (RegArrF ra) ma
+{-# ANN baseCaseLeakP (SymFC ['cacheEmbeddings]) #-}
+baseCaseLeakP :: SymFC.Sym ()
+baseCaseLeakP = do
+  wsi <- SymFC.fresh
+  pc <- SymFC.fresh
+  ra <- freshRA
+  ma <- freshMA
+  expectValid $ baseCaseLeak wsi pc (RegArrF ra) ma
 
 -- The inductive steps ----------------------------------------------------------
 
+type HopLeakObligation =
+  Address -> SetIdx -> WordIdx -> SysG RegArrF MemArr -> TagArr -> RawData -> Bool
+
+holdsOnEveryHop :: HopLeakObligation -> SymFC.Sym ()
+holdsOnEveryHop obligation = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  sys <- freshSys
+  tags <- freshTag
+  raw <- freshRaw
+  expectValid $ obligation wa wsi wwi sys tags raw
+
 -- | The one-cycle hop: a request the cache answers at once.
-{-# ANN indStepLeak0P (Theory coherentAxioms) #-}
-indStepLeak0P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStepLeak0P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStepLeak0 wa wsi wwi (sysOf ss i ra ma) tags raw
+{-# ANN indStepLeak0P (SymFC ['coherentEmbeddings]) #-}
+indStepLeak0P :: SymFC.Sym ()
+indStepLeak0P = holdsOnEveryHop indStepLeak0
 
 -- | The hop of a read that misses one line.
-{-# ANN indStepLeak4P (Theory coherentAxioms) #-}
-indStepLeak4P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStepLeak4P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStepLeak4 wa wsi wwi (sysOf ss i ra ma) tags raw
+{-# ANN indStepLeak4P (SymFC ['coherentEmbeddings]) #-}
+indStepLeak4P :: SymFC.Sym ()
+indStepLeak4P = holdsOnEveryHop indStepLeak4
 
 -- | The hop of a read that misses both its lines.
-{-# ANN indStepLeak8P (Theory coherentAxioms) #-}
-indStepLeak8P ::
-  Address -> SetIdx -> WordIdx ->
-  KState -> Core.Input -> RegArr -> MemArr ->
-  TagArr -> RawData -> Pantomime.Bool
-indStepLeak8P wa wsi wwi ss i ra ma tags raw =
-  Pantomime.boolean $ indStepLeak8 wa wsi wwi (sysOf ss i ra ma) tags raw
-
--- | The verdicts, spliced in by the plugin at compile time: 'Nothing' when the
--- property is valid.
-results :: [(String, Maybe String)]
-results =
-  [ ("simCachedDriverMatchesSpecP", $(pantomime 'simCachedDriverMatchesSpecP)),
-    ("cachedSimInvFunctionalP", $(pantomime 'cachedSimInvFunctionalP)),
-    ("baseCaseLeakP", $(pantomime 'baseCaseLeakP)),
-    ("indStepLeak0P", $(pantomime 'indStepLeak0P)),
-    ("indStepLeak4P", $(pantomime 'indStepLeak4P)),
-    ("indStepLeak8P", $(pantomime 'indStepLeak8P))
-  ]
+{-# ANN indStepLeak8P (SymFC ['coherentEmbeddings]) #-}
+indStepLeak8P :: SymFC.Sym ()
+indStepLeak8P = holdsOnEveryHop indStepLeak8

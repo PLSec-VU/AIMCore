@@ -38,19 +38,19 @@ module Proof.Memory.Cache4K.Server.Functional.Solver
     srvReadyIffAnsweredP,
     srvReadyUnderInvP,
     corePatientP,
-    results,
   )
 where
 
 import Clash.Prelude (BitVector, d0, d1, d2, d9, not, slice, (++#), (||))
 import Core.Pipeline as Core (Request)
-import qualified Core.Pipeline as Core
-import Memory.Cache4KServer (CacheSrv (..), CacheSrvState (..))
+import Memory.Cache4KServer (CacheSrv (..))
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
-import Pantomime (Theory (..))
-import qualified Pantomime.BuiltIn as Pantomime
-import Proof.Memory.Cache4K.SMT.Axioms (cacheAxioms, coherentAxioms)
+import Proof.Core.Functional.Machine (SysG (..))
+import Proof.Core.Functional.System (freshSys)
+import Proof.Core.SMT.Axioms (arrayEmbeddings)
+import Proof.Memory.Cache4K.SMT.Array (freshData, freshRaw, freshTag)
+import Proof.Memory.Cache4K.SMT.Axioms (cacheEmbeddings, coherentEmbeddings)
 import Proof.Memory.Cache4K.SMT.Raw (RawData, rawRead)
 import Proof.Memory.Cache4K.Server.Functional.Contract
   ( srvReadyIffAnswered,
@@ -61,12 +61,10 @@ import Proof.Memory.Cache4K.Server.Functional.Contract
 import Proof.Memory.Cache4K.Server.Functional.Driver (srvDriverValues)
 import Proof.Memory.Cache4K.Server.Functional.Invariant (srvInvFunctional)
 import Proof.Memory.Cache4K.Server.Functional.Obligation
-import Proof.Core.Functional.Machine (SysG (..))
-import Proof.Core.Functional.System (KState, sysOf)
-import Proof.Core.SMT.Array (RegArr)
-import Proof.SMT.Array (MemArr)
-import Proof.Core.SMT.Axioms (arrayAxioms)
-import Proof.SMT.Logged (pantomime)
+import Proof.SMT.Array (MemArr, freshMA)
+import Proof.SMT.Symbolic (expectValid)
+import SymFC (SymFC (..))
+import qualified SymFC.BuiltIn as SymFC
 import Types
 import Prelude hiding (Word, not, (||))
 
@@ -74,12 +72,16 @@ import Prelude hiding (Word, not, (||))
 
 -- | The tag and data array embeddings, which are trusted, against facts a
 -- broken one would get wrong.
-{-# ANN cacheArraysP (Theory cacheAxioms) #-}
-cacheArraysP ::
-  TagArr -> DataArr -> SetIdx -> BitVector 21 -> BitVector 10 -> Word ->
-  Pantomime.Bool
-cacheArraysP tags dat s e i w =
-  Pantomime.boolean $
+{-# ANN cacheArraysP (SymFC ['cacheEmbeddings]) #-}
+cacheArraysP :: SymFC.Sym ()
+cacheArraysP = do
+  tags <- freshTag
+  dat <- freshData
+  s <- SymFC.fresh @SetIdx
+  e <- SymFC.fresh @(BitVector 21)
+  i <- SymFC.fresh @(BitVector 10)
+  w <- SymFC.fresh @Word
+  expectValid $
     tagRead s (tagWrite s e tags) == e
       && dataRead i (dataWrite i w dat) == w
       && tagRead s tagEmpty == 0
@@ -89,175 +91,178 @@ cacheArraysP tags dat s e i w =
 -- 'Proof.Memory.Cache4K.SMT.Coherent.DataC'), which is trusted, against what
 -- 'mkData' defines: a read of the constructed array is memory's word if the
 -- line is valid, else the raw word. Writes are checked by 'coherentWriteP'.
-{-# ANN coherentDataP (Theory coherentAxioms) #-}
-coherentDataP :: MemArr -> TagArr -> RawData -> BitVector 10 -> Pantomime.Bool
-coherentDataP ma tags raw i =
-  Pantomime.boolean $ dataRead i (mkData ma tags raw) == constructed i
-  where
-    constructed k
-      | entryValid e =
-          memReadWord (wordAddr (entryTag e) si (slice d1 d0 k) 0) ma
-      | otherwise = rawRead k raw
-      where
-        si = slice d9 d2 k
-        e = tagRead si tags
+{-# ANN coherentDataP (SymFC ['coherentEmbeddings]) #-}
+coherentDataP :: SymFC.Sym ()
+coherentDataP = do
+  ma <- freshMA
+  tags <- freshTag
+  raw <- freshRaw
+  i <- SymFC.fresh @(BitVector 10)
+  let si = slice d9 d2 i
+      e = tagRead si tags
+      constructed
+        | entryValid e =
+            memReadWord (wordAddr (entryTag e) si (slice d1 d0 i) 0) ma
+        | otherwise = rawRead i raw
+  expectValid $ dataRead i (mkData ma tags raw) == constructed
 
 -- | A write on any data array of the coherent cache's embedding, including one
 -- that already holds writes: a read after it gives the written word at its
 -- index and leaves the other slots as they were. Since it holds for every
 -- array, it covers any sequence of writes.
-{-# ANN coherentWriteP (Theory coherentAxioms) #-}
-coherentWriteP ::
-  DataArr -> BitVector 10 -> BitVector 10 -> Word -> Pantomime.Bool
-coherentWriteP dat i j w =
-  Pantomime.boolean $
+{-# ANN coherentWriteP (SymFC ['coherentEmbeddings]) #-}
+coherentWriteP :: SymFC.Sym ()
+coherentWriteP = do
+  dat <- freshData
+  i <- SymFC.fresh @(BitVector 10)
+  j <- SymFC.fresh @(BitVector 10)
+  w <- SymFC.fresh @Word
+  expectValid $
     dataRead i (dataWrite i w dat) == w
       && (i == j || dataRead j (dataWrite i w dat) == dataRead j dat)
 
 -- | The coherent cache's index layout agrees with the cache's addressing: at
 -- any address whose line is valid and holds its block, the cache's word (index
 -- set, then word, as 'Memory.Cache4K' composes it) is memory's word there.
-{-# ANN coherentLayoutP (Theory coherentAxioms) #-}
-coherentLayoutP :: MemArr -> TagArr -> RawData -> Address -> Pantomime.Bool
-coherentLayoutP ma tags raw a =
-  Pantomime.boolean $
+{-# ANN coherentLayoutP (SymFC ['coherentEmbeddings]) #-}
+coherentLayoutP :: SymFC.Sym ()
+coherentLayoutP = do
+  ma <- freshMA
+  tags <- freshTag
+  raw <- freshRaw
+  a <- SymFC.fresh @Address
+  let e = tagRead (setOf a) tags
+  expectValid $
     not (entryValid e && entryTag e == tagOf a)
       || dataRead (setOf a ++# wordOf a) (mkData ma tags raw)
         == memReadWord (wordAddr (tagOf a) (setOf a) (wordOf a) 0) ma
-  where
-    e = tagRead (setOf a) tags
+
+-- Servers -----------------------------------------------------------------------
+
+-- | A server with arbitrary tags, data, memory and state.
+freshServer :: SymFC.Sym (CacheSrv MemArr)
+freshServer = do
+  tags <- freshTag
+  dat <- freshData
+  ma <- freshMA
+  st <- SymFC.fresh
+  pure (CacheSrv (Cache4K tags dat) ma st)
+
+type ServerObligation = CacheSrv MemArr -> Request -> Bool
+
+holdsOnEveryRequest :: ServerObligation -> SymFC.Sym ()
+holdsOnEveryRequest obligation = do
+  srv <- freshServer
+  req <- SymFC.fresh
+  expectValid $ obligation srv req
 
 -- The driver -------------------------------------------------------------------
 
 -- | The driver is 0, 'penalty' or twice 'penalty', on any server.
-{-# ANN srvDriverValuesP (Theory cacheAxioms) #-}
-srvDriverValuesP ::
-  TagArr -> DataArr -> MemArr -> CacheSrvState -> Request -> Pantomime.Bool
-srvDriverValuesP tags dat ma st req =
-  Pantomime.boolean $ srvDriverValues (CacheSrv (Cache4K tags dat) ma st) req
+{-# ANN srvDriverValuesP (SymFC ['cacheEmbeddings]) #-}
+srvDriverValuesP :: SymFC.Sym ()
+srvDriverValuesP = holdsOnEveryRequest srvDriverValues
 
 -- | From a ready server, the driver agrees with its operational reading.
-{-# ANN srvDriverMatchesSpecP (Theory cacheAxioms) #-}
-srvDriverMatchesSpecP ::
-  TagArr -> DataArr -> MemArr -> CacheSrvState -> Request -> Pantomime.Bool
-srvDriverMatchesSpecP tags dat ma st req =
-  Pantomime.boolean $
-    srvDriverMatchesSpec (CacheSrv (Cache4K tags dat) ma st) req
+{-# ANN srvDriverMatchesSpecP (SymFC ['cacheEmbeddings]) #-}
+srvDriverMatchesSpecP :: SymFC.Sym ()
+srvDriverMatchesSpecP = holdsOnEveryRequest srvDriverMatchesSpec
 
 -- The invariant ----------------------------------------------------------------
 
 -- | The invariant is functional: two ideal memories related to the same server
 -- are equal.
-{-# ANN srvInvFunctionalP (Theory cacheAxioms) #-}
-srvInvFunctionalP ::
-  Address -> SetIdx -> WordIdx -> MemArr -> MemArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState -> Pantomime.Bool
-srvInvFunctionalP wa wsi wwi ideal1 ideal2 tags dat ma st =
-  Pantomime.boolean $
-    srvInvFunctional wa wsi wwi ideal1 ideal2 srv
-  where
-    srv = CacheSrv (Cache4K tags dat) ma st
+{-# ANN srvInvFunctionalP (SymFC ['cacheEmbeddings]) #-}
+srvInvFunctionalP :: SymFC.Sym ()
+srvInvFunctionalP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  ideal1 <- freshMA
+  ideal2 <- freshMA
+  srv <- freshServer
+  expectValid $ srvInvFunctional wa wsi wwi ideal1 ideal2 srv
 
 -- The base case ----------------------------------------------------------------
 
--- | Under 'cacheAxioms': the initial cache is the empty one
+-- | Under 'cacheEmbeddings': the initial cache is the empty one
 -- ('Memory.Cache4K.dataZero'), not a constructed one.
-{-# ANN baseCaseP (Theory cacheAxioms) #-}
-baseCaseP ::
-  Address -> SetIdx -> WordIdx -> MemArr -> Pantomime.Bool
-baseCaseP wa wsi wwi ma =
-  Pantomime.boolean $ baseCase wa wsi wwi ma
+{-# ANN baseCaseP (SymFC ['cacheEmbeddings]) #-}
+baseCaseP :: SymFC.Sym ()
+baseCaseP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  ma <- freshMA
+  expectValid $ baseCase wa wsi wwi ma
 
 -- The inductive steps ----------------------------------------------------------
 
+type HopObligation =
+  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request -> Bool
+
+holdsOnEveryHop :: HopObligation -> SymFC.Sym ()
+holdsOnEveryHop obligation = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  ma <- freshMA
+  tags <- freshTag
+  raw <- freshRaw
+  req <- SymFC.fresh
+  expectValid $ obligation wa wsi wwi ma tags raw req
+
 -- | The one-cycle hop: a request the cache answers at once.
-{-# ANN indStep0P (Theory coherentAxioms) #-}
-indStep0P ::
-  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request ->
-  Pantomime.Bool
-indStep0P wa wsi wwi ma tags raw req =
-  Pantomime.boolean $ indStep0 wa wsi wwi ma tags raw req
+{-# ANN indStep0P (SymFC ['coherentEmbeddings]) #-}
+indStep0P :: SymFC.Sym ()
+indStep0P = holdsOnEveryHop indStep0
 
 -- | The hop of a read that misses one line: 'penalty' + 1 cycles.
-{-# ANN indStep4P (Theory coherentAxioms) #-}
-indStep4P ::
-  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request ->
-  Pantomime.Bool
-indStep4P wa wsi wwi ma tags raw req =
-  Pantomime.boolean $ indStep4 wa wsi wwi ma tags raw req
+{-# ANN indStep4P (SymFC ['coherentEmbeddings]) #-}
+indStep4P :: SymFC.Sym ()
+indStep4P = holdsOnEveryHop indStep4
 
 -- | Sanity check: during that hop, the answers before the last are 'Nothing'.
-{-# ANN indStepWaits4P (Theory coherentAxioms) #-}
-indStepWaits4P ::
-  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request ->
-  Pantomime.Bool
-indStepWaits4P wa wsi wwi ma tags raw req =
-  Pantomime.boolean $ indStepWaits4 wa wsi wwi ma tags raw req
+{-# ANN indStepWaits4P (SymFC ['coherentEmbeddings]) #-}
+indStepWaits4P :: SymFC.Sym ()
+indStepWaits4P = holdsOnEveryHop indStepWaits4
 
 -- | The hop of a read that misses both its lines: 2 * 'penalty' + 1 cycles.
-{-# ANN indStep8P (Theory coherentAxioms) #-}
-indStep8P ::
-  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request ->
-  Pantomime.Bool
-indStep8P wa wsi wwi ma tags raw req =
-  Pantomime.boolean $ indStep8 wa wsi wwi ma tags raw req
+{-# ANN indStep8P (SymFC ['coherentEmbeddings]) #-}
+indStep8P :: SymFC.Sym ()
+indStep8P = holdsOnEveryHop indStep8
 
 -- | Sanity check: during that hop, the answers before the last are 'Nothing'.
-{-# ANN indStepWaits8P (Theory coherentAxioms) #-}
-indStepWaits8P ::
-  Address -> SetIdx -> WordIdx -> MemArr -> TagArr -> RawData -> Request ->
-  Pantomime.Bool
-indStepWaits8P wa wsi wwi ma tags raw req =
-  Pantomime.boolean $ indStepWaits8 wa wsi wwi ma tags raw req
+{-# ANN indStepWaits8P (SymFC ['coherentEmbeddings]) #-}
+indStepWaits8P :: SymFC.Sym ()
+indStepWaits8P = holdsOnEveryHop indStepWaits8
 
 -- The contract -----------------------------------------------------------------
 --
 -- The properties of "Proof.Memory.Cache4K.Server.Functional.Contract": the
 -- cache's over a server with arbitrary tags, data, memory and state, the core's
--- over a core state built from symbolic parts as in the core's proof
--- ('Proof.Core.Functional.System.sysOf').
+-- over a fresh system state as in the core's proof
+-- ('Proof.Core.Functional.System.freshSys').
 
 -- | After a step, the server is ready exactly when it has answered.
-{-# ANN srvReadyIffAnsweredP (Theory cacheAxioms) #-}
-srvReadyIffAnsweredP ::
-  TagArr -> DataArr -> MemArr -> CacheSrvState -> Request -> Pantomime.Bool
-srvReadyIffAnsweredP tags dat ma st req =
-  Pantomime.boolean $
-    srvReadyIffAnswered (CacheSrv (Cache4K tags dat) ma st) req
+{-# ANN srvReadyIffAnsweredP (SymFC ['cacheEmbeddings]) #-}
+srvReadyIffAnsweredP :: SymFC.Sym ()
+srvReadyIffAnsweredP = holdsOnEveryRequest srvReadyIffAnswered
 
 -- | A server related to ideal memory by the invariant is ready.
-{-# ANN srvReadyUnderInvP (Theory cacheAxioms) #-}
-srvReadyUnderInvP ::
-  Address -> SetIdx -> WordIdx -> MemArr ->
-  TagArr -> DataArr -> MemArr -> CacheSrvState -> Pantomime.Bool
-srvReadyUnderInvP wa wsi wwi ideal tags dat ma st =
-  Pantomime.boolean $
-    srvReadyUnderInv wa wsi wwi ideal (CacheSrv (Cache4K tags dat) ma st)
+{-# ANN srvReadyUnderInvP (SymFC ['cacheEmbeddings]) #-}
+srvReadyUnderInvP :: SymFC.Sym ()
+srvReadyUnderInvP = do
+  wa <- SymFC.fresh
+  wsi <- SymFC.fresh
+  wwi <- SymFC.fresh
+  ideal <- freshMA
+  srv <- freshServer
+  expectValid $ srvReadyUnderInv wa wsi wwi ideal srv
 
 -- | The core waits for what it asked for.
-{-# ANN corePatientP (Theory arrayAxioms) #-}
-corePatientP :: KState -> Core.Input -> RegArr -> MemArr -> Pantomime.Bool
-corePatientP ss i ra ma =
-  Pantomime.boolean $ corePatient (sysCore (sysOf ss i ra ma)) i
-
--- | The verdicts, spliced in by the plugin at compile time: 'Nothing' when the
--- property is valid.
-results :: [(String, Maybe String)]
-results =
-  [ ("cacheArraysP", $(pantomime 'cacheArraysP)),
-    ("coherentDataP", $(pantomime 'coherentDataP)),
-    ("coherentWriteP", $(pantomime 'coherentWriteP)),
-    ("coherentLayoutP", $(pantomime 'coherentLayoutP)),
-    ("srvDriverMatchesSpecP", $(pantomime 'srvDriverMatchesSpecP)),
-    ("srvDriverValuesP", $(pantomime 'srvDriverValuesP)),
-    ("srvInvFunctionalP", $(pantomime 'srvInvFunctionalP)),
-    ("baseCaseP", $(pantomime 'baseCaseP)),
-    ("indStep0P", $(pantomime 'indStep0P)),
-    ("indStep4P", $(pantomime 'indStep4P)),
-    ("indStepWaits4P", $(pantomime 'indStepWaits4P)),
-    ("indStep8P", $(pantomime 'indStep8P)),
-    ("indStepWaits8P", $(pantomime 'indStepWaits8P)),
-    ("srvReadyIffAnsweredP", $(pantomime 'srvReadyIffAnsweredP)),
-    ("srvReadyUnderInvP", $(pantomime 'srvReadyUnderInvP)),
-    ("corePatientP", $(pantomime 'corePatientP))
-  ]
+{-# ANN corePatientP (SymFC ['arrayEmbeddings]) #-}
+corePatientP :: SymFC.Sym ()
+corePatientP = do
+  sys <- freshSys
+  expectValid $ corePatient (sysCore sys) (sysInput sys)

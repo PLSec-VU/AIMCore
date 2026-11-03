@@ -18,7 +18,7 @@
 -- From a server that satisfies the invariant the driver is 0, 'penalty' or
 -- twice 'penalty' (no, one or two lines missed), so there is one step
 -- obligation per hop length, named after it for @'penalty' = 4@. Split by
--- length because Pantomime unrolls recursion only when its count is concrete.
+-- length because SymFC unrolls recursion only when its count is concrete.
 -- A step states only the last answer and the invariant after the hop; that the
 -- answers before the last are 'Nothing' is stated apart, as a sanity check
 -- ('indStepWaits4', 'indStepWaits8'), since it follows from the driver's

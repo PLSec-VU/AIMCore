@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveLift #-}
+
 module Types
   ( RegIdx,
     Imm,
@@ -46,6 +48,7 @@ data Size
   | Half
   | Word
   deriving (Eq, Show, Generic, NFDataX, Enum, Bounded)
+  deriving stock (Lift)
 
 vecWordToByte ::
   forall f n.

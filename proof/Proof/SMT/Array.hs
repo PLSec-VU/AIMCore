@@ -1,8 +1,9 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE MonoLocalBinds #-}
 
 -- | Memory embedded as an SMT array, shared by every proof, and the
--- conversion of 'Unsigned' to 'Integer' that pantomime-clash leaves out. The
+-- conversion of 'Unsigned' to 'Integer' that symfc-clash leaves out. The
 -- core's register file is embedded the same way in "Proof.Core.SMT.Array".
 --
 -- The embedding has to be /monomorphic/: an SMT array needs concrete index and
@@ -29,14 +30,17 @@ module Proof.SMT.Array
     storeME,
     eqM,
     eqME,
+    freshMA,
+    freshMAE,
     unsignedToIntegerE,
   )
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Data.Coerce (Coercible, coerce)
-import qualified Pantomime.BuiltIn as P
-import qualified Pantomime.Clash as Clash
+import Data.Coerce (coerce)
+import qualified SymFC.BuiltIn as P
+import SymFC.BuiltIn (Embeddable, Embedding (..), embedding)
+import qualified SymFC.Clash as Clash
 import Memory.Types (MEM_SIZE_BYTES, MemOps (..))
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
@@ -69,27 +73,33 @@ storeM (MemArr v) a b = MemArr (replace a b v)
 
 loadME ::
   forall arr (bvA :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible MemArrSMT arr) =>
-  (Coercible Clash.BitVec bvA) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr MemArrSMT =>
+  Embeddable bvA Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvA 32 ->
   bvV 8
-loadME = coerce go
+loadME
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvA
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: MemArrSMT -> Clash.BitVec 32 -> Clash.BitVec 8
     go (MemArrSMT arr) (Clash.BitVecP a) = Clash.BitVecP (P.aselect arr a)
 
 storeME ::
   forall arr (bvA :: Nat -> Type) (bvV :: Nat -> Type).
-  (Coercible MemArrSMT arr) =>
-  (Coercible Clash.BitVec bvA) =>
-  (Coercible Clash.BitVec bvV) =>
+  Embeddable arr MemArrSMT =>
+  Embeddable bvA Clash.BitVec =>
+  Embeddable bvV Clash.BitVec =>
   arr ->
   bvA 32 ->
   bvV 8 ->
   arr
-storeME = coerce go
+storeME
+  | Embedding <- embedding @arr
+  , Embedding <- embedding @bvA
+  , Embedding <- embedding @bvV = coerce go
   where
     go :: MemArrSMT -> Clash.BitVec 32 -> Clash.BitVec 8 -> MemArrSMT
     go (MemArrSMT arr) (Clash.BitVecP a) (Clash.BitVecP v) =
@@ -105,11 +115,26 @@ instance Eq MemArr where
   (==) = eqM
 
 -- | Embedding of 'eqM' as array equality.
-eqME :: forall arr. (Coercible MemArrSMT arr) => arr -> arr -> Bool
-eqME = coerce go
+eqME :: forall arr. Embeddable arr MemArrSMT => arr -> arr -> Bool
+eqME
+  | Embedding <- embedding @arr = coerce go
   where
     go :: MemArrSMT -> MemArrSMT -> Bool
     go (MemArrSMT a) (MemArrSMT b) = a == b
+
+-- | A fresh symbolic memory.
+--
+-- A 'Vec' has no symbolic counterpart, so this has no Haskell meaning: the body
+-- halts, and 'freshMAE' replaces it under the term axiom. If the axiom ever
+-- stops firing, the property halts and the build fails instead of silently
+-- checking a concrete memory.
+{-# OPAQUE freshMA #-}
+freshMA :: P.Sym MemArr
+freshMA = P.halt
+
+-- | Embedding of 'freshMA' as a fresh SMT array.
+freshMAE :: forall arr. Embeddable arr MemArrSMT => P.Sym arr
+freshMAE | Embedding <- embedding @arr = coerce . MemArrSMT <$> P.fresh
 
 instance MemOps MemArr where
   memReadByte a m = loadM m a
@@ -132,7 +157,7 @@ instance MemOps MemArr where
 
 -- Unsigned to Integer ---------------------------------------------------------
 --
--- pantomime-clash embeds @toInteger@ on 'BitVector' but not on 'Unsigned', and
+-- symfc-clash embeds @toInteger@ on 'BitVector' but not on 'Unsigned', and
 -- Clash's primitive is @OPAQUE@, so even a literal such as
 -- 'Memory.Cache4KServer.penalty' converted with 'fromIntegral' stops symbolic
 -- execution. Both types are embedded as 'Clash.BitVec', so the embedding is
@@ -142,10 +167,11 @@ instance MemOps MemArr where
 -- | @toInteger@ on an 'Unsigned' as @ubv_to_int@.
 unsignedToIntegerE ::
   forall (bv :: Nat -> Type) (n :: Nat).
-  (Coercible Clash.BitVec bv) =>
+  Embeddable bv Clash.BitVec =>
   bv n ->
   Integer
-unsignedToIntegerE = coerce go
+unsignedToIntegerE
+  | Embedding <- embedding @bv = coerce go
   where
     go :: Clash.BitVec n -> Integer
     go Clash.BitVecZ = 0

@@ -1,9 +1,8 @@
--- | The axioms for the properties about "Memory.Cache4K": those of the register
--- file and memory, and the two cache arrays. In its own module for the same
--- reason as "Proof.SMT.Axioms".
-module Proof.Memory.Cache4K.SMT.Axioms (cacheAxioms, coherentAxioms) where
+-- | The embeddings for the properties about "Memory.Cache4K": those of the
+-- register file and memory, and the two cache arrays. In its own module for the
+-- same reason as "Proof.SMT.Axioms".
+module Proof.Memory.Cache4K.SMT.Axioms (cacheEmbeddings, coherentEmbeddings) where
 
-import qualified Data.Map as Map
 import Memory.Cache4K
   ( DataArr,
     TagArr,
@@ -16,24 +15,25 @@ import Memory.Cache4K
     tagRead,
     tagWrite,
   )
-import Pantomime (PluginAxioms (..))
-import Proof.Core.SMT.Axioms (arrayAxioms)
+import Proof.Core.SMT.Axioms (arrayEmbeddings)
 import Proof.Memory.Cache4K.SMT.Array
 import Proof.Memory.Cache4K.Server.Functional.Obligation (mkDataMem)
 import Proof.Memory.Cache4K.SMT.Coherent
 import Proof.Memory.Cache4K.SMT.Raw
+import SymFC (Embeddings (..))
 
-cacheAxioms :: PluginAxioms
-cacheAxioms =
-  arrayAxioms
-    <> PluginAxioms
-      { typeAxioms =
-          Map.fromList
-            [ (''TagArr, ''TagArrSMT),
-              (''DataArr, ''DataArrSMT)
-            ],
-        termAxioms =
-          [ ('tagRead, 'tagReadE),
+cacheEmbeddings :: Embeddings
+cacheEmbeddings =
+  arrayEmbeddings
+    <> Embeddings
+      { typeEmbeddings =
+          [ (''TagArr, ''TagArrSMT),
+            (''DataArr, ''DataArrSMT)
+          ],
+        termEmbeddings =
+          [ ('freshTag, 'freshTagE),
+            ('freshData, 'freshDataE),
+            ('tagRead, 'tagReadE),
             ('tagWrite, 'tagWriteE),
             ('tagEmpty, 'tagEmptyE),
             ('tagEq, 'tagEqE),
@@ -44,31 +44,32 @@ cacheAxioms =
           ]
       }
 
--- | The axioms for the cache's proof: as 'cacheAxioms', but the data array is
--- embedded as 'Proof.Memory.Cache4K.SMT.Coherent.DataC', so that
--- 'Proof.Memory.Cache4K.Server.Functional.Obligation.mkData' builds a cache
--- coherent by construction (through its 'MemArr' instance,
--- 'Proof.Memory.Cache4K.Server.Functional.Obligation.mkDataMem'). The raw-array
--- and tag axioms come first: an embedding that calls another wrapper
--- ('dataReadC' calls 'rawRead' and 'tagRead') only sees the axioms listed
--- before its own.
-coherentAxioms :: PluginAxioms
-coherentAxioms =
-  arrayAxioms
-    <> PluginAxioms
-      { typeAxioms =
-          Map.fromList
-            [ (''TagArr, ''TagArrSMT),
-              (''DataArr, ''DataC),
-              (''RawData, ''DataArrSMT)
-            ],
-        termAxioms =
-          [ ('rawRead, 'dataReadE),
+-- | The embeddings for the cache's proof: as 'cacheEmbeddings', but the data
+-- array is embedded as 'Proof.Memory.Cache4K.SMT.Coherent.DataC', so that
+-- 'Proof.Memory.Cache4K.Server.Functional.Obligation.mkData' builds a cache coherent by
+-- construction (through its 'MemArr' instance,
+-- 'Proof.Memory.Cache4K.Server.Functional.Obligation.mkDataMem'). The raw-array and tag
+-- embeddings come first: an embedding that calls another wrapper ('dataReadC'
+-- calls 'rawRead' and 'tagRead') only sees the embeddings listed before its own.
+coherentEmbeddings :: Embeddings
+coherentEmbeddings =
+  arrayEmbeddings
+    <> Embeddings
+      { typeEmbeddings =
+          [ (''TagArr, ''TagArrSMT),
+            (''DataArr, ''DataC),
+            (''RawData, ''DataArrSMT)
+          ],
+        termEmbeddings =
+          [ ('freshRaw, 'freshDataE),
+            ('rawRead, 'dataReadE),
             ('rawWrite, 'dataWriteE),
             ('rawZero, 'dataZeroE),
+            ('freshTag, 'freshTagE),
             ('tagRead, 'tagReadE),
             ('tagWrite, 'tagWriteE),
             ('tagEmpty, 'tagEmptyE),
+            ('freshData, 'freshDataC),
             ('dataRead, 'dataReadC),
             ('dataWrite, 'dataWriteC),
             ('mkDataMem, 'mkDataC)

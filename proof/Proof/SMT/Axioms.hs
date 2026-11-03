@@ -1,44 +1,44 @@
 {-# LANGUAGE MagicHash #-}
 
--- | The axiom sets every proof builds on: the embeddings of 'base' and of the
--- Clash numeric types, and memory as an SMT array ("Proof.SMT.Array"). The
--- core's register file and shifts add theirs in "Proof.Core.SMT.Axioms".
+-- | The embedding sets every proof builds on: the embeddings of 'base', of the
+-- Clash numeric types and of the ALU shifts, and memory as an SMT array
+-- ("Proof.SMT.Array"). The core's register file adds its own in
+-- "Proof.Core.SMT.Axioms".
 --
 -- This lives in its own module because GHC's stage restriction requires a value
 -- mentioned in an @ANN@ pragma to be imported rather than defined locally.
-module Proof.SMT.Axioms (axioms, memAxioms) where
+module Proof.SMT.Axioms (embeddings, memEmbeddings) where
 
-import Proof.SMT.Array
-import qualified Data.Map as Map
-import Pantomime (PluginAxioms (..))
-import qualified Pantomime.Base as Base
-import qualified Pantomime.Clash as Clash
 import qualified Clash.Sized.Internal.Unsigned as Unsigned
+import Proof.SMT.Array
+import Stepper.Concrete (baseEmbeddings)
+import SymFC (Embeddings (..))
 
--- | 'base' embeddings plus the Clash numeric types ('BitVector', 'Unsigned',
--- 'Signed', 'Bit'), which is what this core's types are built from.
-axioms :: PluginAxioms
-axioms = Base.axioms <> Clash.axioms <> unsignedAxioms
+-- | The stepper's base set ('base', the Clash numeric types and the ALU
+-- shifts), plus the conversion of 'Unsigned' to 'Integer'.
+embeddings :: Embeddings
+embeddings = baseEmbeddings <> unsignedEmbeddings
 
--- | What pantomime-clash leaves out for 'Unsigned': its conversion to
--- 'Integer', which 'fromIntegral' goes through.
-unsignedAxioms :: PluginAxioms
-unsignedAxioms =
-  PluginAxioms
-    { typeAxioms = Map.empty,
-      termAxioms = [('Unsigned.toInteger#, 'unsignedToIntegerE)]
+-- | What symfc-clash leaves out for 'Unsigned': its conversion to 'Integer',
+-- which 'fromIntegral' goes through.
+unsignedEmbeddings :: Embeddings
+unsignedEmbeddings =
+  Embeddings
+    { typeEmbeddings = [],
+      termEmbeddings = [('Unsigned.toInteger#, 'unsignedToIntegerE)]
     }
 
 -- | The memory-as-SMT-array embedding, on top of the base set.
 --
 -- Monomorphic by necessity: an array needs concrete index and element sorts.
-memAxioms :: PluginAxioms
-memAxioms =
-  axioms
-    <> PluginAxioms
-      { typeAxioms = Map.fromList [(''MemArr, ''MemArrSMT)],
-        termAxioms =
-          [ ('loadM, 'loadME),
+memEmbeddings :: Embeddings
+memEmbeddings =
+  embeddings
+    <> Embeddings
+      { typeEmbeddings = [(''MemArr, ''MemArrSMT)],
+        termEmbeddings =
+          [ ('freshMA, 'freshMAE),
+            ('loadM, 'loadME),
             ('storeM, 'storeME),
             ('eqM, 'eqME)
           ]

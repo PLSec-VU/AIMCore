@@ -13,7 +13,7 @@
 -- twice 'penalty' (no, one or two lines missed;
 -- 'Proof.Memory.Cache4K.CachedCore.Functional.Driver.cachedDriverValues'), so
 -- there is one step per hop length, named after it for @'penalty' = 4@. Split
--- by length because Pantomime unrolls recursion only when its count is
+-- by length because SymFC unrolls recursion only when its count is
 -- concrete.
 --
 -- == Why they hold

@@ -1,6 +1,6 @@
 # The proofs
 
-Everything here is checked at compile time by Pantomime and Bitwuzla. The
+Everything here is checked at compile time by SymFC and Bitwuzla. The
 statements are ordinary Haskell over the code in `src/`. `proof/` may import
 `src/`, never the reverse: the ISA (`Core.ISA`) and ideal memory
 (`Memory.Ideal`), which the proofs are checked against, live in `src/`.
@@ -45,10 +45,10 @@ kinds, using the ones it needs:
 | `Driver`      | how many cycles one step of the spec takes, and its operational reading |
 | `Invariant`   | the relation between the implementation and its spec |
 | `Obligation`  | the base case and one inductive step per hop length |
-| `Solver`      | the properties as Pantomime queries, collected in `results` |
+| `Solver`      | the properties as SymFC queries; an invalid one fails the build |
 | `System`      | (core) how a system state is passed to the solver: SMT arrays for the register file and memory |
 
 Only the `Solver` modules (and the `SMT` axioms they use) run the solver. They
-are built only with the `smt-proof` flag, and `test/Spec.hs` checks that every
-entry in each `results` list is valid. Load or build them one module at a
-time: a single module needs about 2 GB.
+are built only with the `smt-proof` flag, and a property that does not hold
+fails the build. Load or build them one module at a time: a single module
+needs about 2 GB.

@@ -95,7 +95,7 @@ srvDriverSpec fuel srv0 req =
 -- ('Proof.Memory.Cache4K.Server.Functional.Driver.srvDriver') agrees with its
 -- operational reading ('srvDriverSpec').
 -- Eight cycles of fuel, 2 * 'penalty', cover the longest hop, two missed
--- lines, and no more, since Pantomime unrolls all of them. Readiness suffices,
+-- lines, and no more, since SymFC unrolls all of them. Readiness suffices,
 -- unlike for the core ('Proof.Core.Functional.Driver.driverMatchesSpec'): the
 -- driver only asks which lines hit, so every ready server is a valid start,
 -- and the invariant, which implies readiness, would only narrow the statement.

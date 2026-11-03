@@ -27,6 +27,12 @@
 -- Whether a program is constant-time is a property of its leakage trace,
 -- checked at the ISA level. The hazard bit is not data dependent:
 -- 'Core.Instruction.loadHazard' compares register /fields/, not their contents.
+--
+-- That check is the software checker's job. The relational stepper
+-- ("Stepper.Relational") runs two copies of the program that differ only in
+-- their secrets and rejects the program if their 'leakOf' values ever differ.
+-- It reads instructions from a fixed code table, so it reports a store into
+-- that table instead of following it.
 module Proof.Core.Leakage.Model
   ( -- * Observation
     Obs (..),

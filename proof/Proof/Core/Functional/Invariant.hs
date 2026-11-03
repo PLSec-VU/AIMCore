@@ -12,7 +12,7 @@
 --   * 'invCases' represents each case as a named list of conjuncts, so a
 --     failing QuickCheck run can report which clause broke ('explain');
 --   * 'invAt' is the identical predicate built from '&&' and '||' with no
---     lists, because Pantomime's evaluator diverges on recursion it cannot
+--     lists, because SymFC's evaluator diverges on recursion it cannot
 --     prove terminating -- even over a fully concrete list. Symbolic execution
 --     uses this one.
 --
