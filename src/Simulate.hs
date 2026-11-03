@@ -45,13 +45,14 @@ simulator =
         else pure (Just (Input (Just mem_in)))
       where
         doMemory :: m Word
-        doMemory = case mem of
-          Just (MemFetch addr) -> ramRead addr Word
-          Just (MemRead addr size) -> ramRead addr size
-          Just (MemWrite addr size val) -> do
-            ramWrite addr size val
-            pure 0
-          Nothing -> pure 0
+        doMemory =
+          case mem of
+            Just (MemFetch addr) -> ramRead addr Word
+            Just (MemRead addr size) -> ramRead addr size
+            Just (MemWrite addr size val) -> do
+              ramWrite addr size val
+              pure 0
+            Nothing -> pure 0
 
 runSimulator ::
   forall ramSize progSize a.

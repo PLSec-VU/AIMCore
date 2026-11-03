@@ -64,9 +64,10 @@ type IsaSys = IsaStateG RegFile MemMap
 runToHalt :: Int -> IsaSys -> Either String IsaSys
 runToHalt fuel st
   | fuel <= 0 = Left "fuel exhausted before the program halted"
-  | otherwise = case isaStep st of
-      IsaHalted -> Right st
-      Next st' -> runToHalt (fuel - 1) st'
+  | otherwise =
+    case isaStep st of
+        IsaHalted -> Right st
+        Next st' -> runToHalt (fuel - 1) st'
 
 loadProgram :: FilePath -> IO IsaSys
 loadProgram path = do

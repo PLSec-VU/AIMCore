@@ -564,9 +564,10 @@ inductiveStep sys
   where
     isa = isaFromSys sys
     sys' = stepSysN (driver sys + 1) sys
-    isa' = case isaStep isa of
-      Next i -> i
-      IsaHalted -> isa
+    isa' =
+      case isaStep isa of
+        Next i -> i
+        IsaHalted -> isa
     inv' a s = P.any holdsCase (invCases a s)
     holdsCase c = P.all P.snd (caseConjuncts c)
 
@@ -623,11 +624,12 @@ wrapMem = MemFn bytes
       | a - 0xFFFFFFF8 P.< 4 = byteAt wrapExWord (a - 0xFFFFFFF8)
       | a - 0xFFFFFFFC P.< 4 = byteAt wrapDeWord (a - 0xFFFFFFFC)
       | P.otherwise = 0
-    byteAt w k = case k of
-      0 -> slice d7 d0 w
-      1 -> slice d15 d8 w
-      2 -> slice d23 d16 w
-      _ -> slice d31 d24 w
+    byteAt w k =
+      case k of
+        0 -> slice d7 d0 w
+        1 -> slice d15 d8 w
+        2 -> slice d23 d16 w
+        _ -> slice d31 d24 w
 
 wrapCESys :: SysG RegFn MemFn
 wrapCESys =
@@ -805,11 +807,12 @@ genArbSys = do
       w1 = P.maybe 0 P.id (encode' (roundTrips nextI))
   w2 <- genW
   extra <- genFn (unpack <$> genW) (fromIntegral <$> choose (0 :: Int, 255)) (P.pure 0)
-  let byteOf w k = case k of
-        0 -> slice d7 d0 w
-        1 -> slice d15 d8 w
-        2 -> slice d23 d16 w
-        _ -> slice d31 d24 w
+  let byteOf w k =
+        case k of
+          0 -> slice d7 d0 w
+          1 -> slice d15 d8 w
+          2 -> slice d23 d16 w
+          _ -> slice d31 d24 w
       -- Wrapping comparisons: @a - base < 4@ is the wrap-correct form of
       -- @base <= a && a < base + 4@, so the three-instruction window stays
       -- intact when it straddles 0xFFFFFFFF -> 0.
@@ -1072,11 +1075,12 @@ genBase =
 genMemWindow :: Address -> Word -> Word -> Word -> Gen (Address -> Byte, ())
 genMemWindow base w0 w1 w2 = do
   extra <- genFn (unpack <$> genW) (fromIntegral <$> choose (0 :: Int, 255)) (P.pure 0)
-  let byteOf w k = case k of
-        0 -> slice d7 d0 w
-        1 -> slice d15 d8 w
-        2 -> slice d23 d16 w
-        _ -> slice d31 d24 w
+  let byteOf w k =
+        case k of
+          0 -> slice d7 d0 w
+          1 -> slice d15 d8 w
+          2 -> slice d23 d16 w
+          _ -> slice d31 d24 w
       memf a
         | a - base P.< 4 = byteOf w0 (a - base)
         | a - base P.< 8 = byteOf w1 (a - base - 4)
@@ -1405,8 +1409,9 @@ genStageInstr =
     ]
 
 byteAt :: Word -> Address -> Byte
-byteAt w k = case k of
-  0 -> slice d7 d0 w
-  1 -> slice d15 d8 w
-  2 -> slice d23 d16 w
-  _ -> slice d31 d24 w
+byteAt w k =
+  case k of
+    0 -> slice d7 d0 w
+    1 -> slice d15 d8 w
+    2 -> slice d23 d16 w
+    _ -> slice d31 d24 w

@@ -76,11 +76,12 @@ obsOf o = obsReq (outputMem o)
 
 -- | The observation of a request on the bus: the request without its data.
 obsReq :: Request -> Obs
-obsReq req = case req of
-  Nothing -> NoAccess
-  Just (MemFetch addr) -> Fetch addr
-  Just (MemRead addr size) -> DataRead addr size
-  Just (MemWrite addr size _) -> DataWrite addr size
+obsReq req =
+  case req of
+    Nothing -> NoAccess
+    Just (MemFetch addr) -> Fetch addr
+    Just (MemRead addr size) -> DataRead addr size
+    Just (MemWrite addr size _) -> DataWrite addr size
 
 -- Leakage ---------------------------------------------------------------------
 

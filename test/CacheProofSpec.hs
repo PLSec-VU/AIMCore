@@ -130,11 +130,12 @@ genReq =
 
 -- | The address a request accesses, 0 for none.
 reqAddr :: Request -> Address
-reqAddr req = case req of
-  Just (MemFetch a) -> a
-  Just (MemRead a _) -> a
-  Just (MemWrite a _ _) -> a
-  Nothing -> 0
+reqAddr req =
+  case req of
+    Just (MemFetch a) -> a
+    Just (MemRead a _) -> a
+    Just (MemWrite a _ _) -> a
+    Nothing -> 0
 
 -- | Witnesses, half of the time at the request's own bytes, set and word.
 genWitness :: Address -> Gen (Address, SetIdx, WordIdx)
@@ -389,9 +390,10 @@ simHops sys0 = go Nothing (isaStart sys0) simInit
     go :: SimInput -> IsaState -> SimState -> [[Obs]]
     go inp isa sim =
       let (sim', os) = runSim (simDriver inp sim + 1) inp sim
-          isa' = case inp of
-            Nothing -> isa
-            Just _ -> isaNext isa
+          isa' =
+            case inp of
+              Nothing -> isa
+              Just _ -> isaNext isa
        in os : go (Just (leakOf isa')) isa' sim'
     -- The simulator for @n@ cycles; it gets @inp@ on the first only.
     runSim :: Int -> SimInput -> SimState -> (SimState, [Obs])
@@ -400,9 +402,10 @@ simHops sys0 = go Nothing (isaStart sys0) simInit
       let (sim1, o) = simCircuit sim inp
           (sim2, os) = runSim (n - 1) Nothing sim1
        in (sim2, o : os)
-    isaNext isa = case isaStep isa of
-      Next isa' -> isa'
-      IsaHalted -> isa
+    isaNext isa =
+      case isaStep isa of
+        Next isa' -> isa'
+        IsaHalted -> isa
 
 -- | The bus trace of the core behind the cache, from the leakage alone: the
 -- core's simulator gives each cycle of the core behind ideal memory
@@ -678,6 +681,7 @@ genByteProg = do
 
 -- | An instruction that survives encoding, or @addi x0, x0, 0@.
 roundTrips :: Instruction -> Instruction
-roundTrips ir = case encode' ir of
-  Just w | decode' w == ir -> ir
-  _ -> IType (Arith ADD) 0 0 0
+roundTrips ir =
+  case encode' ir of
+    Just w | decode' w == ir -> ir
+    _ -> IType (Arith ADD) 0 0 0

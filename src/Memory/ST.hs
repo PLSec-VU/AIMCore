@@ -70,37 +70,39 @@ instance {-# OVERLAPPING #-}
 
 -- | Read a sized value from the data array.
 readDataArray :: Address -> Size -> STUArray s Address Word8 -> ST s Word
-readDataArray addr size arr = case size of
-  Byte -> do
-    b0 <- readArray arr addr
-    pure $ zeroExtend (bitCoerce b0 :: Byte)
-  Half -> do
-    b0 <- readArray arr addr
-    b1 <- readArray arr (addr + 1)
-    pure $ zeroExtend ((bitCoerce b1 :: Byte) ++# (bitCoerce b0 :: Byte))
-  Word -> do
-    b0 <- readArray arr addr
-    b1 <- readArray arr (addr + 1)
-    b2 <- readArray arr (addr + 2)
-    b3 <- readArray arr (addr + 3)
-    pure $
-      (bitCoerce b3 :: Byte)
-        ++# (bitCoerce b2 :: Byte)
-        ++# (bitCoerce b1 :: Byte)
-        ++# (bitCoerce b0 :: Byte)
+readDataArray addr size arr =
+  case size of
+    Byte -> do
+      b0 <- readArray arr addr
+      pure $ zeroExtend (bitCoerce b0 :: Byte)
+    Half -> do
+      b0 <- readArray arr addr
+      b1 <- readArray arr (addr + 1)
+      pure $ zeroExtend ((bitCoerce b1 :: Byte) ++# (bitCoerce b0 :: Byte))
+    Word -> do
+      b0 <- readArray arr addr
+      b1 <- readArray arr (addr + 1)
+      b2 <- readArray arr (addr + 2)
+      b3 <- readArray arr (addr + 3)
+      pure $
+        (bitCoerce b3 :: Byte)
+          ++# (bitCoerce b2 :: Byte)
+          ++# (bitCoerce b1 :: Byte)
+          ++# (bitCoerce b0 :: Byte)
 
 -- | Write a sized value to the data array.
 writeDataArray :: Address -> Size -> Word -> STUArray s Address Word8 -> ST s ()
-writeDataArray addr size w arr = case size of
-  Byte -> writeArray arr addr (bitCoerce $ slice d7 d0 w)
-  Half -> do
-    writeArray arr addr (bitCoerce $ slice d7 d0 w)
-    writeArray arr (addr + 1) (bitCoerce $ slice d15 d8 w)
-  Word -> do
-    writeArray arr addr (bitCoerce $ slice d7 d0 w)
-    writeArray arr (addr + 1) (bitCoerce $ slice d15 d8 w)
-    writeArray arr (addr + 2) (bitCoerce $ slice d23 d16 w)
-    writeArray arr (addr + 3) (bitCoerce $ slice d31 d24 w)
+writeDataArray addr size w arr =
+  case size of
+    Byte -> writeArray arr addr (bitCoerce $ slice d7 d0 w)
+    Half -> do
+      writeArray arr addr (bitCoerce $ slice d7 d0 w)
+      writeArray arr (addr + 1) (bitCoerce $ slice d15 d8 w)
+    Word -> do
+      writeArray arr addr (bitCoerce $ slice d7 d0 w)
+      writeArray arr (addr + 1) (bitCoerce $ slice d15 d8 w)
+      writeArray arr (addr + 2) (bitCoerce $ slice d23 d16 w)
+      writeArray arr (addr + 3) (bitCoerce $ slice d31 d24 w)
 
 -- | Create a new STMemory.
 newSTMemory :: forall s. Address -> Address -> ST s (STMemory s)

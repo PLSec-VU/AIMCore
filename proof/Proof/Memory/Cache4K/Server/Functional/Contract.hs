@@ -112,9 +112,10 @@ srvDriverMatchesSpec srv req =
 -- | The core waits for what it asked for: after a request, given no answer, it
 -- makes no request and stays where it was.
 corePatient :: (RegFileOps r, Eq r) => StateG r -> Input -> Bool
-corePatient s inp = case outputMem o of
-  Nothing -> True
-  Just _ -> s'' == s' && isNothing (outputMem o')
+corePatient s inp =
+  case outputMem o of
+    Nothing -> True
+    Just _ -> s'' == s' && isNothing (outputMem o')
   where
     (s', o) = circuit s inp
     (s'', o') = circuit s' (Input Nothing)

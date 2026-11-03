@@ -62,41 +62,43 @@ initCacheSrv mem = CacheSrv emptyCache4K mem CacheSrvReady
 -- | One cycle of the cache in front of ideal memory. The answer is 'Nothing'
 -- only while a read is not ready yet; a write and no request answer @Just 0@.
 serve :: (MemOps m) => CacheSrv m -> Request -> (CacheSrv m, Input)
-serve (CacheSrv c mem st) req = case st of
-  CacheSrvStall n w
-    | n > 0 ->
-        (CacheSrv c mem (CacheSrvStall (n - 1) w), Input Nothing)
-    | otherwise ->
-        (CacheSrv c mem CacheSrvReady, Input (Just w))
-  CacheSrvReady -> case req of
-    Just (MemFetch addr) ->
-      (CacheSrv c mem CacheSrvReady, Input (Just (memReadWord addr mem)))
-    Just (MemRead addr size) ->
-      let off = case size of
-            Byte -> 0
-            Half -> 1
-            Word -> 3
+serve (CacheSrv c mem st) req =
+  case st of
+    CacheSrvStall n w
+      | n > 0 ->
+          (CacheSrv c mem (CacheSrvStall (n - 1) w), Input Nothing)
+      | otherwise ->
+          (CacheSrv c mem CacheSrvReady, Input (Just w))
+    CacheSrvReady -> case req of
+      Just (MemFetch addr) ->
+        (CacheSrv c mem CacheSrvReady, Input (Just (memReadWord addr mem)))
+      Just (MemRead addr size) ->
+        let off =
+              case size of
+                Byte -> 0
+                Half -> 1
+                Word -> 3
 
-          hit1stLine = cacheHit addr c
-          penalty1stLine = if hit1stLine then 0 else penalty
-          c1 = if hit1stLine then c else cacheFill addr mem c
+            hit1stLine = cacheHit addr c
+            penalty1stLine = if hit1stLine then 0 else penalty
+            c1 = if hit1stLine then c else cacheFill addr mem c
 
-          hit2ndLine = cacheHit (addr + off) c1
-          penalty2ndLine = if hit2ndLine then 0 else penalty
-          c2 = if hit2ndLine then c1 else cacheFill (addr + off) mem c1
+            hit2ndLine = cacheHit (addr + off) c1
+            penalty2ndLine = if hit2ndLine then 0 else penalty
+            c2 = if hit2ndLine then c1 else cacheFill (addr + off) mem c1
 
-          n = penalty1stLine + penalty2ndLine
-          w = cacheRead addr size c2
+            n = penalty1stLine + penalty2ndLine
+            w = cacheRead addr size c2
 
-      in if n > 0
-           then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input Nothing)
-           else (CacheSrv c2 mem CacheSrvReady, Input (Just w))
-    Just (MemWrite addr size val) ->
-      ( CacheSrv
-          (cacheWrite addr size val c)
-          (memWrite addr size val mem)
-          CacheSrvReady,
-        Input (Just 0)
-      )
-    -- No request.
-    _ -> (CacheSrv c mem CacheSrvReady, Input (Just 0))
+        in if n > 0
+             then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input Nothing)
+             else (CacheSrv c2 mem CacheSrvReady, Input (Just w))
+      Just (MemWrite addr size val) ->
+        ( CacheSrv
+            (cacheWrite addr size val c)
+            (memWrite addr size val mem)
+            CacheSrvReady,
+          Input (Just 0)
+        )
+      -- No request.
+      _ -> (CacheSrv c mem CacheSrvReady, Input (Just 0))

@@ -332,12 +332,14 @@ haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys core inp mem) =
     && memReadByte wa imem == memReadByte wa mem
     && lookupRFg wr irf == lookupRFg wr (stateRegFile core)
   where
-    isKind = case kind of
-      HaltBreak -> isBreak
-      HaltCall -> isCall
-    expected = case kind of
-      HaltBreak -> EBreak (ipc + 4)
-      HaltCall -> Syscall (ipc + 4)
+    isKind =
+      case kind of
+        HaltBreak -> isBreak
+        HaltCall -> isCall
+    expected =
+      case kind of
+        HaltBreak -> EBreak (ipc + 4)
+        HaltCall -> Syscall (ipc + 4)
 
 -- The architectural state, and properties of the invariant --------------------
 
@@ -375,10 +377,11 @@ sysInvAt wr wa sys = invAt wr wa (isaOf sys) sys
 -- the trapping instruction's, which is the resume address the halt carries
 -- minus 4.
 archPc :: SysG r m -> Address
-archPc (Sys core _ _) = case Core.stateHalt core of
-  Nothing -> Core.stateExPc core
-  Just (EBreak resume) -> resume - 4
-  Just (Syscall resume) -> resume - 4
+archPc (Sys core _ _) =
+  case Core.stateHalt core of
+    Nothing -> Core.stateExPc core
+    Just (EBreak resume) -> resume - 4
+    Just (Syscall resume) -> resume - 4
 
 -- | The register file the core stands for: its own, with the writes still in
 -- the pipeline (the memory and writeback stages) applied.

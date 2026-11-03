@@ -18,17 +18,18 @@ import Prelude hiding (Ordering (..), Word, init, not, undefined, (&&), (||))
 
 -- | What the ALU computes for an arithmetic operation on two words.
 alu :: Arith -> Word -> Word -> Word
-alu op lhs rhs = case op of
-  ADD -> lhs + rhs
-  SUB -> lhs - rhs
-  XOR -> lhs .^. rhs
-  OR -> lhs .|. rhs
-  AND -> lhs .&. rhs
-  SLL -> sllWord lhs (shiftBits rhs)
-  SRL -> srlWord lhs (shiftBits rhs)
-  SRA -> sraWord lhs (shiftBits rhs)
-  SLT -> set (sign lhs < sign rhs)
-  SLTU -> set (lhs < rhs)
+alu op lhs rhs =
+  case op of
+    ADD -> lhs + rhs
+    SUB -> lhs - rhs
+    XOR -> lhs .^. rhs
+    OR -> lhs .|. rhs
+    AND -> lhs .&. rhs
+    SLL -> sllWord lhs (shiftBits rhs)
+    SRL -> srlWord lhs (shiftBits rhs)
+    SRA -> sraWord lhs (shiftBits rhs)
+    SLT -> set (sign lhs < sign rhs)
+    SLTU -> set (lhs < rhs)
   where
     shiftBits = slice d4 d0
     sign = unpack @(Signed 32)
@@ -70,12 +71,13 @@ sraWord x n = pack (shiftR (unpack x :: Signed 32) (fromIntegral n))
 
 -- | Does a branch's comparison hold of two words?
 branch :: Comparison -> Word -> Word -> Bool
-branch op lhs rhs = case op of
-  EQ -> lhs == rhs
-  NE -> lhs /= rhs
-  LT -> sign lhs < sign rhs
-  GE -> sign lhs >= sign rhs
-  LTU -> lhs < rhs
-  GEU -> lhs >= rhs
+branch op lhs rhs =
+  case op of
+    EQ -> lhs == rhs
+    NE -> lhs /= rhs
+    LT -> sign lhs < sign rhs
+    GE -> sign lhs >= sign rhs
+    LTU -> lhs < rhs
+    GEU -> lhs >= rhs
   where
     sign = unpack @(Signed 32)

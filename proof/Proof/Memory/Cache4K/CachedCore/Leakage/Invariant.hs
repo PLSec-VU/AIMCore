@@ -8,14 +8,16 @@
 -- ("Proof.Memory.Cache4K.CachedCore.Leakage.Simulator").
 module Proof.Memory.Cache4K.CachedCore.Leakage.Invariant
   ( cachedSimInvAt,
+    cachedSimInvFunctional,
     simCachedOf,
   )
 where
 
-import Memory.Cache4K (SetIdx)
+import Memory.Cache4K (SetIdx, tagRead)
 import Proof.Memory.Cache4K.CachedCore.Functional.Machine (CachedSysG (..))
 import Proof.Memory.Cache4K.Server.Leakage.Invariant (simOf, srvSimInvAt)
 import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..))
+import Proof.Memory.Cache4K.Server.Leakage.Simulator (SimCacheSrv (..))
 
 -- | The simulator agrees with the cached system at a hop boundary: the cache's
 -- simulator agrees with the server at set @wsi@, as in the cache's leakage
@@ -24,6 +26,25 @@ import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..))
 cachedSimInvAt :: SetIdx -> SimCachedSys -> CachedSysG r m -> Bool
 cachedSimInvAt wsi (SimCachedSys sim answered) (CachedSys _ _ srv) =
   srvSimInvAt wsi sim srv && answered
+
+-- | The invariant is functional: two simulators it relates to the same cached
+-- system agree at set @wsi@: the cache's simulators have the same tag there
+-- and the same state, and both record an answer. Quantifying over @wsi@ gives
+-- equality of the simulators. Follows from the cache's simulator invariant
+-- being functional
+-- ('Proof.Memory.Cache4K.Server.Leakage.Invariant.srvSimInvFunctional').
+cachedSimInvFunctional ::
+  SetIdx -> SimCachedSys -> SimCachedSys -> CachedSysG r m -> Bool
+cachedSimInvFunctional wsi sim1 sim2 csys =
+  not premises || conclusion
+  where
+    premises = cachedSimInvAt wsi sim1 csys && cachedSimInvAt wsi sim2 csys
+    srvSim1 = simCachedSrv sim1
+    srvSim2 = simCachedSrv sim2
+    conclusion =
+      tagRead wsi (simTagArr srvSim1) == tagRead wsi (simTagArr srvSim2)
+        && simSrvState srvSim1 == simSrvState srvSim2
+        && simCachedAnswered sim1 == simCachedAnswered sim2
 
 -- | The simulator a cached system determines at the start of a hop: the
 -- cache's simulator built from its server

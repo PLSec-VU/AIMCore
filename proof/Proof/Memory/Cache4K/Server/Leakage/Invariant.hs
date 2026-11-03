@@ -3,6 +3,7 @@
 -- counterpart of "Proof.Memory.Cache4K.Server.Functional.Invariant".
 module Proof.Memory.Cache4K.Server.Leakage.Invariant
   ( srvSimInvAt,
+    srvSimInvFunctional,
     simOf,
   )
 where
@@ -31,6 +32,18 @@ sameSrvState SimCacheSrvReady CacheSrvReady = True
 sameSrvState (SimCacheSrvStall n) (CacheSrvStall m _) = n == m
 sameSrvState _ _ = False
 
+-- | The invariant is functional: two simulators it relates to the same server
+-- agree at set @wsi@, with the same tag there and the same state. Quantifying
+-- over @wsi@ gives equality of the simulators.
+srvSimInvFunctional :: SetIdx -> SimCacheSrv -> SimCacheSrv -> CacheSrv m -> Bool
+srvSimInvFunctional wsi sim1 sim2 srv =
+  not premises || conclusion
+  where
+    premises = srvSimInvAt wsi sim1 srv && srvSimInvAt wsi sim2 srv
+    conclusion =
+      tagRead wsi (simTagArr sim1) == tagRead wsi (simTagArr sim2)
+        && simSrvState sim1 == simSrvState sim2
+
 -- | The simulator a server determines: its tags, and its state without the
 -- word it will answer. The simulator the invariant relates to the server, as
 -- 'Proof.Core.Functional.Invariant.isaOf' is the ISA state the core's
@@ -38,6 +51,7 @@ sameSrvState _ _ = False
 simOf :: CacheSrv m -> SimCacheSrv
 simOf (CacheSrv c _ st) = SimCacheSrv (tagArr c) simSt
   where
-    simSt = case st of
-      CacheSrvReady -> SimCacheSrvReady
-      CacheSrvStall n _ -> SimCacheSrvStall n
+    simSt =
+      case st of
+        CacheSrvReady -> SimCacheSrvReady
+        CacheSrvStall n _ -> SimCacheSrvStall n

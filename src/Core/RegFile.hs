@@ -54,9 +54,10 @@ lookupRF idx (RegFile rf) = rf !! (idx - 1)
 
 -- | Modify a register in the register file.
 modifyRF :: RegIdx -> Word -> RegFile -> RegFile
-modifyRF idx val (RegFile rf) = case idx of
-  0 -> RegFile rf
-  _ -> RegFile $ replace (idx - 1) val rf
+modifyRF idx val (RegFile rf) =
+  case idx of
+    0 -> RegFile rf
+    _ -> RegFile $ replace (idx - 1) val rf
 
 -- | Censor all registers in the register file.
 censorRF :: RegFile -> RegFile

@@ -191,11 +191,12 @@ cacheFill addr mem c = Cache4K tags' dat4
 
 -- | Byte @bi@ of a word.
 cacheReadByteInWord :: ByteIdx -> Word -> Byte
-cacheReadByteInWord bi w = case bi of
-  0 -> slice d7 d0 w
-  1 -> slice d15 d8 w
-  2 -> slice d23 d16 w
-  _ -> slice d31 d24 w
+cacheReadByteInWord bi w =
+  case bi of
+    0 -> slice d7 d0 w
+    1 -> slice d15 d8 w
+    2 -> slice d23 d16 w
+    _ -> slice d31 d24 w
 
 -- | The cached byte at an address, meaningful on a hit.
 cacheReadByte :: Address -> Cache4K -> Byte
@@ -208,10 +209,11 @@ cacheReadByte addr c =
 -- ('Memory.Types.readResp'). Byte by byte, so a read may cross a word or line
 -- boundary. Meaningful when the lines of all its bytes hit.
 cacheRead :: Address -> Size -> Cache4K -> Word
-cacheRead addr size c = case size of
-  Byte -> zeroExtend b0
-  Half -> zeroExtend (b1 ++# b0)
-  Word -> b3 ++# b2 ++# b1 ++# b0
+cacheRead addr size c =
+  case size of
+    Byte -> zeroExtend b0
+    Half -> zeroExtend (b1 ++# b0)
+    Word -> b3 ++# b2 ++# b1 ++# b0
   where
     b0 = cacheReadByte addr c
     b1 = cacheReadByte (addr + 1) c
@@ -220,11 +222,12 @@ cacheRead addr size c = case size of
 
 -- | A word with byte @bi@ replaced by @b@.
 cacheWriteByteInWord :: ByteIdx -> Byte -> Word -> Word
-cacheWriteByteInWord bi b w = case bi of
-  0 -> slice d31 d8 w ++# b
-  1 -> slice d31 d16 w ++# b ++# slice d7 d0 w
-  2 -> slice d31 d24 w ++# b ++# slice d15 d0 w
-  _ -> b ++# slice d23 d0 w
+cacheWriteByteInWord bi b w =
+  case bi of
+    0 -> slice d31 d8 w ++# b
+    1 -> slice d31 d16 w ++# b ++# slice d7 d0 w
+    2 -> slice d31 d24 w ++# b ++# slice d15 d0 w
+    _ -> b ++# slice d23 d0 w
 
 -- | Put a byte into the cached word of its address, if its line holds the
 -- address's block; otherwise leave the cache alone (no allocation).
@@ -244,10 +247,11 @@ cacheWriteByte addr b c
 -- its cached word if its line hits, so a write may cross a word or line
 -- boundary.
 cacheWrite :: Address -> Size -> Word -> Cache4K -> Cache4K
-cacheWrite addr size w c = case size of
-  Byte -> c1
-  Half -> c2
-  Word -> c4
+cacheWrite addr size w c =
+  case size of
+    Byte -> c1
+    Half -> c2
+    Word -> c4
   where
     c1 = cacheWriteByte addr (slice d7 d0 w) c
     c2 = cacheWriteByte (addr + 1) (slice d15 d8 w) c1
