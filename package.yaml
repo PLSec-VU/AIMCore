@@ -108,7 +108,10 @@ library:
   when:
     - condition: flag(smt-proof)
       exposed-modules:
-        - Proof.Cache.Functional.Solver
+        - Proof.Cache.Server.Functional.Solver
+        - Proof.Cache.Server.Leakage.Solver
+        - Proof.Cache.CachedCore.Functional.Solver
+        - Proof.Cache.CachedCore.Leakage.Solver
         - Proof.Core.Functional.Solver
         - Proof.Core.Leakage.Solver
         - Proof.SMT.Axioms
@@ -123,10 +126,23 @@ library:
   # live in proof/ too, and must only be built with the smt-proof flag.
   other-modules: []
   exposed-modules:
-    - Proof.Cache.Functional.Contract
-    - Proof.Cache.Functional.Driver
-    - Proof.Cache.Functional.Invariant
-    - Proof.Cache.Functional.Obligation
+    - Proof.Cache.Server.Functional.Contract
+    - Proof.Cache.Server.Functional.Driver
+    - Proof.Cache.Server.Functional.Invariant
+    - Proof.Cache.Server.Functional.Obligation
+    - Proof.Cache.Server.Leakage.Driver
+    - Proof.Cache.Server.Leakage.Invariant
+    - Proof.Cache.Server.Leakage.Model
+    - Proof.Cache.Server.Leakage.Obligation
+    - Proof.Cache.Server.Leakage.Simulator
+    - Proof.Cache.CachedCore.Functional.Driver
+    - Proof.Cache.CachedCore.Functional.Invariant
+    - Proof.Cache.CachedCore.Functional.Machine
+    - Proof.Cache.CachedCore.Functional.Obligation
+    - Proof.Cache.CachedCore.Leakage.Driver
+    - Proof.Cache.CachedCore.Leakage.Invariant
+    - Proof.Cache.CachedCore.Leakage.Obligation
+    - Proof.Cache.CachedCore.Leakage.Simulator
     - Proof.Cache.SMT.Raw
     - Proof.SMT.Array
     - Proof.Core.Functional.Machine
@@ -173,10 +189,10 @@ tests:
   aimcore-test:
     main:                Spec.hs
     source-dirs:         test
-    # Listed explicitly: Cache4KSpec and CompositionSpec are still written
-    # against the cache's old interface and wait for the cache's leakage proof.
     other-modules:
       - BenchmarkSpec
+      - Cache4KSpec
+      - CacheProofSpec
       - InstructionSpec
       - IsaSpec
       - ProofSpec
