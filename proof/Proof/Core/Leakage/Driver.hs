@@ -37,8 +37,8 @@ simStoreHazard inp st =
     exStore = case inp of
       Just (LStore size addr) -> Just (addr, size)
       _ -> Nothing
-    meStore = case simStateMeInstr st of
-      LStore size addr -> Just (addr, size)
+    meStore = case simStateMeAccess st of
+      SimStore size addr -> Just (addr, size)
       _ -> Nothing
 
 -- | The load-hazard condition of 'Core.Pipeline.decode', computed by the ISA as
@@ -56,7 +56,7 @@ simDriver inp st
   | simStoreHazard inp st = if maybe False isMemLeak inp then 3 else 2
   | simLoadHazard inp st = 3
   | simStateDeExpInstr st = 0
-  | not (isMemLeak (simStateMeInstr st)) = 1
+  | simStateMeAccess st == SimNoAccess = 1
   | not (maybe False isMemLeak inp) = 2
   | otherwise = 3
 

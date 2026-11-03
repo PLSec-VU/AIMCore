@@ -28,6 +28,7 @@
 module Proof.Core.Leakage.Solver
   ( simDriverMatchesSpecP,
     simDriverMatchesSpecInitP,
+    simInvFunctionalP,
     baseCaseLeakP,
     indStepLeak0P,
     indStepLeak1P,
@@ -45,6 +46,7 @@ import Proof.Core.Leakage.Driver
   ( simDriverMatchesSpec,
     simDriverMatchesSpecInit,
   )
+import Proof.Core.Leakage.Invariant (simInvFunctional)
 import Proof.Core.Leakage.Model (Leak)
 import Proof.Core.Leakage.Obligation
 import Proof.Core.Leakage.Simulator
@@ -74,6 +76,17 @@ simDriverMatchesSpecP wr wa leak sim ss i ra ma =
 simDriverMatchesSpecInitP :: Address -> Pantomime.Bool
 simDriverMatchesSpecInitP pc =
   Pantomime.boolean $ simDriverMatchesSpecInit pc
+
+-- The invariant ----------------------------------------------------------------
+
+-- | The invariant is functional: two simulators it relates to the same system
+-- are equal.
+{-# ANN simInvFunctionalP (Theory arrayAxioms) #-}
+simInvFunctionalP ::
+  SimState -> SimState -> KState -> Core.Input -> RegArr -> MemArr ->
+  Pantomime.Bool
+simInvFunctionalP sim1 sim2 ss i ra ma =
+  Pantomime.boolean $ simInvFunctional sim1 sim2 (sysOf ss i ra ma)
 
 -- The base case ----------------------------------------------------------------
 
@@ -125,6 +138,7 @@ results :: [(String, Maybe String)]
 results =
   [ ("simDriverMatchesSpecP", $(pantomime 'simDriverMatchesSpecP)),
     ("simDriverMatchesSpecInitP", $(pantomime 'simDriverMatchesSpecInitP)),
+    ("simInvFunctionalP", $(pantomime 'simInvFunctionalP)),
     ("baseCaseLeakP", $(pantomime 'baseCaseLeakP)),
     ("indStepLeak0P", $(pantomime 'indStepLeak0P)),
     ("indStepLeak1P", $(pantomime 'indStepLeak1P)),

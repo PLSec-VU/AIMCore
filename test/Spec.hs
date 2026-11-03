@@ -107,6 +107,8 @@ sanityTests =
         lookup "simDriverMatchesSpecP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "on the initial simulator, its driver agrees with its reading" $
         lookup "simDriverMatchesSpecInitP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
+      testCase "the simulator invariant is functional: it relates one simulator to a system" $
+        lookup "simInvFunctionalP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
         lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $
@@ -149,6 +151,7 @@ sanityTests =
           | name <-
               [ "simSrvReadyIffAnsweredP",
                 "simSrvDriverMatchesSpecP",
+                "srvSimInvFunctionalP",
                 "baseCaseLeakP",
                 "indStepLeakP"
               ]
@@ -175,6 +178,7 @@ sanityTests =
               @?= Just Nothing
           | name <-
               [ "simCachedDriverMatchesSpecP",
+                "cachedSimInvFunctionalP",
                 "baseCaseLeakP",
                 "indStepLeak0P",
                 "indStepLeak4P",

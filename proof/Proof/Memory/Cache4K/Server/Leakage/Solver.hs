@@ -14,6 +14,7 @@
 module Proof.Memory.Cache4K.Server.Leakage.Solver
   ( simSrvReadyIffAnsweredP,
     simSrvDriverMatchesSpecP,
+    srvSimInvFunctionalP,
     baseCaseLeakP,
     indStepLeakP,
     results,
@@ -31,6 +32,7 @@ import Proof.Memory.Cache4K.Server.Leakage.Simulator
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Memory.Cache4K.Server.Leakage.Driver (simSrvDriverMatchesSpec)
+import Proof.Memory.Cache4K.Server.Leakage.Invariant (srvSimInvFunctional)
 import Proof.Memory.Cache4K.Server.Leakage.Obligation
 import Proof.Memory.Cache4K.Server.Leakage.Model (Obs)
 import Proof.Memory.Cache4K.SMT.Axioms (cacheAxioms)
@@ -50,6 +52,19 @@ simSrvDriverMatchesSpecP ::
   TagArr -> SimCacheSrvState -> Obs -> Pantomime.Bool
 simSrvDriverMatchesSpecP tags sst obs =
   Pantomime.boolean $ simSrvDriverMatchesSpec (SimCacheSrv tags sst) obs
+
+-- | The invariant is functional: two simulators it relates to the same server
+-- agree at the witness set.
+{-# ANN srvSimInvFunctionalP (Theory cacheAxioms) #-}
+srvSimInvFunctionalP ::
+  SetIdx -> TagArr -> SimCacheSrvState -> TagArr -> SimCacheSrvState ->
+  TagArr -> DataArr -> MemArr -> CacheSrvState -> Pantomime.Bool
+srvSimInvFunctionalP wsi tags1 sst1 tags2 sst2 tags dat ma st =
+  Pantomime.boolean $ srvSimInvFunctional wsi sim1 sim2 srv
+  where
+    sim1 = SimCacheSrv tags1 sst1
+    sim2 = SimCacheSrv tags2 sst2
+    srv = CacheSrv (Cache4K tags dat) ma st
 
 -- | The base case: the server and the simulator at start agree.
 {-# ANN baseCaseLeakP (Theory cacheAxioms) #-}
@@ -71,6 +86,7 @@ results :: [(String, Maybe String)]
 results =
   [ ("simSrvReadyIffAnsweredP", $(pantomime 'simSrvReadyIffAnsweredP)),
     ("simSrvDriverMatchesSpecP", $(pantomime 'simSrvDriverMatchesSpecP)),
+    ("srvSimInvFunctionalP", $(pantomime 'srvSimInvFunctionalP)),
     ("baseCaseLeakP", $(pantomime 'baseCaseLeakP)),
     ("indStepLeakP", $(pantomime 'indStepLeakP))
   ]

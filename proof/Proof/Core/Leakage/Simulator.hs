@@ -12,6 +12,7 @@ module Proof.Core.Leakage.Simulator
   ( SimInput,
     SimOutput,
     SimExInstrType (..),
+    SimMemAccess (..),
     SimState (..),
     SimControl (..),
     SimM,
@@ -68,6 +69,15 @@ data SimExInstrType
     Halted
   deriving (Eq, Show, Generic, NFDataX)
 
+-- | What the instruction in the memory stage does with memory: nothing, or a
+-- load or a store of a size at an address. The only part of an instruction's
+-- leakage the memory stage uses, so the simulator keeps no more of it.
+data SimMemAccess
+  = SimNoAccess
+  | SimLoad Size Address
+  | SimStore Size Address
+  deriving (Eq, Show, Generic, NFDataX)
+
 -- | The internal state of the simulator.
 data SimState = SimState
   { -- | Program counter fetch stage.
@@ -78,8 +88,8 @@ data SimState = SimState
     simStateDeExpInstr :: Bool,
     -- | Instruction execute stage.
     simStateExInstrType :: SimExInstrType,
-    -- | Instruction memory stage.
-    simStateMeInstr :: Leak,
+    -- | What the instruction in the memory stage does with memory.
+    simStateMeAccess :: SimMemAccess,
     -- | Control/forwarding lines.
     simStateCtrl :: SimControl
   }
@@ -150,7 +160,7 @@ simInit =
       simStateDePc = 0,
       simStateDeExpInstr = False,
       simStateExInstrType = FirstCycle,
-      simStateMeInstr = LArith,
+      simStateMeAccess = SimNoAccess,
       simStateCtrl = simInitCtrl
     }
 
@@ -274,37 +284,38 @@ simExecute = do
     DecodedInstr ->
       case input of
         Just ir -> do
-          modify $ \s -> s {simStateMeInstr = ir}
-
           case ir of
-            LArith -> pure ()
-            LJump addr ->
+            LArith ->
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
+            LJump addr -> do
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
               simSetLines $ \c -> c {simCtrlExJumpAddr = Just addr}
-            LLoad _ _ haz ->
+            LLoad size addr haz -> do
+              modify $ \s -> s {simStateMeAccess = SimLoad size addr}
               simSetLines $ \c -> c {simCtrlExLoadHazard = Just haz}
-            LStore size addr ->
+            LStore size addr -> do
+              modify $ \s -> s {simStateMeAccess = SimStore size addr}
               simSetLines $ \c -> c {simCtrlExStoreAddrSize = Just (addr, size)}
-            LEnv ->
+            LEnv -> do
+              modify $ \s -> s {simStateMeAccess = SimNoAccess}
               simSetLines $ \c -> c {simCtrlExEnvInstr = True}
-        Nothing -> modify $ \s -> s {simStateMeInstr = LArith}
-    _ -> modify $ \s -> s {simStateMeInstr = LArith}
+        Nothing -> modify $ \s -> s {simStateMeAccess = SimNoAccess}
+    _ -> modify $ \s -> s {simStateMeAccess = SimNoAccess}
 
 -- | Memory stage.
 simMemory :: SimM ()
 simMemory = do
-  ir <- gets simStateMeInstr
+  ir <- gets simStateMeAccess
 
   case ir of
-    LArith -> pure ()
-    LJump _ -> pure ()
-    LLoad size addr _ -> do
+    SimNoAccess -> pure ()
+    SimLoad size addr -> do
       simSetLines $ \c -> c {simCtrlMeMemInstr = True}
       simReadRAM addr size
-    LStore size addr -> do
+    SimStore size addr -> do
       simSetLines $ \c ->
         c {simCtrlMeMemInstr = True, simCtrlMeStoreAddrSize = Just (addr, size)}
       simWriteRAM addr size
-    LEnv -> pure ()
 
 -- | Writeback stage.
 simWriteback :: SimM ()

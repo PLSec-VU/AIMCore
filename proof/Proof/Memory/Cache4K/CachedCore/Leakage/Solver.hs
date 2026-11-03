@@ -19,6 +19,7 @@
 -- > SBV_Z3=/usr/local/bin/bitwuzla SBV_Z3_OPTIONS="--produce-models" stack build
 module Proof.Memory.Cache4K.CachedCore.Leakage.Solver
   ( simCachedDriverMatchesSpecP,
+    cachedSimInvFunctionalP,
     baseCaseLeakP,
     indStepLeak0P,
     indStepLeak4P,
@@ -29,9 +30,13 @@ where
 
 import qualified Core.Pipeline as Core
 import Memory.Cache4K
+import Memory.Cache4KServer (CacheSrv (..), CacheSrvState)
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
+import Proof.Core.Functional.Machine (SysG (..))
+import Proof.Memory.Cache4K.CachedCore.Functional.Machine (CachedSysG (..))
 import Proof.Memory.Cache4K.CachedCore.Leakage.Driver (simCachedDriverMatchesSpec)
+import Proof.Memory.Cache4K.CachedCore.Leakage.Invariant (cachedSimInvFunctional)
 import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..))
 import Proof.Core.Leakage.Model (Obs)
 import Proof.Memory.Cache4K.Server.Leakage.Simulator
@@ -58,6 +63,29 @@ simCachedDriverMatchesSpecP tags sst answered obs =
   Pantomime.boolean $ simCachedDriverMatchesSpec sim obs
   where
     sim = SimCachedSys (SimCacheSrv tags sst) answered
+
+-- The invariant ----------------------------------------------------------------
+
+-- | The invariant is functional: two simulators it relates to the same cached
+-- system agree at the witness set. The cached system is a symbolic system
+-- behind an arbitrary cache.
+{-# ANN cachedSimInvFunctionalP (Theory cacheAxioms) #-}
+cachedSimInvFunctionalP ::
+  SetIdx ->
+  TagArr -> SimCacheSrvState -> Bool ->
+  TagArr -> SimCacheSrvState -> Bool ->
+  KState -> Core.Input -> RegArr ->
+  TagArr -> DataArr -> MemArr -> CacheSrvState ->
+  Pantomime.Bool
+cachedSimInvFunctionalP
+  wsi tags1 sst1 answered1 tags2 sst2 answered2 ss i ra tags dat ma st =
+    Pantomime.boolean $ cachedSimInvFunctional wsi sim1 sim2 csys
+  where
+    sim1 = SimCachedSys (SimCacheSrv tags1 sst1) answered1
+    sim2 = SimCachedSys (SimCacheSrv tags2 sst2) answered2
+    sys = sysOf ss i ra ma
+    csys =
+      CachedSys (sysCore sys) (sysInput sys) (CacheSrv (Cache4K tags dat) ma st)
 
 -- The base case ----------------------------------------------------------------
 
@@ -102,6 +130,7 @@ indStepLeak8P wa wsi wwi ss i ra ma tags raw =
 results :: [(String, Maybe String)]
 results =
   [ ("simCachedDriverMatchesSpecP", $(pantomime 'simCachedDriverMatchesSpecP)),
+    ("cachedSimInvFunctionalP", $(pantomime 'cachedSimInvFunctionalP)),
     ("baseCaseLeakP", $(pantomime 'baseCaseLeakP)),
     ("indStepLeak0P", $(pantomime 'indStepLeak0P)),
     ("indStepLeak4P", $(pantomime 'indStepLeak4P)),
