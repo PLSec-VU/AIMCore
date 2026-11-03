@@ -27,7 +27,7 @@ import System.Entropy
 import qualified Data.ByteString as BS
 
 import Types
-import qualified Core
+import qualified Core.Pipeline as Core
 import Core.RegFile
 
 -- Custom exception type for non-zero program exit codes

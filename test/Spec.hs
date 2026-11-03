@@ -12,7 +12,7 @@ import CacheProofSpec (cacheProofTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Core
+import Core.Pipeline as Core
 import Data.Maybe (fromJust, isJust)
 import Core.Instruction
 import InstructionSpec (instructionTests)
@@ -25,10 +25,10 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Cache.Server.Functional.Solver
-import qualified Proof.Cache.Server.Leakage.Solver
-import qualified Proof.Cache.CachedCore.Functional.Solver
-import qualified Proof.Cache.CachedCore.Leakage.Solver
+import qualified Proof.Memory.Cache4K.Server.Functional.Solver
+import qualified Proof.Memory.Cache4K.Server.Leakage.Solver
+import qualified Proof.Memory.Cache4K.CachedCore.Functional.Solver
+import qualified Proof.Memory.Cache4K.CachedCore.Leakage.Solver
 import qualified Proof.Core.Functional.Solver
 import qualified Proof.Core.Leakage.Solver
 #endif
@@ -120,7 +120,7 @@ sanityTests =
       testGroup
         "the 4 KiB cache answers as ideal memory, with delay"
         [ testCase name $
-            lookup name Proof.Cache.Server.Functional.Solver.results
+            lookup name Proof.Memory.Cache4K.Server.Functional.Solver.results
               @?= Just Nothing
           | name <-
               [ "cacheArraysP",
@@ -144,7 +144,7 @@ sanityTests =
       testGroup
         "the 4 KiB cache leaks only its requests' observations"
         [ testCase name $
-            lookup name Proof.Cache.Server.Leakage.Solver.results
+            lookup name Proof.Memory.Cache4K.Server.Leakage.Solver.results
               @?= Just Nothing
           | name <-
               [ "simSrvReadyIffAnsweredP",
@@ -156,7 +156,7 @@ sanityTests =
       testGroup
         "the core behind the cache refines the core behind ideal memory"
         [ testCase name $
-            lookup name Proof.Cache.CachedCore.Functional.Solver.results
+            lookup name Proof.Memory.Cache4K.CachedCore.Functional.Solver.results
               @?= Just Nothing
           | name <-
               [ "cachedDriverMatchesSpecP",
@@ -171,7 +171,7 @@ sanityTests =
       testGroup
         "the core behind the cache leaks only what it leaks behind ideal memory"
         [ testCase name $
-            lookup name Proof.Cache.CachedCore.Leakage.Solver.results
+            lookup name Proof.Memory.Cache4K.CachedCore.Leakage.Solver.results
               @?= Just Nothing
           | name <-
               [ "simCachedDriverMatchesSpecP",

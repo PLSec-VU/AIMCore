@@ -1,6 +1,6 @@
 -- | The leakage simulator: a pipeline with the same stage structure and timing
--- as "Core", which sees only the leakage -- never the program, the register
--- file or memory contents.
+-- as "Core.Pipeline", which sees only the leakage -- never the program, the
+-- register file or memory contents.
 --
 -- Each cycle it may receive the 'Leak' of the instruction entering its execute
 -- stage ('SimInput'; 'Nothing' when there is none) and emits the bus
@@ -140,7 +140,7 @@ simPipe = do
   simDecode
   simFetch
   -- The lines only carry values within a tick, so none of them survives it,
-  -- as in 'Core.pipe'.
+  -- as in 'Core.Pipeline.pipe'.
   modify $ \s -> s {simStateCtrl = simInitCtrl}
 
 simInit :: SimState

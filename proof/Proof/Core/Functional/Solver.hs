@@ -38,7 +38,8 @@ module Proof.Core.Functional.Solver
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import qualified Core
+import qualified Core.Alu
+import qualified Core.Pipeline as Core
 import Core.ISA (IsaStateG (..))
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
@@ -54,8 +55,9 @@ import Proof.Core.Functional.Invariant
     regFileUnderInv,
   )
 import Proof.Core.Functional.Obligation
+import Proof.Core.SMT.Array
 import Proof.SMT.Array
-import Proof.SMT.Axioms (arrayAxioms)
+import Proof.Core.SMT.Axioms (arrayAxioms)
 import Proof.SMT.Logged (pantomime)
 import Proof.Core.Functional.System
 import Types
@@ -80,12 +82,12 @@ arrRoundTripP a i v = Pantomime.boolean $ loadRA (storeRA a i v) i == v
 shiftsSaneP :: Word -> Pantomime.Bool
 shiftsSaneP x =
   Pantomime.boolean $
-    Core.sllWord x 0 == x
-      && Core.srlWord x 0 == x
-      && Core.sraWord x 0 == x
-      && Core.sllWord x 1 == x + x
-      && Core.srlWord x 31 == (if sign == 1 then 1 else 0)
-      && Core.sraWord x 31 == (if sign == 1 then 0xFFFFFFFF else 0)
+    Core.Alu.sllWord x 0 == x
+      && Core.Alu.srlWord x 0 == x
+      && Core.Alu.sraWord x 0 == x
+      && Core.Alu.sllWord x 1 == x + x
+      && Core.Alu.srlWord x 31 == (if sign == 1 then 1 else 0)
+      && Core.Alu.sraWord x 31 == (if sign == 1 then 0xFFFFFFFF else 0)
   where
     sign = slice d31 d31 x
 

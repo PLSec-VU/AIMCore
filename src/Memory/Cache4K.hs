@@ -8,8 +8,9 @@
 --
 -- The arrays are 'Vec's, read and written only through the wrappers below.
 -- Those are @OPAQUE@ so that the proof can replace them by SMT array operations
--- ("Proof.Cache.SMT.Array"), as it does for the register file and memory: the
--- Clash 'Vec' operations themselves cannot be symbolically executed.
+-- ("Proof.Memory.Cache4K.SMT.Array"), as it does for the register file and
+-- memory: the Clash 'Vec' operations themselves cannot be symbolically
+-- executed.
 module Memory.Cache4K
   ( -- * Arrays
     TagArr (..),

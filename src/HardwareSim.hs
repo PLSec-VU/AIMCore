@@ -5,7 +5,7 @@
 module HardwareSim (topEntity) where
 
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
-import Core hiding (topEntity)
+import Core.Pipeline hiding (topEntity)
 import Data.Maybe (fromMaybe)
 import qualified GHC.TypeNats
 import Core.Instruction hiding (decode)

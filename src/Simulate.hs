@@ -16,8 +16,8 @@ where
 import Clash.Prelude hiding (Log, Ordering (..), Word, def, init, lift, log)
 import Control.Monad.RWS
 import Control.Monad.State
-import Core hiding (State)
-import qualified Core
+import Core.Pipeline as Core hiding (State)
+import qualified Core.Pipeline as Core
 import Data.Maybe (isJust)
 import Memory.Types
 import Memory.Vec

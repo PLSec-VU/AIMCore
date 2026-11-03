@@ -43,7 +43,8 @@ module Proof.Core.Leakage.Model
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Alu (branch)
+import Core.Pipeline as Core
 import Core.Instruction
 import Core.ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))

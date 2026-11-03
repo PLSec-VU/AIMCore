@@ -108,16 +108,18 @@ library:
   when:
     - condition: flag(smt-proof)
       exposed-modules:
-        - Proof.Cache.Server.Functional.Solver
-        - Proof.Cache.Server.Leakage.Solver
-        - Proof.Cache.CachedCore.Functional.Solver
-        - Proof.Cache.CachedCore.Leakage.Solver
+        - Proof.Memory.Cache4K.Server.Functional.Solver
+        - Proof.Memory.Cache4K.Server.Leakage.Solver
+        - Proof.Memory.Cache4K.CachedCore.Functional.Solver
+        - Proof.Memory.Cache4K.CachedCore.Leakage.Solver
         - Proof.Core.Functional.Solver
         - Proof.Core.Leakage.Solver
         - Proof.SMT.Axioms
-        - Proof.Cache.SMT.Array
-        - Proof.Cache.SMT.Axioms
-        - Proof.Cache.SMT.Coherent
+        - Proof.Core.SMT.Array
+        - Proof.Core.SMT.Axioms
+        - Proof.Memory.Cache4K.SMT.Array
+        - Proof.Memory.Cache4K.SMT.Axioms
+        - Proof.Memory.Cache4K.SMT.Coherent
         - Proof.SMT.Logged
         - Proof.SMT.Sanity
         - Proof.Core.Functional.System
@@ -126,24 +128,24 @@ library:
   # live in proof/ too, and must only be built with the smt-proof flag.
   other-modules: []
   exposed-modules:
-    - Proof.Cache.Server.Functional.Contract
-    - Proof.Cache.Server.Functional.Driver
-    - Proof.Cache.Server.Functional.Invariant
-    - Proof.Cache.Server.Functional.Obligation
-    - Proof.Cache.Server.Leakage.Driver
-    - Proof.Cache.Server.Leakage.Invariant
-    - Proof.Cache.Server.Leakage.Model
-    - Proof.Cache.Server.Leakage.Obligation
-    - Proof.Cache.Server.Leakage.Simulator
-    - Proof.Cache.CachedCore.Functional.Driver
-    - Proof.Cache.CachedCore.Functional.Invariant
-    - Proof.Cache.CachedCore.Functional.Machine
-    - Proof.Cache.CachedCore.Functional.Obligation
-    - Proof.Cache.CachedCore.Leakage.Driver
-    - Proof.Cache.CachedCore.Leakage.Invariant
-    - Proof.Cache.CachedCore.Leakage.Obligation
-    - Proof.Cache.CachedCore.Leakage.Simulator
-    - Proof.Cache.SMT.Raw
+    - Proof.Memory.Cache4K.Server.Functional.Contract
+    - Proof.Memory.Cache4K.Server.Functional.Driver
+    - Proof.Memory.Cache4K.Server.Functional.Invariant
+    - Proof.Memory.Cache4K.Server.Functional.Obligation
+    - Proof.Memory.Cache4K.Server.Leakage.Driver
+    - Proof.Memory.Cache4K.Server.Leakage.Invariant
+    - Proof.Memory.Cache4K.Server.Leakage.Model
+    - Proof.Memory.Cache4K.Server.Leakage.Obligation
+    - Proof.Memory.Cache4K.Server.Leakage.Simulator
+    - Proof.Memory.Cache4K.CachedCore.Functional.Driver
+    - Proof.Memory.Cache4K.CachedCore.Functional.Invariant
+    - Proof.Memory.Cache4K.CachedCore.Functional.Machine
+    - Proof.Memory.Cache4K.CachedCore.Functional.Obligation
+    - Proof.Memory.Cache4K.CachedCore.Leakage.Driver
+    - Proof.Memory.Cache4K.CachedCore.Leakage.Invariant
+    - Proof.Memory.Cache4K.CachedCore.Leakage.Obligation
+    - Proof.Memory.Cache4K.CachedCore.Leakage.Simulator
+    - Proof.Memory.Cache4K.SMT.Raw
     - Proof.SMT.Array
     - Proof.Core.Functional.Machine
     - Proof.Core.Functional.Driver
@@ -154,12 +156,13 @@ library:
     - Proof.Core.Leakage.Driver
     - Proof.Core.Leakage.Invariant
     - Proof.Core.Leakage.Obligation
-    - Core
     - Elf.ElfLoader
     - Elf.Syscall
     - HardwareSim
+    - Core.Alu
     - Core.Instruction
     - Core.ISA
+    - Core.Pipeline
     - Memory.Types
     - Memory.Ideal
     - Memory.Vec

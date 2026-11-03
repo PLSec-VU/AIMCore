@@ -4,7 +4,7 @@ import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, l
 import Control.Exception (catch)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Core as Core
+import qualified Core.Pipeline as Core
 import Data.IORef
 import Elf.ElfLoader
 import Elf.Syscall (ProgramExitException (..), handleSyscall)

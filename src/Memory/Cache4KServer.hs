@@ -21,7 +21,7 @@ module Memory.Cache4KServer
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core (Input (..), MemAccess (..), Request)
+import Core.Pipeline (Input (..), MemAccess (..), Request)
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
 import Types

@@ -34,17 +34,17 @@ import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&
 -- the invariant relates the core to the ISA at every state the driver lands on
 -- after the start.
 --
--- The initial state itself is not a case of the invariant. 'Core.init' has
--- nothing in the pipeline, so the driver gives it a two-cycle hop that fetches
--- and decodes the first instruction without executing anything. This property
--- states that hop directly: the driver does assign it two cycles, and after
--- them the running case relates the core to the ISA's /initial/ state -- zero
--- ISA steps. Handling it here rather than as a case of the invariant is what
--- lets every inductive step retire exactly one instruction.
+-- The initial state itself is not a case of the invariant. 'Core.Pipeline.init'
+-- has nothing in the pipeline, so the driver gives it a two-cycle hop that
+-- fetches and decodes the first instruction without executing anything. This
+-- property states that hop directly: the driver does assign it two cycles, and
+-- after them the running case relates the core to the ISA's /initial/ state --
+-- zero ISA steps. Handling it here rather than as a case of the invariant is
+-- what lets every inductive step retire exactly one instruction.
 --
 -- The start PC, the register file and memory are parameters, used for both the
--- core and the ISA; every other field comes from 'Core.init' itself, so the
--- initial pipeline shape cannot drift from the real one. Taking them as
+-- core and the ISA; every other field comes from 'Core.Pipeline.init' itself,
+-- so the initial pipeline shape cannot drift from the real one. Taking them as
 -- parameters makes the base case cover any loaded program and any initial PC
 -- and register contents, such as the ELF entry point and stack pointer the ELF
 -- runners start the core with.
@@ -71,10 +71,10 @@ baseCase wr wa pc rf mem =
 --
 -- > inv(a, c) /\ driver(c) = 0  ==>  inv(isaStep(a), stepSys(c))
 --
--- There is no side condition about aliasing stores: 'Core.decode' detects a
--- store overlapping the instruction word being decoded and stalls, so a store
--- that rewrites an instruction in flight is handled by the core rather than
--- assumed away here.
+-- There is no side condition about aliasing stores: 'Core.Pipeline.decode'
+-- detects a store overlapping the instruction word being decoded and stalls, so
+-- a store that rewrites an instruction in flight is handled by the core rather
+-- than assumed away here.
 --
 -- @driver == 0@ covers two shapes: a running state whose hop retires one
 -- instruction, and a halted one. The @IsaHalted@ branch is what says the halted

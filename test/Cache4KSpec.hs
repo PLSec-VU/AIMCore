@@ -14,12 +14,12 @@ module Cache4KSpec
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core (Input (..), MemAccess (..), Request)
+import Core.Pipeline (Input (..), MemAccess (..), Request)
 import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Ideal (idealServe)
 import Memory.Types
-import Proof.Cache.Server.Functional.Driver (srvDriver)
+import Proof.Memory.Cache4K.Server.Functional.Driver (srvDriver)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import Test.Tasty.QuickCheck
@@ -44,7 +44,7 @@ cache4KTests =
 
 -- | A memory for the tests: bytes that are a function of their address and two
 -- seeds, and the bytes written since, newest first. Unlike 'MemFn' it has
--- equality, which 'Proof.Cache.Server.Functional.Contract.srvReady' needs, and
+-- equality, which 'Proof.Memory.Cache4K.Server.Functional.Contract.srvReady' needs, and
 -- it shows. Equality compares the representation, so two memories that agree
 -- byte for byte may still differ; a server that leaves memory alone leaves it
 -- equal.

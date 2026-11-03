@@ -16,7 +16,7 @@ import Clash.Prelude hiding (Ordering (..), Word, init, lift)
 import Control.Monad (when)
 import Control.Monad.Reader
 import Control.Monad.ST (RealWorld, ST, stToIO)
-import Core
+import Core.Pipeline as Core
 import Data.Array.ST (STUArray, newArray, readArray, writeArray)
 import Data.Word (Word8)
 import Memory.Types

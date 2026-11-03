@@ -40,7 +40,7 @@ where
 
 import Clash.Prelude
   hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
-import Core hiding (Syscall)
+import Core.Alu (alu, branch)
 import Core.Instruction (Instruction, Sign, decode', loadExtend)
 import qualified Core.Instruction
 import Memory.Types (MemBytes, MemOps (..))
@@ -202,7 +202,7 @@ deriving instance (Show r, Show m) => Show (IsaStateG r m)
 deriving instance (Eq r, Eq m) => Eq (IsaStateG r m)
 
 -- | The result of one architectural step. 'IsaHalted' covers @ebreak@ and
--- @ecall@, which is where 'Core' parks in a 'Core.HaltState'.
+-- @ecall@, which is where "Core.Pipeline" parks in a 'Core.Pipeline.HaltState'.
 data StepG r m
   = Next (IsaStateG r m)
   | IsaHalted

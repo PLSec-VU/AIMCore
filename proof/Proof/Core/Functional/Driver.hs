@@ -29,7 +29,8 @@ module Proof.Core.Functional.Driver
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Alu (alu, branch)
+import Core.Pipeline as Core
 import Data.Maybe (fromMaybe, isNothing)
 import Core.Instruction hiding (loadHazard, storeHazard)
 import qualified Core.Instruction

@@ -6,7 +6,7 @@ module Proof.Core.Leakage.Invariant
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Pipeline as Core
 import Data.Maybe (isJust, isNothing)
 import Core.Instruction hiding (Halted)
 import Proof.Core.Leakage.Model

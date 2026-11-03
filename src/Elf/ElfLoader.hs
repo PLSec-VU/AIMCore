@@ -13,7 +13,7 @@ import Clash.Explicit.Prelude (Unsigned, bitCoerce, zeroExtend)
 import Clash.Explicit.Prelude.Safe ((.&.))
 import Control.Monad (forM_, forM)
 import Control.Monad.Catch
-import qualified Core
+import qualified Core.Pipeline as Core
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BS
 import Data.Char (chr)

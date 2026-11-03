@@ -64,10 +64,10 @@ censorRF _ = initRF
 
 -- | The operations the pipeline needs from a register file.
 --
--- 'Core.StateG' is parameterised over this so that the same pipeline can run on
--- two representations: the synthesisable 'RegFile' (a 'Vec'), and 'RegFn' (a
--- function) which is what symbolic execution can actually handle. See
--- "Induction" for why the 'Vec' one cannot be symbolically executed.
+-- 'Core.Pipeline.StateG' is parameterised over this so that the same pipeline
+-- can run on two representations: the synthesisable 'RegFile' (a 'Vec'), and
+-- 'RegFn' (a function) which is what symbolic execution can actually handle.
+-- See "Induction" for why the 'Vec' one cannot be symbolically executed.
 class RegFileOps r where
   lookupRFg :: RegIdx -> r -> Word
   modifyRFg :: RegIdx -> Word -> r -> r
@@ -81,9 +81,9 @@ instance RegFileOps RegFile where
 -- | Verification-only register file: a function rather than a container.
 --
 -- Not synthesisable -- Clash cannot turn a function into hardware -- so this
--- must never reach 'Core.topEntity'. It exists purely so that reads become
--- applications and writes become lambdas, both of which the symbolic executor
--- handles natively.
+-- must never reach 'Core.Pipeline.topEntity'. It exists purely so that reads
+-- become applications and writes become lambdas, both of which the symbolic
+-- executor handles natively.
 newtype RegFn = RegFn (RegIdx -> Word)
 
 instance RegFileOps RegFn where

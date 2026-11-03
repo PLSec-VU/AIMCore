@@ -25,9 +25,9 @@ import Proof.Core.Leakage.Simulator
 import Types (Address, RegIdx)
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
--- | The store-hazard condition of 'Core.decode': the instruction word at the
--- decode-stage PC overlaps a store either in the execute stage or in the memory
--- stage.
+-- | The store-hazard condition of 'Core.Pipeline.decode': the instruction word
+-- at the decode-stage PC overlaps a store either in the execute stage or in the
+-- memory stage.
 simStoreHazard :: SimInput -> SimState -> Bool
 simStoreHazard inp st =
   maybe False (Core.Instruction.storeHazard dePc) exStore
@@ -41,8 +41,8 @@ simStoreHazard inp st =
       LStore size addr -> Just (addr, size)
       _ -> Nothing
 
--- | The load-hazard condition of 'Core.decode', computed by the ISA as part of
--- the leakage.
+-- | The load-hazard condition of 'Core.Pipeline.decode', computed by the ISA as
+-- part of the leakage.
 simLoadHazard :: SimInput -> SimState -> Bool
 simLoadHazard (Just (LLoad _ _ haz)) st = simStateDeExpInstr st && haz
 simLoadHazard _ _ = False

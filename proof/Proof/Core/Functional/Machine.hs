@@ -20,7 +20,7 @@ module Proof.Core.Functional.Machine
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Pipeline as Core
 import Memory.Types
 import Memory.Ideal (idealServe)
 import Core.RegFile

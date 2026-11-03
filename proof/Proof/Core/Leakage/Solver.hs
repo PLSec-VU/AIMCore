@@ -38,7 +38,7 @@ module Proof.Core.Leakage.Solver
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import qualified Core
+import qualified Core.Pipeline as Core
 import Pantomime (Theory (..))
 import qualified Pantomime.BuiltIn as Pantomime
 import Proof.Core.Leakage.Driver
@@ -48,8 +48,9 @@ import Proof.Core.Leakage.Driver
 import Proof.Core.Leakage.Model (Leak)
 import Proof.Core.Leakage.Obligation
 import Proof.Core.Leakage.Simulator
+import Proof.Core.SMT.Array
 import Proof.SMT.Array
-import Proof.SMT.Axioms (arrayAxioms)
+import Proof.Core.SMT.Axioms (arrayAxioms)
 import Proof.SMT.Logged (pantomime)
 import Proof.Core.Functional.System
 import Types

@@ -4,10 +4,10 @@
 -- | The cache's proof and link 2 on random states, and the core behind the
 -- cache end to end: the cache's counterpart of "ProofSpec".
 --
--- The statements are the ones "Proof.Cache.Server.Functional.Solver",
--- "Proof.Cache.Server.Leakage.Solver",
--- "Proof.Cache.CachedCore.Functional.Solver" and
--- "Proof.Cache.CachedCore.Leakage.Solver" prove. Here they run on concrete
+-- The statements are the ones "Proof.Memory.Cache4K.Server.Functional.Solver",
+-- "Proof.Memory.Cache4K.Server.Leakage.Solver",
+-- "Proof.Memory.Cache4K.CachedCore.Functional.Solver" and
+-- "Proof.Memory.Cache4K.CachedCore.Leakage.Solver" prove. Here they run on concrete
 -- states, without the trusted array embeddings the solver relies on.
 --
 -- The end-to-end runs check what no single proof states: that link 1 (the
@@ -21,7 +21,7 @@ where
 import Cache4KSpec (TestMem (..), genAddr, genMem, genTag, genWord)
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
-import Core
+import Core.Pipeline as Core
 import Core.ISA (IsaState, IsaStateG (..), StepG (..), isaStep)
 import Core.Instruction
 import Core.RegFile (RegFile, RegFileOps (..), RegFn (..))
@@ -29,28 +29,28 @@ import Data.Maybe (isJust, isNothing)
 import Memory.Cache4K
 import Memory.Cache4KServer
 import Memory.Types
-import Proof.Cache.CachedCore.Functional.Driver (cachedDriver, cachedDriverMatchesSpec)
-import Proof.Cache.CachedCore.Functional.Machine
-import qualified Proof.Cache.CachedCore.Functional.Obligation as Cached
-import Proof.Cache.CachedCore.Leakage.Driver (simCachedDriverMatchesSpec)
-import Proof.Cache.CachedCore.Leakage.Invariant (simCachedOf)
-import qualified Proof.Cache.CachedCore.Leakage.Obligation as CachedLeak
-import Proof.Cache.CachedCore.Leakage.Simulator (SimCachedSys (..), simInitCachedSys, simStepCached)
-import Proof.Cache.SMT.Raw (RawData (..))
-import Proof.Cache.Server.Functional.Contract
+import Proof.Memory.Cache4K.CachedCore.Functional.Driver (cachedDriver, cachedDriverMatchesSpec)
+import Proof.Memory.Cache4K.CachedCore.Functional.Machine
+import qualified Proof.Memory.Cache4K.CachedCore.Functional.Obligation as Cached
+import Proof.Memory.Cache4K.CachedCore.Leakage.Driver (simCachedDriverMatchesSpec)
+import Proof.Memory.Cache4K.CachedCore.Leakage.Invariant (simCachedOf)
+import qualified Proof.Memory.Cache4K.CachedCore.Leakage.Obligation as CachedLeak
+import Proof.Memory.Cache4K.CachedCore.Leakage.Simulator (SimCachedSys (..), simInitCachedSys, simStepCached)
+import Proof.Memory.Cache4K.SMT.Raw (RawData (..))
+import Proof.Memory.Cache4K.Server.Functional.Contract
   ( corePatient,
     srvDriverMatchesSpec,
     srvReadyIffAnswered,
     srvReadyUnderInv,
   )
-import Proof.Cache.Server.Functional.Driver (srvDriver)
-import Proof.Cache.Server.Functional.Invariant (coherentAt)
-import Proof.Cache.Server.Functional.Obligation (CoherentOps (..))
-import qualified Proof.Cache.Server.Functional.Obligation as Srv
-import Proof.Cache.Server.Leakage.Driver (simSrvDriverMatchesSpec)
-import Proof.Cache.Server.Leakage.Invariant (simOf)
-import Proof.Cache.Server.Leakage.Model (obsReq)
-import qualified Proof.Cache.Server.Leakage.Obligation as SrvLeak
+import Proof.Memory.Cache4K.Server.Functional.Driver (srvDriver)
+import Proof.Memory.Cache4K.Server.Functional.Invariant (coherentAt)
+import Proof.Memory.Cache4K.Server.Functional.Obligation (CoherentOps (..))
+import qualified Proof.Memory.Cache4K.Server.Functional.Obligation as Srv
+import Proof.Memory.Cache4K.Server.Leakage.Driver (simSrvDriverMatchesSpec)
+import Proof.Memory.Cache4K.Server.Leakage.Invariant (simOf)
+import Proof.Memory.Cache4K.Server.Leakage.Model (obsReq)
+import qualified Proof.Memory.Cache4K.Server.Leakage.Obligation as SrvLeak
 import Proof.Core.Functional.Machine
 import Proof.Core.Leakage.Driver (simDriver)
 import Proof.Core.Leakage.Model (Leak, Obs (..), leakOf, obsOf)
@@ -74,7 +74,7 @@ cacheProofTests =
 -- The coherent cache ---------------------------------------------------------------
 
 -- | A coherent cache in front of the tests' memories, as
--- 'Proof.Cache.Server.Functional.Obligation.mkDataMem' builds one in front of
+-- 'Proof.Memory.Cache4K.Server.Functional.Obligation.mkDataMem' builds one in front of
 -- the solver's: a valid line holds memory's words, an invalid line raw ones.
 coherentData :: (MemOps m) => m -> TagArr -> RawData -> DataArr
 coherentData mem tags (RawData raw) = DataArr (imap word raw)
@@ -407,7 +407,7 @@ simHops sys0 = go Nothing (isaStart sys0) simInit
 -- | The bus trace of the core behind the cache, from the leakage alone: the
 -- core's simulator gives each cycle of the core behind ideal memory
 -- ('simHops'), and link 2's simulator
--- ("Proof.Cache.CachedCore.Leakage.Simulator") adds the cycles in which the
+-- ("Proof.Memory.Cache4K.CachedCore.Leakage.Simulator") adds the cycles in which the
 -- core waits for the cache.
 compositeTrace :: Int -> Sys -> [Obs]
 compositeTrace n sys0 = go (P.concat (P.take n (simHops sys0))) simInitCachedSys

@@ -45,7 +45,7 @@ module Proof.Core.Functional.Invariant
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Pipeline as Core
 import Data.Maybe (fromMaybe, isJust)
 import Core.Instruction
 import Memory.Types

@@ -4,7 +4,7 @@ module ProofSpec (proofTests, progs, initSysProg, alignedWalk, invTrace, invRepo
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
 import Clash.Sized.Vector (unsafeFromList)
-import Core
+import Core.Pipeline as Core
 import Proof.Core.Functional.Driver hiding (loadHazard, storeHazard)
 import Core.ISA (IsaStateG (..), IsaState, StepG (..), isaStep, isaInstrAt)
 import Core.Instruction
