@@ -4,12 +4,12 @@
 -- | The 4 KiB cache ("Memory.Cache4K") as a server between the core and memory:
 -- how it answers the core's memory requests, cycle by cycle.
 --
--- A read miss takes 'penalty' extra cycles and then fills the line with the
--- four words of its block; a read that leaves its word bypasses the cache with
--- the same delay. A write goes through to memory at once: inside one word, on a
--- hit, it is merged into the cached word; if it crosses a word boundary, the
--- lines it touches are invalidated instead ('Memory.Cache4K.write'). Fetches
--- bypass the cache.
+-- A read touches the lines of its first and last byte. Each of them that misses
+-- takes 'penalty' extra cycles and is filled with the four words of its block;
+-- the read is then answered from the cache. A write goes through to memory at
+-- once, and each of its bytes is merged into its cached word if that word's
+-- line holds its block; a line that misses is left alone, with no allocation
+-- ('Memory.Cache4K.cacheWrite'). Fetches bypass the cache.
 module Memory.Cache4KServer
   ( Cycles,
     CacheSrv (..),
@@ -21,35 +21,38 @@ module Memory.Cache4KServer
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core (Input (..), MemAccess (..), Request)
+import Core.Pipeline (Input (..), MemAccess (..), Request)
 import Memory.Cache4K
 import Memory.Types (MemOps (..))
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))
 
 -- | Cycles of a miss penalty: a small counter, sized as hardware would size it.
--- (This also keeps the symbolic proof in the bitvector fragment Bitwuzla reads.)
+-- (This also keeps the symbolic proof in the bitvector fragment Bitwuzla
+-- reads.)
 type Cycles = Unsigned 8
 
 -- | Extra cycles of a read miss: the four words of a line.
 penalty :: Cycles
 penalty = 4
 
--- | The address of the last byte of an access. An access touches at most two
--- lines: the lines of its first and last byte.
+-- | Ready for a request, or waiting for memory: the cycles left, and the word a
+-- read will be answered with.
 data CacheSrvState = CacheSrvReady | CacheSrvStall Cycles Word
   deriving (Show, Eq)
 
--- | A cache in front of memory, as a server: the cache, a read waiting for
--- memory, and memory.
+-- | A cache in front of memory, as a server: the cache, memory, and whether a
+-- read is waiting for memory.
 data CacheSrv m = CacheSrv
   { srvCache :: Cache4K,
     srvMem :: m,
-    -- | A read waiting for memory: its address and width, and the cycles left.
+    -- | Ready, or a read waiting for memory.
     srvState :: CacheSrvState
   }
 
 deriving instance (Show m) => Show (CacheSrv m)
+
+deriving instance (Eq m) => Eq (CacheSrv m)
 
 -- | The cache server at start: no line valid and no read waiting, in front of
 -- memory @mem@.
@@ -73,7 +76,7 @@ serve (CacheSrv c mem st) req = case st of
             Byte -> 0
             Half -> 1
             Word -> 3
-            
+
           hit1stLine = cacheHit addr c
           penalty1stLine = if hit1stLine then 0 else penalty
           c1 = if hit1stLine then c else cacheFill addr mem c
@@ -87,7 +90,7 @@ serve (CacheSrv c mem st) req = case st of
 
       in if n > 0
            then (CacheSrv c2 mem (CacheSrvStall (n - 1) w), Input Nothing)
-           else (CacheSrv c2 mem CacheSrvReady, Input $ Just w)
+           else (CacheSrv c2 mem CacheSrvReady, Input (Just w))
     Just (MemWrite addr size val) ->
       ( CacheSrv
           (cacheWrite addr size val c)

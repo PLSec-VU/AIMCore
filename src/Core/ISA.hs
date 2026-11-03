@@ -5,10 +5,11 @@
 -- | The ISA specification: what each instruction means, and how the
 -- architectural state evolves.
 --
--- Two halves, both semantics. 'interp' turns an 'Core.Instruction.Instruction' into
--- an @'Instr' 'Func'@ -- the effect it denotes -- and 'apply' evaluates one of
--- those 'Func's against the two source-register values and the PC. On top of
--- that, 'isaStep' says how the @(isaPc, isaRegFile, isaMem)@ triple moves.
+-- Two halves, both semantics. 'interp' turns an 'Core.Instruction.Instruction'
+-- into an @'Instr' 'Func'@ -- the effect it denotes -- and 'apply' evaluates
+-- one of those 'Func's against the two source-register values and the PC. On
+-- top of that, 'isaStep' says how the @(isaPc, isaRegFile, isaMem)@ triple
+-- moves.
 --
 -- The architectural state is parameterised over the register-file and memory
 -- representations because the @Vec@-backed ones cannot be symbolically
@@ -37,8 +38,9 @@ module Core.ISA
   )
 where
 
-import Clash.Prelude hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
-import Core hiding (Syscall)
+import Clash.Prelude
+  hiding (Const, Log, Ordering (..), Word, def, init, lift, log)
+import Core.Alu (alu, branch)
 import Core.Instruction (Instruction, Sign, decode', loadExtend)
 import qualified Core.Instruction
 import Memory.Types (MemBytes, MemOps (..))
@@ -200,7 +202,7 @@ deriving instance (Show r, Show m) => Show (IsaStateG r m)
 deriving instance (Eq r, Eq m) => Eq (IsaStateG r m)
 
 -- | The result of one architectural step. 'IsaHalted' covers @ebreak@ and
--- @ecall@, which is where 'Core' parks in a 'Core.HaltState'.
+-- @ecall@, which is where "Core.Pipeline" parks in a 'Core.Pipeline.HaltState'.
 data StepG r m
   = Next (IsaStateG r m)
   | IsaHalted
@@ -244,7 +246,11 @@ isaStepDecoded ir st@(IsaState pc rf mem) =
             isaRegFile = modifyRFg rd (bitCoerce (ap link)) rf
           }
     Store size addr rs2 ->
-      Next st {isaPc = pc + 4, isaMem = memWrite (ap addr) size (reg (Just rs2)) mem}
+      Next
+        st
+          { isaPc = pc + 4,
+            isaMem = memWrite (ap addr) size (reg (Just rs2)) mem
+          }
     Branch cond target ->
       Next st {isaPc = if ap cond then ap target else pc + 4}
     Nop -> Next st {isaPc = pc + 4}

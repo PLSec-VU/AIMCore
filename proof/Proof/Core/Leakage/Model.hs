@@ -1,8 +1,8 @@
 -- | What an attacker sees, and what one architectural instruction leaks.
 --
--- The leakage proof ("Proof.Core.Leakage.Obligation") establishes that an attacker
--- watching the memory bus learns nothing beyond 'Leak'. Two definitions carry
--- that statement:
+-- The leakage proof ("Proof.Core.Leakage.Obligation") establishes that an
+-- attacker watching the memory bus learns nothing beyond 'Leak'. Two
+-- definitions carry that statement:
 --
 --   * 'obsOf' -- what the attacker sees in one cycle: the kind of access, its
 --     address, and for a data access its width.
@@ -43,7 +43,8 @@ module Proof.Core.Leakage.Model
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core
+import Core.Alu (branch)
+import Core.Pipeline as Core
 import Core.Instruction
 import Core.ISA (IsaStateG (..), isaInstrAt)
 import Memory.Types (MemOps (..))
@@ -71,13 +72,9 @@ instance Monoid Obs where
 
 -- | The observation a cycle's 'Core.Output' produces: that of its request.
 obsOf :: Output -> Obs
-obsOf o = obsReq (outMem o)
+obsOf o = obsReq (outputMem o)
 
 -- | The observation of a request on the bus: the request without its data.
---
--- This is also what a cache in front of the core leaks about each request it
--- receives ("Proof.Cache.Server4K"), which is what lets the core's leakage proof
--- and the cache's compose.
 obsReq :: Request -> Obs
 obsReq req = case req of
   Nothing -> NoAccess
@@ -93,11 +90,11 @@ obsReq req = case req of
 -- instruction set:
 --
 --   * 'LArith' -- nothing beyond the fetch trace. No data access, and the next
---     fetch is @pc + 4@. Arithmetic, upper immediates, an untaken branch, and an
---     undecodable word all land here, and are indistinguishable.
+--     fetch is @pc + 4@. Arithmetic, upper immediates, an untaken branch, and
+--     an undecodable word all land here, and are indistinguishable.
 --   * 'LJump' -- control goes somewhere other than @pc + 4@, and the target is
---     the next fetch address. A taken branch, @jal@ and @jalr@ are one case: the
---     attacker sees an address, not which instruction produced it.
+--     the next fetch address. A taken branch, @jal@ and @jalr@ are one case:
+--     the attacker sees an address, not which instruction produced it.
 --   * 'LLoad' -- a data read of the given width at the given address, plus
 --     whether the instruction at @pc + 4@ has a load-use hazard against this
 --     load. That bit is the one thing here not already in the fetch trace: it

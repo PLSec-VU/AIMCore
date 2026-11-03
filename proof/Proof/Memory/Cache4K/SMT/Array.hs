@@ -2,17 +2,19 @@
 
 -- | The arrays of "Memory.Cache4K" embedded as SMT arrays, as "Proof.SMT.Array"
 -- embeds the register file and memory: a monomorphic SMT newtype per array, and
--- an embedding per wrapper, which the term axioms in "Proof.Cache.SMT.Axioms"
--- put in place of the wrapper.
-module Proof.Cache.SMT.Array
+-- an embedding per wrapper, which the term axioms in
+-- "Proof.Memory.Cache4K.SMT.Axioms" put in place of the wrapper.
+module Proof.Memory.Cache4K.SMT.Array
   ( TagArrSMT (..),
     tagReadE,
     tagWriteE,
     tagEmptyE,
+    tagEqE,
     DataArrSMT (..),
     dataReadE,
     dataWriteE,
     dataZeroE,
+    dataEqE,
   )
 where
 
@@ -50,10 +52,17 @@ tagWriteE ::
 tagWriteE = coerce go
   where
     go :: Clash.BitVec 8 -> Clash.BitVec 21 -> TagArrSMT -> TagArrSMT
-    go (Clash.BitVecP k) (Clash.BitVecP v) (TagArrSMT arr) = TagArrSMT (P.astore arr k v)
+    go (Clash.BitVecP k) (Clash.BitVecP v) (TagArrSMT arr) =
+      TagArrSMT (P.astore arr k v)
 
 tagEmptyE :: forall arr. (Coercible TagArrSMT arr) => arr
 tagEmptyE = coerce (TagArrSMT (P.aconst 0))
+
+tagEqE :: forall arr. (Coercible TagArrSMT arr) => arr -> arr -> Bool
+tagEqE = coerce go
+  where
+    go :: TagArrSMT -> TagArrSMT -> Bool
+    go (TagArrSMT a) (TagArrSMT b) = a == b
 
 -- | 'Memory.Cache4K.DataArr' on the SMT side.
 newtype DataArrSMT = DataArrSMT (P.Array (P.BitVec 10) (P.BitVec 32))
@@ -83,7 +92,14 @@ dataWriteE ::
 dataWriteE = coerce go
   where
     go :: Clash.BitVec 10 -> Clash.BitVec 32 -> DataArrSMT -> DataArrSMT
-    go (Clash.BitVecP k) (Clash.BitVecP v) (DataArrSMT arr) = DataArrSMT (P.astore arr k v)
+    go (Clash.BitVecP k) (Clash.BitVecP v) (DataArrSMT arr) =
+      DataArrSMT (P.astore arr k v)
 
 dataZeroE :: forall arr. (Coercible DataArrSMT arr) => arr
 dataZeroE = coerce (DataArrSMT (P.aconst 0))
+
+dataEqE :: forall arr. (Coercible DataArrSMT arr) => arr -> arr -> Bool
+dataEqE = coerce go
+  where
+    go :: DataArrSMT -> DataArrSMT -> Bool
+    go (DataArrSMT a) (DataArrSMT b) = a == b

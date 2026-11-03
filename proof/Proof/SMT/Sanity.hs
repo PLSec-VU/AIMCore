@@ -35,7 +35,8 @@ deMorgan :: Bool -> Bool -> Pantomime.Bool
 deMorgan x y = Pantomime.boolean $ (not x && not y) == not (x || y)
 
 -- | The example from the Pantomime install guide, which additionally exercises
--- the 'base' axioms (i.e. the embedding of 'Int' into the theory of bitvectors).
+-- the 'base' axioms (i.e. the embedding of 'Int' into the theory of
+-- bitvectors).
 {-# ANN doubling (Theory Base.axioms) #-}
 doubling :: Int -> Pantomime.Bool
 doubling x = Pantomime.boolean $ x + x == 2 * x

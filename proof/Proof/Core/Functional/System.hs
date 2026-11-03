@@ -20,9 +20,10 @@ module Proof.Core.Functional.System
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import qualified Core
+import qualified Core.Pipeline as Core
 import Core.Instruction (Instruction)
 import Proof.Core.Functional.Machine
+import Proof.Core.SMT.Array
 import Proof.SMT.Array
 import Types
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))

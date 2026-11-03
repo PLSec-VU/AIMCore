@@ -7,7 +7,7 @@ module Memory.Ideal
 where
 
 import Clash.Prelude hiding (Ordering (..), Word, def, init, lift, log)
-import Core (Input (..), MemAccess (..))
+import Core.Pipeline (Input (..), MemAccess (..))
 import Memory.Types (MemOps (..))
 import Types (Address, Size (..), Word)
 import Prelude hiding (Ordering (..), Word, init, log, not, undefined, (!!), (&&), (++), (||))

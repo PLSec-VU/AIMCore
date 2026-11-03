@@ -8,18 +8,21 @@
 --
 -- The arrays are 'Vec's, read and written only through the wrappers below.
 -- Those are @OPAQUE@ so that the proof can replace them by SMT array operations
--- ("Proof.Cache.Array"), as it does for the register file and memory: the
--- Clash 'Vec' operations themselves cannot be symbolically executed.
+-- ("Proof.Memory.Cache4K.SMT.Array"), as it does for the register file and
+-- memory: the Clash 'Vec' operations themselves cannot be symbolically
+-- executed.
 module Memory.Cache4K
   ( -- * Arrays
     TagArr (..),
     tagRead,
     tagWrite,
     tagEmpty,
+    tagEq,
     DataArr (..),
     dataRead,
     dataWrite,
     dataZero,
+    dataEq,
 
     -- * Addresses
     Tag,
@@ -53,7 +56,10 @@ import Prelude hiding (Ordering (..), Word, init, log, not, repeat, undefined, (
 
 -- | The tag entries, one per set: the valid bit, then the tag.
 newtype TagArr = TagArr (Vec 256 (BitVector 21))
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq TagArr where
+  (==) = tagEq
 
 -- | The tag entry of set @si@.
 {-# OPAQUE tagRead #-}
@@ -70,9 +76,17 @@ tagWrite si e (TagArr v) = TagArr (replace si e v)
 tagEmpty :: TagArr
 tagEmpty = TagArr (repeat 0)
 
+-- | Are two tag arrays equal at every set?
+{-# OPAQUE tagEq #-}
+tagEq :: TagArr -> TagArr -> Bool
+tagEq (TagArr v) (TagArr w) = v == w
+
 -- | The data, one word per set and word within the line.
 newtype DataArr = DataArr (Vec 1024 Word)
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq DataArr where
+  (==) = dataEq
 
 -- | The word at index @i@ (set, then word within the line).
 {-# OPAQUE dataRead #-}
@@ -88,6 +102,11 @@ dataWrite i w (DataArr v) = DataArr (replace i w v)
 {-# OPAQUE dataZero #-}
 dataZero :: DataArr
 dataZero = DataArr (repeat 0)
+
+-- | Are two data arrays equal at every index?
+{-# OPAQUE dataEq #-}
+dataEq :: DataArr -> DataArr -> Bool
+dataEq (DataArr v) (DataArr w) = v == w
 
 -- Addresses ---------------------------------------------------------------------
 
@@ -211,15 +230,17 @@ cacheWriteByteInWord bi b w = case bi of
 -- address's block; otherwise leave the cache alone (no allocation).
 cacheWriteByte :: Address -> Byte -> Cache4K -> Cache4K
 cacheWriteByte addr b c
-  | cacheHit addr c = c {dataArr = dataWrite i (cacheWriteByteInWord (byteOf addr) b w) (dataArr c)}
+  | cacheHit addr c =
+      c {dataArr = dataWrite i (cacheWriteByteInWord (byteOf addr) b w) dat}
   | otherwise = c
   where
     i = setOf addr ++# wordOf addr
-    w = dataRead i (dataArr c)
+    dat = dataArr c
+    w = dataRead i dat
 
 -- | What a write does to the cache. Memory always takes the write
--- (write-through); the cache only makes sure its copy does not go stale. Byte by
--- byte, as memory stores it ('Memory.Types.memWrite'): each byte goes into
+-- (write-through); the cache only makes sure its copy does not go stale. Byte
+-- by byte, as memory stores it ('Memory.Types.memWrite'): each byte goes into
 -- its cached word if its line hits, so a write may cross a word or line
 -- boundary.
 cacheWrite :: Address -> Size -> Word -> Cache4K -> Cache4K

@@ -7,10 +7,12 @@
 module Main (main) where
 
 import BenchmarkSpec (benchmarkTests)
+import Cache4KSpec (cache4KTests)
+import CacheProofSpec (cacheProofTests)
 import Clash.Prelude hiding (Log, Ordering (..), Word, break, def, init, lift, log, resize)
 import Clash.Sized.Vector (unsafeFromList)
 import Control.Monad
-import Core
+import Core.Pipeline as Core
 import Data.Maybe (fromJust, isJust)
 import Core.Instruction
 import InstructionSpec (instructionTests)
@@ -23,7 +25,10 @@ import qualified Proof.SMT.Sanity as Sanity
 #endif
 import qualified Prelude
 #ifdef SMT_PROOF
-import qualified Proof.Cache.Functional.Solver
+import qualified Proof.Memory.Cache4K.Server.Functional.Solver
+import qualified Proof.Memory.Cache4K.Server.Leakage.Solver
+import qualified Proof.Memory.Cache4K.CachedCore.Functional.Solver
+import qualified Proof.Memory.Cache4K.CachedCore.Leakage.Solver
 import qualified Proof.Core.Functional.Solver
 import qualified Proof.Core.Leakage.Solver
 #endif
@@ -74,6 +79,12 @@ sanityTests =
         lookup "arrRoundTripP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "shift embeddings are sane" $
         lookup "shiftsSaneP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "on states in the invariant, the driver agrees with its reading" $
+        lookup "driverMatchesSpecP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "on the initial system, the driver agrees with its reading" $
+        lookup "driverMatchesSpecInitP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the driver gives only the steps' hop lengths" $
+        lookup "driverValuesP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "base case: invariant holds after the reset hop" $
         lookup "baseCaseP" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 0 inductive step is valid" $
@@ -84,10 +95,18 @@ sanityTests =
         lookup "indStep2P" Proof.Core.Functional.Solver.results @?= Just Nothing,
       testCase "k = 3 inductive step is valid" $
         lookup "indStep3P" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "the invariant implies the ISA's register file is the core's, flushed" $
+      testCase "the invariant implies the ISA's PC is the core's architectural one" $
+        lookup "pcUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant implies the ISA's register file is the core's architectural one" $
         lookup "regFileUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
-      testCase "the invariant implies the ISA's memory is the core's, flushed" $
+      testCase "the invariant implies the ISA's memory is the core's architectural one" $
         lookup "memUnderInvP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the invariant is functional: it relates one ISA state to a system" $
+        lookup "invFunctionalP" Proof.Core.Functional.Solver.results @?= Just Nothing,
+      testCase "the simulator's driver agrees with its operational reading" $
+        lookup "simDriverMatchesSpecP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
+      testCase "on the initial simulator, its driver agrees with its reading" $
+        lookup "simDriverMatchesSpecInitP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "leakage base case: simulator matches the first hop" $
         lookup "baseCaseLeakP" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testCase "k = 0 leakage step is valid" $
@@ -100,19 +119,66 @@ sanityTests =
         lookup "indStepLeak3P" Proof.Core.Leakage.Solver.results @?= Just Nothing,
       testGroup
         "the 4 KiB cache answers as ideal memory, with delay"
-        [ testCase name $ lookup name Proof.Cache.Functional.Solver.results @?= Just Nothing
+        [ testCase name $
+            lookup name Proof.Memory.Cache4K.Server.Functional.Solver.results
+              @?= Just Nothing
           | name <-
               [ "cacheArraysP",
                 "coherentDataP",
                 "coherentWriteP",
                 "coherentLayoutP",
+                "srvDriverMatchesSpecP",
+                "srvDriverValuesP",
+                "srvInvFunctionalP",
                 "baseCaseP",
                 "indStep0P",
                 "indStep4P",
+                "indStepWaits4P",
                 "indStep8P",
-                "readyUnderInvP",
-                "readyIdleNoWaitP",
-                "waitsAfterRequestP"
+                "indStepWaits8P",
+                "srvReadyIffAnsweredP",
+                "srvReadyUnderInvP",
+                "corePatientP"
+              ]
+        ],
+      testGroup
+        "the 4 KiB cache leaks only its requests' observations"
+        [ testCase name $
+            lookup name Proof.Memory.Cache4K.Server.Leakage.Solver.results
+              @?= Just Nothing
+          | name <-
+              [ "simSrvReadyIffAnsweredP",
+                "simSrvDriverMatchesSpecP",
+                "baseCaseLeakP",
+                "indStepLeakP"
+              ]
+        ],
+      testGroup
+        "the core behind the cache refines the core behind ideal memory"
+        [ testCase name $
+            lookup name Proof.Memory.Cache4K.CachedCore.Functional.Solver.results
+              @?= Just Nothing
+          | name <-
+              [ "cachedDriverMatchesSpecP",
+                "cachedDriverValuesP",
+                "cachedInvFunctionalP",
+                "baseCaseP",
+                "indStep0P",
+                "indStep4P",
+                "indStep8P"
+              ]
+        ],
+      testGroup
+        "the core behind the cache leaks only what it leaks behind ideal memory"
+        [ testCase name $
+            lookup name Proof.Memory.Cache4K.CachedCore.Leakage.Solver.results
+              @?= Just Nothing
+          | name <-
+              [ "simCachedDriverMatchesSpecP",
+                "baseCaseLeakP",
+                "indStepLeak0P",
+                "indStepLeak4P",
+                "indStepLeak8P"
               ]
         ]
     ]
@@ -132,6 +198,8 @@ tests =
       sanityTests,
 #endif
       proofTests,
+      cache4KTests,
+      cacheProofTests,
       isaConformanceTests,
       instructionTests,
       testGroup

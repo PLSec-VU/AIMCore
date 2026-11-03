@@ -16,7 +16,7 @@ import Clash.Prelude hiding (Ordering (..), Word, init, lift)
 import Control.Monad (when)
 import Control.Monad.Reader
 import Control.Monad.ST (RealWorld, ST, stToIO)
-import Core
+import Core.Pipeline as Core
 import Data.Array.ST (STUArray, newArray, readArray, writeArray)
 import Data.Word (Word8)
 import Memory.Types
@@ -39,12 +39,21 @@ data STMemory s = STMemory
 
 -- | STMemory monad transformer.
 newtype STMemoryT s m a = STMemoryT {unSTMemoryT :: ReaderT (STMemory s) m a}
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader (STMemory s), MonadTrans)
+  deriving newtype
+    ( Functor,
+      Applicative,
+      Monad,
+      MonadIO,
+      MonadReader (STMemory s),
+      MonadTrans
+    )
 
 runSTMemoryT :: STMemory s -> STMemoryT s m a -> m a
 runSTMemoryT mem (STMemoryT m) = runReaderT m mem
 
-instance {-# OVERLAPPING #-} (MonadIO m) => MonadMemory (STMemoryT RealWorld m) where
+instance {-# OVERLAPPING #-}
+  (MonadIO m) => MonadMemory (STMemoryT RealWorld m)
+  where
   ramRead addr size = do
     st <- ask
     let offset = addr - stDataBase st
@@ -74,7 +83,11 @@ readDataArray addr size arr = case size of
     b1 <- readArray arr (addr + 1)
     b2 <- readArray arr (addr + 2)
     b3 <- readArray arr (addr + 3)
-    pure $ (bitCoerce b3 :: Byte) ++# (bitCoerce b2 :: Byte) ++# (bitCoerce b1 :: Byte) ++# (bitCoerce b0 :: Byte)
+    pure $
+      (bitCoerce b3 :: Byte)
+        ++# (bitCoerce b2 :: Byte)
+        ++# (bitCoerce b1 :: Byte)
+        ++# (bitCoerce b0 :: Byte)
 
 -- | Write a sized value to the data array.
 writeDataArray :: Address -> Size -> Word -> STUArray s Address Word8 -> ST s ()
@@ -98,12 +111,20 @@ newSTMemory entry base = do
   pure $ STMemory arr base entry
 
 -- | Run a simulation in the ST monad.
-runSTSim :: forall i s o a. (forall st. CircuitSim (ST st) i s o -> ST st a) -> CircuitSim (ST s) i s o -> ST s a
+runSTSim ::
+  forall i s o a.
+  (forall st. CircuitSim (ST st) i s o -> ST st a) ->
+  CircuitSim (ST s) i s o ->
+  ST s a
 runSTSim f sim = f sim
 
 -- | Utility to run a full simulation until halt.
---   Uses deepseqX to ensure the state is fully evaluated and prevent thunk leaks.
-runUntilHalt :: (MonadMemory m) => CircuitSim m Core.Input Core.State Core.Output -> m Core.State
+--   Uses deepseqX to ensure the state is fully evaluated and prevent thunk
+--   leaks.
+runUntilHalt ::
+  (MonadMemory m) =>
+  CircuitSim m Core.Input Core.State Core.Output ->
+  m Core.State
 runUntilHalt sim = go sim
   where
     go sim' = do
