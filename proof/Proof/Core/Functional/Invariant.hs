@@ -2,8 +2,8 @@
 -- | The functional-correctness invariant.
 --
 -- The invariant relates an architectural state @(isaPc, isaRegFile, isaMem)@ to
--- a system state @((core state), (input), mem)@. It is a disjunction of cases:
--- one for the running core, and two for the halted core. The reset state is
+-- a system state @((core state), (input), mem)@. It is a disjunction of two
+-- cases: one for the running core, and one for the halted core. The reset state is
 -- not among them: 'Proof.Core.Functional.Solver.baseCase' steps it two cycles,
 -- into the running case, instead.
 --
@@ -175,8 +175,7 @@ invCasesGen ::
   [Case]
 invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
   [ runningCase,
-    haltedCase "halted/ebreak" isBreak (EBreak (ipc + 4)),
-    haltedCase "halted/ecall" isCall (Syscall (ipc + 4))
+    haltedCase
   ]
   where
     inputWord = fromMaybe 0 (inputMem inp)
@@ -244,11 +243,10 @@ invCasesGen eqRF eqMem (IsaState ipc irf imem) (Sys core inp mem) =
     -- @isaPc + 4@ is what fixes @isaPc@ as that instruction's address;
     -- "Core.ISA" leaves the architectural state where it was, so the ISA is
     -- still \"at\" the trap.
-    haltedCase name isKind expected =
+    haltedCase =
       Case
-        name
-        [ ("isa instruction is of this kind", isKind isaInstr),
-          ("halt state matches", stateHalt core == Just expected),
+        "halted"
+        [ ("halt state matches the isa instruction", haltMatches ipc isaInstr (stateHalt core)),
           ("wb == Nop Halted", stateWbInstr core == Nop Halted),
           ("memory answered", isJust (inputMem inp)),
           ("me == Nop Halted", stateMeInstr core == Nop Halted),
@@ -271,19 +269,15 @@ invAt ::
   Bool
 invAt wr wa isa sys =
   runningCaseAt wr wa isa sys
-    || haltedCaseAt HaltBreak wr wa isa sys
-    || haltedCaseAt HaltCall wr wa isa sys
-
--- | Which of the two halted cases: @ebreak@ or @ecall@.
-data HaltKind = HaltBreak | HaltCall
+    || haltedCaseAt wr wa isa sys
 
 -- | The running case.
 runningCaseAt ::
   (RegFileOps r, MemOps m) =>
   RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
 runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
-  stateHalt core == Nothing
-    && isJust (inputMem inp)
+  isJust (inputMem inp)    
+    && stateHalt core == Nothing
     && not (isEnvInstr (stateWbInstr core))
     && not (isEnvInstr (stateMeInstr core))
     && stateExPc core == ipc
@@ -318,28 +312,25 @@ runningCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
             (mem, stateRegFile core)
         )
 
--- | One halted case.
+-- | The halted case.
 haltedCaseAt ::
   (RegFileOps r, MemOps m) =>
-  HaltKind -> RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
-haltedCaseAt kind wr wa (IsaState ipc irf imem) (Sys core inp mem) =
-  isKind (decode' (memReadWord ipc imem))
-    && stateHalt core == Just expected
+  RegIdx -> Address -> IsaStateG r m -> SysG r m -> Bool
+haltedCaseAt wr wa (IsaState ipc irf imem) (Sys core inp mem) =
+  isJust (inputMem inp)
+    && haltMatches ipc (decode' (memReadWord ipc imem)) (stateHalt core)
     && stateWbInstr core == Nop Halted
-    && isJust (inputMem inp)
     && stateMeInstr core == Nop Halted
     && stateExInstr core == Nop Halted
     && memReadByte wa imem == memReadByte wa mem
     && lookupRFg wr irf == lookupRFg wr (stateRegFile core)
-  where
-    isKind =
-      case kind of
-        HaltBreak -> isBreak
-        HaltCall -> isCall
-    expected =
-      case kind of
-        HaltBreak -> EBreak (ipc + 4)
-        HaltCall -> Syscall (ipc + 4)
+
+-- | The core has halted on the instruction @ir@ at @pc@: on an @ebreak@ with
+-- an 'EBreak', on an @ecall@ with a 'Syscall', resuming at @pc + 4@.
+haltMatches :: Address -> Instruction -> Maybe HaltState -> Bool
+haltMatches pc ir halt =
+  (isBreak ir && halt == Just (EBreak (pc + 4)))
+    || (isCall ir && halt == Just (Syscall (pc + 4)))
 
 -- The architectural state, and properties of the invariant --------------------
 
