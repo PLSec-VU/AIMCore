@@ -500,8 +500,8 @@ proofTests =
               ]
          in assertBool "no generated state satisfied the k=1 premise" (P.not (P.null admitted)),
       -- k = 2: jumps and the all-memory steady shape return to a running
-      -- invariant case after three core cycles; ecall/ebreak return to one of
-      -- the two halted cases.
+      -- invariant case after three core cycles; ecall/ebreak reach the halted
+      -- case.
       testProperty "k=2 inductive step on arbitrary pipeline states" $
         withMaxSuccess 20000 $
           forAllShow genArbSys2 (\_ -> "<k=2 state; see counterexample below>") $ \(label, sys, wr, wa) ->

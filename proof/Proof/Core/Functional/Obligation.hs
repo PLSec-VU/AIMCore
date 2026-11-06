@@ -78,7 +78,7 @@ baseCase wr wa pc rf mem =
 --
 -- @driver == 0@ covers two shapes: a running state whose hop retires one
 -- instruction, and a halted one. The @IsaHalted@ branch is what says the halted
--- core stands still -- the halted cases of the invariant require the
+-- core stands still -- the halted case of the invariant requires the
 -- architectural register file and memory to equal the core's, so carrying the
 -- same @isa@ across the step asserts that neither changed.
 indStep0 ::
@@ -128,7 +128,7 @@ indStep1 wr wa sys =
 --
 -- Unlike the shorter hops, this one can execute an environment instruction.
 -- The architectural state then stays at the trapping instruction while the
--- core reaches one of the two halted invariant cases.
+-- core reaches the halted case of the invariant.
 indStep2 ::
   (RegFileOps r, MemOps m) => RegIdx -> Address -> SysG r m -> Bool
 indStep2 wr wa sys =
