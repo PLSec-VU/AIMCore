@@ -421,7 +421,7 @@ compositeTrace n sys0 = go (P.concat (P.take n (simHops sys0))) simInitCachedSys
       let (sim', bus) = simStepCached sim (Just obs)
        in bus : waiting rest sim'
     waiting rest sim
-      | simCachedAnswered sim = go rest sim
+      | simCachedReady sim = go rest sim
       | otherwise =
           let (sim', bus) = simStepCached sim Nothing
            in bus : waiting rest sim'

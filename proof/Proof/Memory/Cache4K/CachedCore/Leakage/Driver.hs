@@ -36,7 +36,7 @@ simCachedDriverSpec :: Int -> SimCachedSys -> SimCachedInput -> Maybe Int
 simCachedDriverSpec fuel sim0 inp = go 0 (fst (simStepCached sim0 inp))
   where
     go n sim
-      | simCachedAnswered sim = Just n
+      | simCachedReady sim = Just n
       | n >= fuel = Nothing
       | otherwise = go (n + 1) (fst (simStepCached sim Nothing))
 
@@ -55,10 +55,10 @@ simCachedDriverSpec fuel sim0 inp = go 0 (fst (simStepCached sim0 inp))
 -- 'Proof.Memory.Cache4K.Server.Leakage.Driver.simSrvDriverSpec' steps it, and
 -- 'simCachedDriver' is its driver.
 simCachedDriverMatchesSpec :: SimCachedSys -> Obs -> Bool
-simCachedDriverMatchesSpec sim@(SimCachedSys srvSim answered) obs =
+simCachedDriverMatchesSpec sim@(SimCachedSys srvSim ready) obs =
   not premises || conclusion
   where
-    premises = answered && simSrvReady srvSim
+    premises = ready && simSrvReady srvSim
 
     conclusion =
       simCachedDriverSpec 8 sim (Just obs)

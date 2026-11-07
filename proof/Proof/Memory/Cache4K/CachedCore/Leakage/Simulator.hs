@@ -35,33 +35,30 @@ type SimCachedInput = Maybe Obs
 
 -- | The simulator's counterpart of
 -- 'Proof.Memory.Cache4K.CachedCore.Functional.Machine.CachedSysG': the cache's
--- simulator, and what the core can see of its input -- whether the cache
--- answered in the previous cycle, and so whether the core is no longer
--- waiting.
+-- simulator, and whether the simulator is ready to receive an input.
 data SimCachedSys = SimCachedSys
   { -- | The cache's simulator.
     simCachedSrv :: SimCacheSrv,
-    -- | Did the cache answer in the previous cycle?
-    simCachedAnswered :: Bool
+    -- | Is the simulator ready to receive an input?
+    simCachedReady :: Bool
   }
   deriving (Show, Eq)
 
 -- | The simulator at start: the cache's simulator at start
--- ('Proof.Memory.Cache4K.Server.Leakage.Simulator.simInitCacheSrv'), and an
--- answer in the previous cycle, as the core's input at start holds one
--- ('Core.Pipeline.initInput').
+-- ('Proof.Memory.Cache4K.Server.Leakage.Simulator.simInitCacheSrv'), ready to
+-- receive an input.
 simInitCachedSys :: SimCachedSys
 simInitCachedSys = SimCachedSys simInitCacheSrv True
 
 -- | One cycle of the core behind the cache, as
 -- 'Proof.Memory.Cache4K.CachedCore.Functional.Machine.stepCachedOut'. If the
--- cache answered in the previous cycle, the core makes the ideal observation,
--- and the cache's simulator is given it; otherwise the core waits, the bus
--- shows no request and the simulator has no input. Returns the simulator
--- afterwards and the bus's observation.
+-- simulator is ready, it takes the ideal observation, shows it on the bus and
+-- gives it to the cache's simulator; otherwise the bus shows no request and the
+-- input is ignored. It is ready again once the cache's simulator answers.
+-- Returns the simulator afterwards and the bus's observation.
 simStepCached :: SimCachedSys -> SimCachedInput -> (SimCachedSys, Obs)
-simStepCached (SimCachedSys sim answered) inp
-  | answered =
+simStepCached (SimCachedSys sim ready) inp
+  | ready =
       let obs = fromMaybe NoAccess inp
           (sim', ans) = simServe sim obs
       in (SimCachedSys sim' ans, obs)

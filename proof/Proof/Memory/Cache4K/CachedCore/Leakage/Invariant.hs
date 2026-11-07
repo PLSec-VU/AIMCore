@@ -24,8 +24,8 @@ import Proof.Memory.Cache4K.Server.Leakage.Simulator (SimCacheSrv (..))
 -- proof ('Proof.Memory.Cache4K.Server.Leakage.Invariant.srvSimInvAt'), and the
 -- simulator records that an answer has just arrived.
 cachedSimInvAt :: SetIdx -> SimCachedSys -> CachedSysG r m -> Bool
-cachedSimInvAt wsi (SimCachedSys sim answered) (CachedSys _ _ srv) =
-  srvSimInvAt wsi sim srv && answered
+cachedSimInvAt wsi (SimCachedSys sim ready) (CachedSys _ _ srv) =
+  srvSimInvAt wsi sim srv && ready
 
 -- | The invariant is functional: two simulators it relates to the same cached
 -- system agree at set @wsi@: the cache's simulators have the same tag there
@@ -44,7 +44,7 @@ cachedSimInvFunctional wsi sim1 sim2 csys =
     conclusion =
       tagRead wsi (simTagArr srvSim1) == tagRead wsi (simTagArr srvSim2)
         && simSrvState srvSim1 == simSrvState srvSim2
-        && simCachedAnswered sim1 == simCachedAnswered sim2
+        && simCachedReady sim1 == simCachedReady sim2
 
 -- | The simulator a cached system determines at the start of a hop: the
 -- cache's simulator built from its server
