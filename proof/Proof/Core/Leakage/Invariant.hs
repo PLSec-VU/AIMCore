@@ -51,7 +51,7 @@ simInv sim (Sys core _ _) =
           simStateMeAccess sim == SimLoad size (stateMeAddr core)
         Core.Instruction.SType size _ _ _ ->
           simStateMeAccess sim == SimStore size (stateMeAddr core)
-        _ -> simStateMeAccess sim == SimNoAccess
+        _ -> simStateMeAccess sim == SimNoDataAccess
 
 -- | The invariant is functional: two simulators it relates to the same system
 -- are equal. Every field of the simulator is pinned by the core: its PCs and

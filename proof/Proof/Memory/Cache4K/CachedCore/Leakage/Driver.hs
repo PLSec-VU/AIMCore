@@ -21,8 +21,8 @@ import Proof.Core.Leakage.Model (Obs (..))
 -- | The cycles the core waits after a request observed as @inp@: the cache
 -- simulator's driver
 -- ('Proof.Memory.Cache4K.Server.Leakage.Driver.simSrvDriver') on that
--- observation. Only ever run from a ready simulator, so whether the last cycle
--- brought an answer is not consulted.
+-- observation. Only ever run from a ready simulator, so whether it is ready is
+-- not consulted.
 simCachedDriver :: SimCachedSys -> SimCachedInput -> Int
 simCachedDriver (SimCachedSys sim _) inp =
   simSrvDriver sim (fromMaybe NoAccess inp)
@@ -36,12 +36,12 @@ simCachedDriverSpec :: Int -> SimCachedSys -> SimCachedInput -> Maybe Int
 simCachedDriverSpec fuel sim0 inp = go 0 (fst (simStepCached sim0 inp))
   where
     go n sim
-      | simCachedAnswered sim = Just n
+      | simCachedReady sim = Just n
       | n >= fuel = Nothing
       | otherwise = go (n + 1) (fst (simStepCached sim Nothing))
 
--- | From a ready simulator -- its last cycle brought an answer, and the cache's
--- simulator is ready
+-- | From a ready simulator -- ready to receive an input, and with the cache's
+-- simulator ready
 -- ('Proof.Memory.Cache4K.Server.Leakage.Simulator.simSrvReady') -- its driver
 -- agrees with its operational reading, for the observation of any request: a
 -- hop starts with one, never in the middle of a driver hop. Eight cycles of
@@ -49,16 +49,16 @@ simCachedDriverSpec fuel sim0 inp = go 0 (fst (simStepCached sim0 inp))
 --
 -- Follows from the cache simulator's
 -- ('Proof.Memory.Cache4K.Server.Leakage.Driver.simSrvDriverMatchesSpec'): since
--- the last cycle brought an answer, 'simStepCached' passes the input on to the
--- cache's simulator, and until it answers again passes it no input, so the
+-- the simulator is ready, 'simStepCached' passes the input on to the cache's
+-- simulator, and until it answers again passes it no input, so the
 -- cache's simulator is stepped exactly as
 -- 'Proof.Memory.Cache4K.Server.Leakage.Driver.simSrvDriverSpec' steps it, and
 -- 'simCachedDriver' is its driver.
 simCachedDriverMatchesSpec :: SimCachedSys -> Obs -> Bool
-simCachedDriverMatchesSpec sim@(SimCachedSys srvSim answered) obs =
+simCachedDriverMatchesSpec sim@(SimCachedSys srvSim ready) obs =
   not premises || conclusion
   where
-    premises = answered && simSrvReady srvSim
+    premises = ready && simSrvReady srvSim
 
     conclusion =
       simCachedDriverSpec 8 sim (Just obs)
