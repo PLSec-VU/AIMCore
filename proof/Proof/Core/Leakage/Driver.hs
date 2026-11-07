@@ -58,7 +58,7 @@ simDriver inp st
   | simStoreHazard inp st = if maybe False isMemLeak inp then 3 else 2
   | simLoadHazard inp st = 3
   | simStateDeExpInstr st = 0
-  | simStateMeAccess st == SimNoAccess = 1
+  | simStateMeAccess st == SimNoDataAccess = 1
   | not (maybe False isMemLeak inp) = 2
   | otherwise = 3
 

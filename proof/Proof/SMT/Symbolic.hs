@@ -16,7 +16,7 @@ import qualified Core.Pipeline as Core
 import Core.Instruction
 import Memory.Cache4KServer (CacheSrvState (..))
 import Proof.Core.Leakage.Model (Leak, Obs)
-import Proof.Core.Leakage.Simulator (SimControl, SimExInstrType, SimMemAccess, SimState)
+import Proof.Core.Leakage.Simulator (SimControl, SimExInstrType, SimDataAccess, SimState)
 import Proof.Memory.Cache4K.Server.Leakage.Simulator (SimCacheSrvState (..))
 import qualified SymFC.Base ()
 import qualified SymFC.BuiltIn as SymFC
@@ -57,7 +57,7 @@ instance SymFC.Symbolic Leak
 
 instance SymFC.Symbolic Obs
 
-instance SymFC.Symbolic SimMemAccess
+instance SymFC.Symbolic SimDataAccess
 
 deriving instance Generic SimCacheSrvState
 
